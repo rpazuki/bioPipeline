@@ -15,12 +15,15 @@ dependencies = [
 [project.optional-dependencies]
 api = [
     "fastapi>=0.115",
+    "pydantic-settings>=2.0",
+    "python-dotenv>=1.0",
     "uvicorn[standard]>=0.30",
 ]
 labutils = [
     "labUtils @ git+https://github.com/rpazuki/lab_utils.git#subdirectory=src",
 ]
 dev = [
+    "httpx>=0.27",
     "pytest>=8.0",
 ]
 
@@ -28,8 +31,8 @@ dev = [
 bio-pipeline = "bio_pipeline_manager.cli:main"
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["src"]
+testpaths = ["tests", "backend/tests"]
+pythonpath = ["src", "backend"]
 
 [tool.ruff]
 line-length = 100

@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
-from bio_pipeline_manager.models import JobRecord, JobSpec, JobStatus, utc_now
+from bio_pipeline_manager.models import JobRecord, JobSpec, JobStatus, as_utc, utc_now
 
 
 class JobStore:
@@ -49,6 +49,14 @@ class JobStore:
     def create_job(self, spec: JobSpec, log_path: str | Path) -> JobRecord:
         job_id = uuid.uuid4().hex
         created_at = utc_now()
+        spec = JobSpec(
+            yaml_path=spec.yaml_path,
+            pipeline_name=spec.pipeline_name,
+            output_dir=spec.output_dir,
+            input_sources=spec.input_sources,
+            backend=spec.backend,
+            scheduled_at=as_utc(spec.scheduled_at),
+        )
         record = JobRecord(
             id=job_id,
             spec=spec,
@@ -79,6 +87,17 @@ class JobStore:
                 ),
             )
         return record
+
+    def cancel_job(self, job_id: str, *, reason: str = "Cancelled by user") -> JobRecord:
+        job = self.get_job(job_id)
+        if job.status not in {JobStatus.QUEUED, JobStatus.RUNNING}:
+            raise ValueError(f"Cannot cancel job in status '{job.status}'")
+        return self.update_status(
+            job_id,
+            JobStatus.CANCELLED,
+            finished_at=utc_now(),
+            error=reason,
+        )
 
     def get_job(self, job_id: str) -> JobRecord:
         with self.connect() as conn:
@@ -170,4 +189,3 @@ def _parse_dt(value: str | None) -> datetime | None:
     if value is None:
         return None
     return datetime.fromisoformat(value)
-

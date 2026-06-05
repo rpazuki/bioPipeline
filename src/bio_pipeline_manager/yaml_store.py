@@ -5,6 +5,8 @@ from typing import Any
 
 import yaml
 
+from bio_pipeline_manager.yaml_validation import ValidationReport, validate_labutils_yaml
+
 
 class YamlStore:
     """Filesystem-backed storage for labUtils pipeline YAML files."""
@@ -33,6 +35,9 @@ class YamlStore:
         data = self.parse(self.load(name))
         return [next(iter(item.keys())) for item in data["pipelines"]]
 
+    def validate(self, name: str, *, validate_imports: bool = False) -> ValidationReport:
+        return validate_labutils_yaml(self.load(name), validate_imports=validate_imports)
+
     def resolve_name(self, name: str) -> Path:
         candidate = Path(name)
         if candidate.suffix not in {".yaml", ".yml"}:
@@ -47,24 +52,13 @@ class YamlStore:
 
     @staticmethod
     def parse(content: str) -> dict[str, Any]:
+        report = validate_labutils_yaml(content)
+        errors = [issue for issue in report.issues if issue.level == "error"]
+        if errors:
+            raise ValueError(errors[0].message)
         data = yaml.safe_load(content)
-        if not isinstance(data, dict):
-            raise ValueError("YAML content must be a mapping")
-        pipelines = data.get("pipelines")
-        if not isinstance(pipelines, list) or not pipelines:
-            raise ValueError("YAML must contain a non-empty 'pipelines' list")
-        for item in pipelines:
-            if not isinstance(item, dict) or len(item) != 1:
-                raise ValueError("Each pipeline entry must be a one-item mapping")
-            pipeline_config = next(iter(item.values()))
-            if not isinstance(pipeline_config, dict):
-                raise ValueError("Pipeline config must be a mapping")
-            for section in ("Inputs", "Processes", "Outputs"):
-                if section not in pipeline_config:
-                    raise ValueError(f"Pipeline config must contain '{section}'")
         return data
 
     @classmethod
     def validate_content(cls, content: str) -> None:
         cls.parse(content)
-

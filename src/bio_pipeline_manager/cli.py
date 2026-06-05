@@ -5,8 +5,9 @@ from datetime import datetime
 from pathlib import Path
 
 from bio_pipeline_manager.job_queue import JobQueue
-from bio_pipeline_manager.models import JobSpec
+from bio_pipeline_manager.models import JobSpec, as_utc
 from bio_pipeline_manager.storage import JobStore
+from bio_pipeline_manager.templates import get_template, list_templates
 from bio_pipeline_manager.yaml_store import YamlStore
 
 
@@ -29,6 +30,15 @@ def main(argv: list[str] | None = None) -> int:
     yaml_sub.add_parser("list")
     yaml_show = yaml_sub.add_parser("show")
     yaml_show.add_argument("name")
+    yaml_validate = yaml_sub.add_parser("validate")
+    yaml_validate.add_argument("name")
+    yaml_validate.add_argument("--imports", action="store_true", help="Validate package imports and methods")
+
+    template_parser = subparsers.add_parser("template")
+    template_sub = template_parser.add_subparsers(dest="template_command", required=True)
+    template_sub.add_parser("list")
+    template_show = template_sub.add_parser("show")
+    template_show.add_argument("name")
 
     submit = subparsers.add_parser("submit")
     submit.add_argument("yaml_name")
@@ -42,6 +52,8 @@ def main(argv: list[str] | None = None) -> int:
     run_due.add_argument("--parallel", type=int, default=1)
 
     subparsers.add_parser("jobs")
+    cancel = subparsers.add_parser("cancel")
+    cancel.add_argument("job_id")
 
     args = parser.parse_args(argv)
     home = args.home
@@ -67,10 +79,27 @@ def main(argv: list[str] | None = None) -> int:
         if args.yaml_command == "show":
             print(yaml_store.load(args.name))
             return 0
+        if args.yaml_command == "validate":
+            report = yaml_store.validate(args.name, validate_imports=args.imports)
+            print("valid" if report.is_valid else "invalid")
+            for issue in report.issues:
+                location = "/".join(part for part in [issue.pipeline, issue.section, issue.item] if part)
+                suffix = f" [{location}]" if location else ""
+                print(f"{issue.level}: {issue.message}{suffix}")
+            return 0
+
+    if args.command == "template":
+        if args.template_command == "list":
+            for template in list_templates():
+                print(f"{template.name}\t{template.description}")
+            return 0
+        if args.template_command == "show":
+            print(get_template(args.name).content)
+            return 0
 
     if args.command == "submit":
         input_sources = _parse_inputs(args.input)
-        scheduled_at = datetime.fromisoformat(args.scheduled_at) if args.scheduled_at else None
+        scheduled_at = as_utc(datetime.fromisoformat(args.scheduled_at)) if args.scheduled_at else None
         spec = JobSpec(
             yaml_path=yaml_store.resolve_name(args.yaml_name),
             pipeline_name=args.pipeline_name,
@@ -94,6 +123,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{job.id} {job.status} {job.spec.pipeline_name} {job.log_path}")
         return 0
 
+    if args.command == "cancel":
+        job = store.cancel_job(args.job_id)
+        print(f"{job.id} {job.status}")
+        return 0
+
     raise AssertionError(f"Unhandled command: {args.command}")
 
 
@@ -109,4 +143,3 @@ def _parse_inputs(values: list[str]) -> dict[str, str]:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

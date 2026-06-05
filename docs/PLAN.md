@@ -12,7 +12,7 @@ inspect, and debug pipeline jobs without changing the `labUtils` engine.
 Notebook / Browser / CLI
         |
         v
-Manager API and CLI
+FastAPI Backend / CLI / Notebook Client
         |
         +-- YAML store
         +-- SQLite job store
@@ -69,6 +69,8 @@ This keeps production reproducible while preserving editable local development.
 - Add FastAPI app factory with basic endpoints.
 - Add unit and e2e tests.
 
+Status: implemented.
+
 ## Phase 2: YAML Authoring
 
 - Add schema-aware YAML editing helpers.
@@ -81,10 +83,14 @@ This keeps production reproducible while preserving editable local development.
   - callable methods
   - parameter references to previous payload names
 
+Status: first implementation complete. Current validation is intentionally
+lightweight and focused on the existing `labUtils` YAML shape. Import and method
+checks are optional.
+
 ## Phase 3: UI
 
-- Start with FastAPI plus a simple browser UI.
-- Use CodeMirror or Monaco for YAML editing.
+- Use a separate Next.js + TypeScript frontend.
+- Use Tailwind, React Query-ready structure, and typed API functions.
 - Show:
   - YAML files
   - pipeline names
@@ -92,6 +98,9 @@ This keeps production reproducible while preserving editable local development.
   - queue table
   - job status
   - live logs
+
+Status: first separate frontend implemented in `frontend/`. The UI explicitly
+separates YAML storage, YAML validation, and job execution/log inspection.
 
 ## Phase 4: Jupyter Client
 
@@ -104,12 +113,18 @@ This keeps production reproducible while preserving editable local development.
 
 Jupyter should remain a client, not the queue engine.
 
+Status: dependency-free `PipelineClient` implemented. Widgets are still pending.
+
 ## Phase 5: Backends
 
 - Keep local subprocess as the default backend.
 - Add Docker backend with mounted YAML, input, output, and log directories.
 - Add cancellation support.
 - Add resource limits where possible.
+
+Status: local subprocess backend implemented. Queued/running cancellation is
+available at the store/API/CLI level, but active subprocess termination still needs
+a process supervisor. Docker is pending.
 
 ## Current Assumptions
 

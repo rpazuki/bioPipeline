@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  background: #f7f8fa;
+  color: #17202a;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+
+textarea,
+pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+

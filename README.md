@@ -10,15 +10,16 @@ as an external library and runs pipelines through:
 python -m labUtils.scripts.run_a_pipeline PIPELINE.yaml PIPELINE_NAME -o OUTPUT_DIR
 ```
 
-## What Exists In This Skeleton
+## Project Shape
 
-- YAML storage and validation for `labUtils` pipeline YAML files.
-- SQLite-backed job state.
-- Local subprocess execution backend.
-- Basic due-job queue runner with configurable parallelism.
-- A small CLI.
-- A FastAPI app skeleton.
-- Unit and e2e tests that do not require the real `labUtils` repo.
+The project is split into:
+
+- `backend/` — FastAPI app following the `RLALab-AI-Assistant` route/schema/settings pattern.
+- `frontend/` — Next.js + TypeScript frontend following the same library choices.
+- `src/bio_pipeline_manager/` — shared lightweight service/domain code used by the backend and notebook client.
+- `tests/` and `backend/tests/` — unit and e2e coverage.
+
+The frontend treats YAML storage, YAML validation, and job execution as separate flows.
 
 ## Development Setup
 
@@ -94,10 +95,43 @@ List jobs:
 bio-pipeline jobs
 ```
 
-Serve the API:
+Serve the backend API:
 
 ```bash
-uvicorn bio_pipeline_manager.api.app:create_app --factory --reload
+uvicorn app.main:app --app-dir backend --reload
+```
+
+Run the frontend:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Validate a stored YAML:
+
+```bash
+bio-pipeline yaml validate growth.yaml
+```
+
+List templates:
+
+```bash
+bio-pipeline template list
+```
+
+Use the notebook/client API:
+
+```python
+from bio_pipeline_manager import PipelineClient
+
+client = PipelineClient("http://127.0.0.1:8000")
+client.save_yaml("growth.yaml", yaml_text)
+report = client.validate_yaml(yaml_text)
+job = client.submit("growth.yaml", "growth_rate_fit_pipeline", "./outputs/run-001")
+client.run_due()
+client.logs(job["id"])
 ```
 
 ## Project Layout
@@ -105,14 +139,28 @@ uvicorn bio_pipeline_manager.api.app:create_app --factory --reload
 ```text
 docs/
   PLAN.md
+backend/
+  app/
+    api/routes/
+    core/
+    schemas/
+    services/
+frontend/
+  src/
+    app/
+    components/pipelines/
+    lib/
+    types/
 src/bio_pipeline_manager/
-  api/
   cli.py
+  client.py
   job_queue.py
   models.py
   runner.py
   storage.py
+  templates.py
   yaml_store.py
+  yaml_validation.py
 tests/
   unit/
   e2e/

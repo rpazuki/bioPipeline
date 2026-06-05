@@ -39,6 +39,8 @@ class LocalSubprocessRunner:
 
     def run(self, job_id: str) -> JobRecord:
         job = self.store.get_job(job_id)
+        if job.status != JobStatus.QUEUED:
+            return job
         if job.spec.backend != "local":
             raise NotImplementedError(f"Unsupported backend: {job.spec.backend}")
 
@@ -71,4 +73,3 @@ class LocalSubprocessRunner:
             exit_code=completed.returncode,
             error=error,
         )
-
