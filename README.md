@@ -98,7 +98,7 @@ bio-pipeline jobs
 Serve the backend API:
 
 ```bash
-uvicorn app.main:app --app-dir backend --reload
+uvicorn app.main:app --app-dir backend --reload --port 8005
 ```
 
 Run the frontend:
@@ -126,7 +126,7 @@ Use the notebook/client API:
 ```python
 from bio_pipeline_manager import PipelineClient
 
-client = PipelineClient("http://127.0.0.1:8000")
+client = PipelineClient("http://127.0.0.1:8005")
 client.save_yaml("growth.yaml", yaml_text)
 report = client.validate_yaml(yaml_text)
 job = client.submit("growth.yaml", "growth_rate_fit_pipeline", "./outputs/run-001")

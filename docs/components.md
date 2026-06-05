@@ -134,7 +134,7 @@ Backend:
 
 ```bash
 source .venv/bin/activate
-uvicorn app.main:app --app-dir backend --reload
+uvicorn app.main:app --app-dir backend --reload --port 8005
 ```
 
 Frontend:
@@ -155,4 +155,3 @@ cd frontend
 npm run type-check
 npm test
 ```
-

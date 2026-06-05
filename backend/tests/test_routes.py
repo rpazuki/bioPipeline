@@ -24,6 +24,11 @@ def test_split_routes_storage_validation_templates_and_jobs(tmp_path: Path):
 
     assert client.get("/health").json()["status"] == "ok"
 
+    runtime_response = client.get("/api/v1/runtime")
+    assert runtime_response.status_code == 200
+    assert runtime_response.json()["yaml_root"] == str(tmp_path / "yamls")
+    assert runtime_response.json()["yaml_files"] == []
+
     template_response = client.get("/api/v1/templates/empty")
     assert template_response.status_code == 200
     assert "new_pipeline" in template_response.json()["content"]
@@ -49,3 +54,37 @@ def test_split_routes_storage_validation_templates_and_jobs(tmp_path: Path):
     app.dependency_overrides.clear()
     get_runtime.cache_clear()
 
+
+def test_yaml_list_includes_invalid_yaml_files(tmp_path: Path):
+    app.dependency_overrides.clear()
+    get_runtime.cache_clear()
+    runtime = create_runtime(tmp_path)
+    app.dependency_overrides[get_runtime] = lambda: runtime
+    client = TestClient(app)
+
+    (tmp_path / "yamls" / "not_pipeline.yaml").write_text("custom_mapping: {}\n", encoding="utf-8")
+
+    response = client.get("/api/v1/pipeline-yamls")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "name": "not_pipeline.yaml",
+            "pipelines": [],
+            "is_valid": False,
+            "error": "YAML must contain a non-empty 'pipelines' list",
+        }
+    ]
+
+    detail_response = client.get("/api/v1/pipeline-yamls/not_pipeline.yaml")
+    assert detail_response.status_code == 200
+    assert detail_response.json()["content"] == "custom_mapping: {}\n"
+    assert detail_response.json()["is_valid"] is False
+
+    runtime_response = client.get("/api/v1/runtime")
+    assert runtime_response.status_code == 200
+    assert runtime_response.json()["yaml_root"] == str(tmp_path / "yamls")
+    assert runtime_response.json()["yaml_files"] == ["not_pipeline.yaml"]
+
+    app.dependency_overrides.clear()
+    get_runtime.cache_clear()

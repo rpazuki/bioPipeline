@@ -1,6 +1,8 @@
 export interface YamlSummary {
   name: string;
   pipelines: string[];
+  is_valid: boolean;
+  error?: string | null;
 }
 
 export interface YamlDocument extends YamlSummary {
@@ -70,3 +72,11 @@ export interface JobSubmit {
   scheduled_at?: string | null;
 }
 
+export interface RuntimeInfo {
+  pipeline_home: string;
+  yaml_root: string;
+  yaml_count: number;
+  yaml_files: string[];
+  cwd: string;
+  env_pipeline_home?: string | null;
+}

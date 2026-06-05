@@ -3,6 +3,7 @@ import type {
   JobSubmit,
   PipelineTemplate,
   PipelineTemplateSummary,
+  RuntimeInfo,
   ValidationReport,
   YamlDocument,
   YamlSummary,
@@ -27,6 +28,10 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
 }
 
 // Storage
+export async function getRuntimeInfo() {
+  return apiFetch<RuntimeInfo>("/runtime");
+}
+
 export async function listPipelineYamls() {
   return apiFetch<YamlSummary[]>("/pipeline-yamls");
 }
@@ -92,4 +97,3 @@ export async function cancelJob(jobId: string) {
 export async function getJobLogs(jobId: string) {
   return apiFetch<{ id: string; log: string }>(`/jobs/${jobId}/logs`);
 }
-

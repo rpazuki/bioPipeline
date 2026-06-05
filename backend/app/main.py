@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import jobs, storage, templates, validation
+from app.api.routes import jobs, runtime, storage, templates, validation
 from app.core.config import settings
 
 
@@ -37,9 +37,9 @@ app.include_router(storage.router, prefix=PREFIX)
 app.include_router(validation.router, prefix=PREFIX)
 app.include_router(templates.router, prefix=PREFIX)
 app.include_router(jobs.router, prefix=PREFIX)
+app.include_router(runtime.router, prefix=PREFIX)
 
 
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "app": settings.app_name}
-

@@ -8,12 +8,16 @@ from pydantic import BaseModel, Field
 class YamlSummary(BaseModel):
     name: str
     pipelines: list[str]
+    is_valid: bool = True
+    error: str | None = None
 
 
 class YamlDocument(BaseModel):
     name: str
     content: str
     pipelines: list[str]
+    is_valid: bool = True
+    error: str | None = None
 
 
 class YamlSaveRequest(BaseModel):
@@ -64,6 +68,15 @@ class TemplateDocument(TemplateSummary):
     content: str
 
 
+class RuntimeInfo(BaseModel):
+    pipeline_home: str
+    yaml_root: str
+    yaml_count: int
+    yaml_files: list[str]
+    cwd: str
+    env_pipeline_home: str | None = None
+
+
 class JobSubmitRequest(BaseModel):
     yaml_name: str
     pipeline_name: str
@@ -93,4 +106,3 @@ class JobResponse(BaseModel):
 class JobLogResponse(BaseModel):
     id: str
     log: str
-
