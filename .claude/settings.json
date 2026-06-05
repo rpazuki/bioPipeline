@@ -3,7 +3,9 @@
     "allow": [
       "Bash(rm -f package-lock.json)",
       "Bash(npm install *)",
-      "Bash(npm audit *)"
+      "Bash(npm audit *)",
+      "Bash(rm src/components/pipelines/PipelineManagerClient.tsx)",
+      "Bash(grep -rn \"PipelineManagerClient\" src)"
     ]
   }
 }
