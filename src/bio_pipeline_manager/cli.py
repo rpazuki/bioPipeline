@@ -124,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "cancel":
-        job = store.cancel_job(args.job_id)
+        job = queue.cancel(args.job_id)
         print(f"{job.id} {job.status}")
         return 0
 

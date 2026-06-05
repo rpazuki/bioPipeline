@@ -36,14 +36,23 @@ class JobStore:
                     started_at TEXT,
                     finished_at TEXT,
                     exit_code INTEGER,
-                    error TEXT
+                    error TEXT,
+                    pid INTEGER
                 )
                 """
             )
+            # Migrate pre-existing databases that lack the pid column.
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}
+            if "pid" not in columns:
+                conn.execute("ALTER TABLE jobs ADD COLUMN pid INTEGER")
 
     def connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
+        # WAL lets the worker write while readers (the API) keep reading;
+        # busy_timeout retries instead of raising "database is locked".
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=30000")
         return conn
 
     def create_job(self, spec: JobSpec, log_path: str | Path) -> JobRecord:
@@ -87,6 +96,27 @@ class JobStore:
                 ),
             )
         return record
+
+    def claim_job(self, job_id: str) -> bool:
+        """Atomically move a job from QUEUED to RUNNING.
+
+        Returns True only for the caller that won the claim, so a worker
+        thread and a manual run-due call can never run the same job twice.
+        """
+        with self.connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE jobs
+                SET status = ?, started_at = COALESCE(started_at, ?)
+                WHERE id = ? AND status = ?
+                """,
+                (JobStatus.RUNNING.value, utc_now().isoformat(), job_id, JobStatus.QUEUED.value),
+            )
+            return cursor.rowcount == 1
+
+    def set_pid(self, job_id: str, pid: int | None) -> None:
+        with self.connect() as conn:
+            conn.execute("UPDATE jobs SET pid = ? WHERE id = ?", (pid, job_id))
 
     def cancel_job(self, job_id: str, *, reason: str = "Cancelled by user") -> JobRecord:
         job = self.get_job(job_id)
@@ -182,6 +212,7 @@ class JobStore:
             finished_at=_parse_dt(row["finished_at"]),
             exit_code=row["exit_code"],
             error=row["error"],
+            pid=row["pid"],
         )
 
 

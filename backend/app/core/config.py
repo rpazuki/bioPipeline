@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     ]
     pipeline_home: Path = _REPO_ROOT / ".bio_pipeline"
 
+    # Background job worker
+    worker_enabled: bool = True
+    worker_interval: float = 2.0
+    worker_parallel: int = 1
+
 
 @lru_cache
 def get_settings() -> Settings:

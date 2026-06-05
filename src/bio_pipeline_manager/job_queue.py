@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import os
+import signal
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from bio_pipeline_manager.models import JobRecord, JobSpec
+from bio_pipeline_manager.models import JobRecord, JobSpec, JobStatus
 from bio_pipeline_manager.runner import LocalSubprocessRunner
 from bio_pipeline_manager.storage import JobStore
 
@@ -11,10 +13,17 @@ from bio_pipeline_manager.storage import JobStore
 class JobQueue:
     """Small queue facade around the SQLite store and local runner."""
 
-    def __init__(self, store: JobStore, logs_dir: str | Path):
+    def __init__(
+        self,
+        store: JobStore,
+        logs_dir: str | Path,
+        *,
+        runner: LocalSubprocessRunner | None = None,
+    ):
         self.store = store
         self.logs_dir = Path(logs_dir)
         self.logs_dir.mkdir(parents=True, exist_ok=True)
+        self.runner = runner or LocalSubprocessRunner(store)
 
     def submit(self, spec: JobSpec) -> JobRecord:
         provisional_log_path = self.logs_dir / "pending.log"
@@ -24,12 +33,22 @@ class JobQueue:
             conn.execute("UPDATE jobs SET log_path = ? WHERE id = ?", (str(final_log_path), record.id))
         return self.store.get_job(record.id)
 
+    def cancel(self, job_id: str) -> JobRecord:
+        """Cancel a job, killing its subprocess if it is already running."""
+        job = self.store.get_job(job_id)
+        if job.status == JobStatus.RUNNING and job.pid:
+            try:
+                os.kill(job.pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError):
+                pass
+        return self.store.cancel_job(job_id)
+
     def run_due(self, *, parallel: int = 1) -> list[JobRecord]:
         due = self.store.list_due_jobs(limit=parallel)
         if not due:
             return []
 
-        runner = LocalSubprocessRunner(self.store)
+        runner = self.runner
         if parallel <= 1:
             return [runner.run(job.id) for job in due]
 

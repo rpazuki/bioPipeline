@@ -67,15 +67,17 @@ async def cancel_job(
     runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
 ) -> JobResponse:
     try:
-        return _job_response(runtime.job_store.cancel_job(job_id))
+        return _job_response(runtime.queue.cancel(job_id))
     except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
+# Sync handler: FastAPI runs it in a threadpool, so the blocking job
+# execution never stalls the async event loop.
 @router.post("/run-due", response_model=list[JobResponse])
-async def run_due_jobs(
+def run_due_jobs(
     runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
     parallel: int = 1,
 ) -> list[JobResponse]:
@@ -98,4 +100,5 @@ def _job_response(job: JobRecord) -> JobResponse:
         finished_at=job.finished_at,
         exit_code=job.exit_code,
         error=job.error,
+        pid=job.pid,
     )

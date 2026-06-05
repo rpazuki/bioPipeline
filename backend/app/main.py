@@ -5,13 +5,27 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.deps import get_runtime
 from app.api.routes import jobs, runtime, storage, templates, validation
 from app.core.config import settings
+from bio_pipeline_manager.worker import JobWorker
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    yield
+    worker: JobWorker | None = None
+    if settings.worker_enabled:
+        worker = JobWorker(
+            get_runtime().queue,
+            interval=settings.worker_interval,
+            parallel=settings.worker_parallel,
+        )
+        worker.start()
+    try:
+        yield
+    finally:
+        if worker:
+            worker.stop()
 
 
 app = FastAPI(

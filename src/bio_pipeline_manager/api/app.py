@@ -151,7 +151,7 @@ def create_app(home: str | Path = ".bio_pipeline"):
 
     @app.post("/jobs/{job_id}/cancel")
     def cancel_job(job_id: str):
-        job = job_store.cancel_job(job_id)
+        job = queue.cancel(job_id)
         return {"id": job.id, "status": job.status, "error": job.error}
 
     return app

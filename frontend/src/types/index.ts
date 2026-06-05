@@ -61,6 +61,7 @@ export interface Job {
   finished_at?: string | null;
   exit_code?: number | null;
   error?: string | null;
+  pid?: number | null;
 }
 
 export interface JobSubmit {

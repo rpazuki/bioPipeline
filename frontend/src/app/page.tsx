@@ -9,14 +9,24 @@ import { getPipelineYaml, listPipelineYamls } from "@/lib/api";
 import type { YamlSummary } from "@/types";
 
 export default function HomePage() {
-  const { yamlName, pipelineNames, setYamlName, setYamlContent, setPipelineNames, setStatus } = usePipeline();
+  const { yamlName, yamlContent, pipelineNames, setYamlName, setYamlContent, setPipelineNames, setStatus } =
+    usePipeline();
   const [yamls, setYamls] = useState<YamlSummary[]>([]);
 
   useEffect(() => {
     listPipelineYamls()
-      .then(setYamls)
+      .then((list) => {
+        setYamls(list);
+        // First load: nothing parsed yet, so auto-select a YAML and load its
+        // content into shared state — otherwise Validation/Job pages open empty.
+        if (!yamlContent && list.length) {
+          const initial = list.find((document) => document.name === yamlName) ?? list[0];
+          void selectYaml(initial.name);
+        }
+      })
       .catch((error: Error) => setStatus(error.message));
-  }, [setStatus]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function selectYaml(name: string) {
     if (!name) return;

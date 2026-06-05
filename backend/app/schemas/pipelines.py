@@ -101,6 +101,7 @@ class JobResponse(BaseModel):
     finished_at: datetime | None = None
     exit_code: int | None = None
     error: str | None = None
+    pid: int | None = None
 
 
 class JobLogResponse(BaseModel):

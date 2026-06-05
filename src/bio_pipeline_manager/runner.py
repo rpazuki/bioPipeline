@@ -39,14 +39,16 @@ class LocalSubprocessRunner:
 
     def run(self, job_id: str) -> JobRecord:
         job = self.store.get_job(job_id)
-        if job.status != JobStatus.QUEUED:
-            return job
         if job.spec.backend != "local":
             raise NotImplementedError(f"Unsupported backend: {job.spec.backend}")
 
+        # Atomic claim: only the caller that flips QUEUED -> RUNNING runs it.
+        if not self.store.claim_job(job_id):
+            return self.store.get_job(job_id)
+        job = self.store.get_job(job_id)
+
         job.log_path.parent.mkdir(parents=True, exist_ok=True)
         job.spec.output_dir.mkdir(parents=True, exist_ok=True)
-        self.store.update_status(job.id, JobStatus.RUNNING, started_at=utc_now())
 
         command = self.build_command(job)
         env = os.environ.copy()
@@ -55,21 +57,31 @@ class LocalSubprocessRunner:
         with job.log_path.open("w", encoding="utf-8") as log_file:
             log_file.write("$ " + " ".join(command) + "\n\n")
             log_file.flush()
-            completed = subprocess.run(
+            process = subprocess.Popen(
                 command,
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
                 text=True,
                 env=env,
-                check=False,
             )
+            self.store.set_pid(job.id, process.pid)
+            try:
+                returncode = process.wait()
+            finally:
+                self.store.set_pid(job.id, None)
 
-        status = JobStatus.SUCCEEDED if completed.returncode == 0 else JobStatus.FAILED
-        error = None if completed.returncode == 0 else f"Process exited with {completed.returncode}"
+        # A concurrent cancel may have killed the process and already set the
+        # final status; do not clobber it with FAILED.
+        current = self.store.get_job(job.id)
+        if current.status == JobStatus.CANCELLED:
+            return current
+
+        status = JobStatus.SUCCEEDED if returncode == 0 else JobStatus.FAILED
+        error = None if returncode == 0 else f"Process exited with {returncode}"
         return self.store.update_status(
             job.id,
             status,
             finished_at=utc_now(),
-            exit_code=completed.returncode,
+            exit_code=returncode,
             error=error,
         )
