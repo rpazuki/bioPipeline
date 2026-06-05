@@ -17,6 +17,9 @@ api = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
 ]
+labutils = [
+    "labUtils @ git+https://github.com/rpazuki/lab_utils.git#subdirectory=src",
+]
 dev = [
     "pytest>=8.0",
 ]
@@ -30,4 +33,3 @@ pythonpath = ["src"]
 
 [tool.ruff]
 line-length = 100
-

@@ -29,6 +29,35 @@ Execution backend
 External labUtils package
 ```
 
+## labUtils Dependency Strategy
+
+`labUtils` is intentionally external to this project.
+
+For local development, use an editable install from the neighboring source tree:
+
+```bash
+python -m pip install -e "/Users/roozbeh/Research/Geoff Lab/projects/lab_utils/src"
+```
+
+This lets the manager and `labUtils` evolve together. The manager subprocesses use
+the active virtual environment, so any local `labUtils` edits are picked up during
+job execution.
+
+For deployment, install `labUtils` from GitHub through the optional `labutils`
+extra:
+
+```bash
+python -m pip install ".[api,labutils]"
+```
+
+The dependency is declared as:
+
+```text
+labUtils @ git+https://github.com/rpazuki/lab_utils.git#subdirectory=src
+```
+
+This keeps production reproducible while preserving editable local development.
+
 ## Phase 1: Skeleton
 
 - Create Python package structure.
@@ -88,4 +117,3 @@ Jupyter should remain a client, not the queue engine.
 - Pipeline execution is best isolated in a subprocess.
 - SQLite is sufficient for initial state.
 - Filesystem storage is sufficient for YAML files, logs, and output artifacts.
-

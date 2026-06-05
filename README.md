@@ -31,11 +31,30 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[dev,api]"
 ```
 
-Install `labUtils` into the same environment as an external editable package:
+For local co-development, install `labUtils` into the same environment as an
+external editable package:
 
 ```bash
 python -m pip install -e "/Users/roozbeh/Research/Geoff Lab/projects/lab_utils/src"
 ```
+
+This is the preferred development setup here because changes in `lab_utils` are
+immediately visible to the manager subprocess runner.
+
+For deployed environments, install `labUtils` from GitHub instead:
+
+```bash
+python -m pip install -e ".[api,labutils]"
+```
+
+or install `labUtils` directly:
+
+```bash
+python -m pip install "labUtils @ git+https://github.com/rpazuki/lab_utils.git#subdirectory=src"
+```
+
+The `#subdirectory=src` part matters because the `labUtils` package metadata lives
+inside the repository's `src/` directory.
 
 Run tests:
 
@@ -104,4 +123,3 @@ tests/
 `labUtils` remains the source of truth for pipeline semantics. This manager owns only
 the surrounding operational concerns: YAML files, queue state, scheduling, logs, and
 external execution backends.
-
