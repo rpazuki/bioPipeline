@@ -1,9 +1,16 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 
 import { validateYamlContent } from "@/lib/api";
 import type { ValidationReport } from "@/types";
+
+// React Flow measures the DOM, so it must only render on the client.
+const PipelineSchematic = dynamic(() => import("./PipelineSchematic"), {
+  ssr: false,
+  loading: () => <p className="text-xs text-slate-500">Loading diagram…</p>,
+});
 
 interface Props {
   yamlContent: string;
@@ -14,13 +21,19 @@ interface Props {
 export default function ValidationPanel({ yamlContent, onPipelinesChange, onStatus }: Props) {
   const [report, setReport] = useState<ValidationReport | null>(null);
   const [validateImports, setValidateImports] = useState(false);
+  const [selectedPipeline, setSelectedPipeline] = useState<string>("");
 
   async function validate() {
     const nextReport = await validateYamlContent(yamlContent, validateImports);
     setReport(nextReport);
     onPipelinesChange(nextReport.pipelines.map((pipeline) => pipeline.name));
     onStatus(nextReport.is_valid ? "YAML is valid" : "YAML has validation errors");
+    setSelectedPipeline(nextReport.pipelines[0]?.name ?? "");
   }
+
+  const pipelines = report?.pipelines ?? [];
+  const activePipeline =
+    pipelines.find((pipeline) => pipeline.name === selectedPipeline) ?? pipelines[0] ?? null;
 
   return (
     <section className="border-b border-slate-200 bg-white p-4">
@@ -67,6 +80,27 @@ export default function ValidationPanel({ yamlContent, onPipelinesChange, onStat
                 </div>
               ))
             )}
+            {activePipeline ? (
+              <div className="grid gap-2 border-t border-slate-200 pt-3">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold text-slate-950">Schematic</h3>
+                  {pipelines.length > 1 ? (
+                    <select
+                      className="h-9 rounded-md border border-slate-300 px-3 text-sm text-slate-950"
+                      value={activePipeline.name}
+                      onChange={(event) => setSelectedPipeline(event.target.value)}
+                    >
+                      {pipelines.map((pipeline) => (
+                        <option key={pipeline.name} value={pipeline.name}>
+                          {pipeline.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                </div>
+                <PipelineSchematic pipeline={activePipeline} />
+              </div>
+            ) : null}
           </div>
         ) : (
           <p className="text-xs text-slate-500">No validation run yet.</p>
