@@ -3,6 +3,7 @@ import type { Edge, Node } from "@xyflow/react";
 import { Position } from "@xyflow/react";
 
 import type { PipelineSummary, ProcessSummary } from "@/types";
+import type { PipelineDraft } from "./pipelineDraft";
 
 /**
  * Parameter keys that signal a reference to a prior payload (an input or an
@@ -40,6 +41,21 @@ const NODE_HEIGHT = 52;
 
 function keySuggestsPayload(key: string): boolean {
   return REFERENCE_PARAMETER_NAMES.has(key) || key.endsWith("_df");
+}
+
+/** Project the richer editable draft down to the summary the graph builder consumes. */
+export function draftToSummary(draft: PipelineDraft): PipelineSummary {
+  return {
+    name: draft.name,
+    inputs: draft.inputs.map((input) => input.name),
+    processes: draft.processes.map((process) => ({
+      name: process.name,
+      package: process.package,
+      method: process.method,
+      parameters: process.parameters,
+    })),
+    outputs: draft.outputs.map((output) => output.name),
+  };
 }
 
 /**

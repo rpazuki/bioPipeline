@@ -10,6 +10,7 @@ export default function ValidationPage() {
     <div className="grid min-h-[620px] grid-rows-[auto_1fr] p-5">
       <ValidationPanel
         yamlContent={yamlContent}
+        onYamlContentChange={setYamlContent}
         onPipelinesChange={setPipelineNames}
         onStatus={setStatus}
       />

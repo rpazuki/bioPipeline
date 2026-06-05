@@ -57,7 +57,7 @@ function OutputNode({ data }: NodeProps) {
   );
 }
 
-const nodeTypes: NodeTypes = {
+export const nodeTypes: NodeTypes = {
   input: InputNode,
   process: ProcessNode,
   output: OutputNode,
