@@ -1,0 +1,11 @@
+.venv/
+.bio_pipeline/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+*.sqlite
+*.log
+*.egg-info/
+dist/
+build/
+
