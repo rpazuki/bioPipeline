@@ -33,8 +33,8 @@ app = FastAPI(
     description="YAML authoring, validation, queueing, and execution backend for labUtils pipelines.",
     version="0.1.0",
     lifespan=lifespan,
-    docs_url="/api/docs" if settings.app_env == "development" else None,
-    redoc_url="/api/redoc" if settings.app_env == "development" else None,
+    docs_url=settings.docs_url,
+    redoc_url=settings.redoc_url,
 )
 
 app.add_middleware(
@@ -45,7 +45,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-PREFIX = "/api/v1"
+PREFIX = settings.api_prefix
 
 app.include_router(storage.router, prefix=PREFIX)
 app.include_router(validation.router, prefix=PREFIX)

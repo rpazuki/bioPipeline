@@ -1,12 +1,20 @@
 import type { NextConfig } from "next";
 
+import { loadFrontendConfig } from "./src/lib/projectConfig";
+
+const frontendConfig = loadFrontendConfig();
+
 const nextConfig: NextConfig = {
   output: "standalone",
+  env: {
+    NEXT_PUBLIC_API_PREFIX: frontendConfig.api_prefix,
+    NEXT_PUBLIC_API_URL: frontendConfig.api_url,
+  },
   async rewrites() {
     return [
       {
-        source: "/api/v1/:path*",
-        destination: `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8005"}/api/v1/:path*`,
+        source: `${frontendConfig.api_prefix}/:path*`,
+        destination: `${frontendConfig.api_url}${frontendConfig.api_prefix}/:path*`,
       },
     ];
   },

@@ -1,0 +1,33 @@
+defaults:
+  environment: development
+
+frontend:
+  shared:
+    api_prefix: /api/v1
+  development:
+    api_url: http://localhost:8005
+  production:
+    api_url: https://api.example.com
+
+backend:
+  shared:
+    app_name: Bio Pipeline Manager
+    log_level: INFO
+    cors_origins:
+      - http://localhost:3005
+      - http://127.0.0.1:3005
+      - http://localhost:3005
+      - http://127.0.0.1:3005
+    pipeline_home: .bio_pipeline
+    worker_enabled: true
+    worker_interval: 2.0
+    worker_parallel: 1
+    api_prefix: /api/v1
+    docs_url: /api/docs
+    redoc_url: /api/redoc
+  development:
+    app_env: development
+  production:
+    app_env: production
+    docs_url: null
+    redoc_url: null

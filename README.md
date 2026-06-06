@@ -63,6 +63,41 @@ Run tests:
 pytest
 ```
 
+## Unified Configuration
+
+Project configuration is centralized in:
+
+```bash
+configs/app_config.yaml
+```
+
+This file contains both `frontend` and `backend` sections with:
+
+- `shared` values used by all environments
+- environment-specific overrides under `development` and `production`
+
+Profile selection priority is:
+
+1. `APP_ENV`
+2. `defaults.environment` in `configs/app_config.yaml`
+
+Backend and frontend both support direct environment-variable overrides for deployed setups.
+For example:
+
+```bash
+APP_ENV=production
+NEXT_PUBLIC_API_URL=https://api.my-domain.example
+```
+
+In production profiles, API docs are disabled by setting:
+
+```yaml
+backend:
+  production:
+    docs_url: null
+    redoc_url: null
+```
+
 ## CLI Examples
 
 Initialize local state folders:
