@@ -34,11 +34,13 @@ def test_client_posts_json(monkeypatch):
         "pipeline_1",
         "./outputs",
         input_sources={"raw": "raw.csv"},
+        process_arg_mapping={"step": {"threshold": "0.5"}},
     )
 
     assert result == {"id": "job-1"}
     assert captured["url"] == "http://example.test/jobs"
     assert captured["method"] == "POST"
     assert captured["body"]["input_sources"] == {"raw": "raw.csv"}
+    assert captured["body"]["process_arg_mapping"] == {"step": {"threshold": "0.5"}}
     assert captured["timeout"] == 30
 

@@ -197,3 +197,156 @@ stages:
 """
     with pytest.raises(JobDefinitionError, match="missing required key 'pipeline_yaml'"):
         parse_job_definition(text)
+
+
+def test_patterns_fanout(tmp_path: Path):
+    data = tmp_path / "data"
+    data.mkdir()
+    for name in ["raw1.csv", "raw2.csv", "meta1.csv", "meta2.csv"]:
+        (data / name).write_text("x", encoding="utf-8")
+    text = f"""
+job: pat
+stages:
+  - name: prep
+    pipeline_yaml: p.yaml
+    pipeline: demo
+    fanout:
+      type: patterns
+      data_dir: "{data.as_posix()}"
+      raw_pattern: "raw*.csv"
+      meta_pattern: "meta*.csv"
+    output_dir: "/out/{{item.stem}}"
+    input_sources:
+      raw: "{{data_dir}}/{{item.raw}}"
+      meta: "{{data_dir}}/{{item.meta}}"
+"""
+    tasks = expand(text)
+    assert len(tasks) == 2
+    stems = {t.output_dir for t in tasks}
+    assert stems == {"/out/raw1", "/out/raw2"}
+    t = next(t for t in tasks if t.output_dir == "/out/raw1")
+    assert t.input_sources == {"raw": f"{data.as_posix()}/raw1.csv", "meta": f"{data.as_posix()}/meta1.csv"}
+
+
+def test_mapping_file_csv(tmp_path: Path):
+    mapping = tmp_path / "m.csv"
+    mapping.write_text("raw,meta\nr1.csv,m1.csv\nr2.csv,m2.csv\n", encoding="utf-8")
+    text = f"""
+job: m
+stages:
+  - name: prep
+    pipeline_yaml: p.yaml
+    pipeline: demo
+    fanout: {{type: mapping_file, mapping: "{mapping.as_posix()}"}}
+    output_dir: "/out/{{item.stem}}"
+    input_sources: {{raw: "{{item.raw}}", meta: "{{item.meta}}"}}
+"""
+    tasks = expand(text)
+    assert {t.input_sources["raw"] for t in tasks} == {"r1.csv", "r2.csv"}
+
+
+def test_templated_process_arg_mapping(tmp_path: Path):
+    text = """
+job: pam
+variables: {strain: [ecoli]}
+stages:
+  - name: only
+    pipeline_yaml: p.yaml
+    pipeline: demo
+    fanout: {type: none}
+    output_dir: /out
+    process_arg_mapping:
+      collate:
+        strain_col: "{strain}"
+"""
+    tasks = expand(text)
+    assert tasks[0].process_arg_mapping == {"collate": {"strain_col": "ecoli"}}
+
+
+def test_defaults_reference_earlier_defaults():
+    text = """
+job: d
+variables: {tag: [T1]}
+defaults:
+  root: "/data/{tag}"
+  processed: "{root}/processed"
+stages:
+  - name: only
+    pipeline_yaml: p.yaml
+    pipeline: demo
+    fanout: {type: none}
+    output_dir: "{processed}/out"
+"""
+    tasks = expand(text)
+    assert tasks[0].output_dir == "/data/T1/processed/out"
+
+
+def test_duplicate_stage_name_raises():
+    text = """
+job: dup
+stages:
+  - name: a
+    pipeline_yaml: p.yaml
+    pipeline: demo
+    fanout: {type: none}
+    output_dir: /out
+  - name: a
+    pipeline_yaml: p.yaml
+    pipeline: demo
+    fanout: {type: none}
+    output_dir: /out
+"""
+    with pytest.raises(JobDefinitionError, match="duplicate stage name"):
+        parse_job_definition(text)
+
+
+def test_empty_variable_list_raises():
+    text = """
+job: bad
+variables: {tag: []}
+stages:
+  - name: only
+    pipeline_yaml: p.yaml
+    pipeline: demo
+    fanout: {type: none}
+    output_dir: /out
+"""
+    with pytest.raises(JobDefinitionError, match="non-empty list"):
+        parse_job_definition(text)
+
+
+def test_unknown_fanout_type_raises():
+    text = """
+job: bad
+stages:
+  - name: only
+    pipeline_yaml: p.yaml
+    pipeline: demo
+    fanout: {type: telepathy}
+    output_dir: /out
+"""
+    with pytest.raises(JobDefinitionError, match="unknown fanout type"):
+        parse_job_definition(text)
+
+
+def test_non_mapping_root_raises():
+    with pytest.raises(JobDefinitionError, match="must be a mapping"):
+        parse_job_definition("- a\n- b\n")
+
+
+def test_missing_job_name_raises():
+    text = """
+stages:
+  - name: only
+    pipeline_yaml: p.yaml
+    pipeline: demo
+    fanout: {type: none}
+    output_dir: /out
+"""
+    with pytest.raises(JobDefinitionError, match="'job' name"):
+        parse_job_definition(text)
+
+
+def test_no_stages_raises():
+    with pytest.raises(JobDefinitionError, match="non-empty 'stages'"):
+        parse_job_definition("job: x\n")

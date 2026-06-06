@@ -97,6 +97,37 @@ def test_split_routes_storage_validation_templates_and_jobs(tmp_path: Path):
     get_runtime.cache_clear()
 
 
+def test_job_submit_round_trips_process_arg_mapping(tmp_path: Path):
+    app.dependency_overrides.clear()
+    get_runtime.cache_clear()
+    app.dependency_overrides[get_runtime] = lambda: create_runtime(tmp_path)
+    client = TestClient(app)
+
+    client.post(
+        "/api/v1/pipeline-yamls",
+        json={"name": "demo.yaml", "content": VALID_YAML, "overwrite": True},
+    )
+
+    create = client.post(
+        "/api/v1/jobs",
+        json={
+            "yaml_name": "demo.yaml",
+            "pipeline_name": "demo",
+            "output_dir": str(tmp_path / "out"),
+            "process_arg_mapping": {"step": {"threshold": "0.5"}},
+        },
+    )
+    assert create.status_code == 201
+    assert create.json()["process_arg_mapping"] == {"step": {"threshold": "0.5"}}
+
+    fetched = client.get(f"/api/v1/jobs/{create.json()['id']}")
+    assert fetched.status_code == 200
+    assert fetched.json()["process_arg_mapping"] == {"step": {"threshold": "0.5"}}
+
+    app.dependency_overrides.clear()
+    get_runtime.cache_clear()
+
+
 def test_yaml_list_includes_invalid_yaml_files(tmp_path: Path):
     app.dependency_overrides.clear()
     get_runtime.cache_clear()
