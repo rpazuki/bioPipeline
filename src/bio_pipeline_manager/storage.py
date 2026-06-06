@@ -39,7 +39,12 @@ class JobStore:
                     finished_at TEXT,
                     exit_code INTEGER,
                     error TEXT,
-                    pid INTEGER
+                    pid INTEGER,
+                    parent_job_id TEXT,
+                    job_name TEXT NOT NULL DEFAULT '',
+                    stage TEXT NOT NULL DEFAULT '',
+                    matrix_key TEXT NOT NULL DEFAULT '{}',
+                    depends_on TEXT NOT NULL DEFAULT '[]'
                 )
                 """
             )
@@ -52,6 +57,16 @@ class JobStore:
             if "updated_at" not in columns:
                 conn.execute("ALTER TABLE jobs ADD COLUMN updated_at TEXT")
                 conn.execute("UPDATE jobs SET updated_at = created_at WHERE updated_at IS NULL")
+            if "parent_job_id" not in columns:
+                conn.execute("ALTER TABLE jobs ADD COLUMN parent_job_id TEXT")
+            if "job_name" not in columns:
+                conn.execute("ALTER TABLE jobs ADD COLUMN job_name TEXT NOT NULL DEFAULT ''")
+            if "stage" not in columns:
+                conn.execute("ALTER TABLE jobs ADD COLUMN stage TEXT NOT NULL DEFAULT ''")
+            if "matrix_key" not in columns:
+                conn.execute("ALTER TABLE jobs ADD COLUMN matrix_key TEXT NOT NULL DEFAULT '{}'")
+            if "depends_on" not in columns:
+                conn.execute("ALTER TABLE jobs ADD COLUMN depends_on TEXT NOT NULL DEFAULT '[]'")
 
     def connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, timeout=30.0)
@@ -73,6 +88,11 @@ class JobStore:
             process_arg_mapping=spec.process_arg_mapping,
             backend=spec.backend,
             scheduled_at=as_utc(spec.scheduled_at),
+            parent_job_id=spec.parent_job_id,
+            job_name=spec.job_name,
+            stage=spec.stage,
+            matrix_key=spec.matrix_key,
+            depends_on=spec.depends_on,
         )
         record = JobRecord(
             id=job_id,
@@ -87,9 +107,10 @@ class JobStore:
                 """
                 INSERT INTO jobs (
                     id, yaml_path, pipeline_name, output_dir, input_sources, process_arg_mapping,
-                    backend, status, log_path, created_at, updated_at, scheduled_at
+                    backend, status, log_path, created_at, updated_at, scheduled_at,
+                    parent_job_id, job_name, stage, matrix_key, depends_on
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.id,
@@ -104,6 +125,11 @@ class JobStore:
                     record.created_at.isoformat(),
                     record.updated_at.isoformat(),
                     spec.scheduled_at.isoformat() if spec.scheduled_at else None,
+                    spec.parent_job_id,
+                    spec.job_name,
+                    spec.stage,
+                    json.dumps(spec.matrix_key, sort_keys=True),
+                    json.dumps(spec.depends_on),
                 ),
             )
         return record
@@ -163,6 +189,22 @@ class JobStore:
         with self.connect() as conn:
             rows = conn.execute("SELECT * FROM jobs ORDER BY created_at DESC").fetchall()
         return [self._row_to_record(row) for row in rows]
+
+    def list_jobs_by_parent(self, parent_job_id: str) -> list[JobRecord]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM jobs WHERE parent_job_id = ? ORDER BY created_at ASC",
+                (parent_job_id,),
+            ).fetchall()
+        return [self._row_to_record(row) for row in rows]
+
+    def list_parent_ids(self) -> list[str]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT parent_job_id, MIN(created_at) AS first_created FROM jobs "
+                "WHERE parent_job_id IS NOT NULL GROUP BY parent_job_id ORDER BY first_created DESC"
+            ).fetchall()
+        return [row["parent_job_id"] for row in rows]
 
     def list_due_jobs(self, limit: int | None = None) -> list[JobRecord]:
         now = utc_now().isoformat()
@@ -233,6 +275,11 @@ class JobStore:
             process_arg_mapping=process_arg_mapping,
             backend=row["backend"],
             scheduled_at=scheduled_at,
+            parent_job_id=row["parent_job_id"] if "parent_job_id" in row_keys else None,
+            job_name=row["job_name"] if "job_name" in row_keys and row["job_name"] else "",
+            stage=row["stage"] if "stage" in row_keys and row["stage"] else "",
+            matrix_key=json.loads(row["matrix_key"]) if "matrix_key" in row_keys and row["matrix_key"] else {},
+            depends_on=json.loads(row["depends_on"]) if "depends_on" in row_keys and row["depends_on"] else [],
         )
         return JobRecord(
             id=row["id"],

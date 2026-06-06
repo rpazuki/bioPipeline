@@ -63,6 +63,16 @@ def main(argv: list[str] | None = None) -> int:
     cancel = subparsers.add_parser("cancel")
     cancel.add_argument("job_id")
 
+    job_parser = subparsers.add_parser("job", help="Job Definition (multi-task) operations")
+    job_sub = job_parser.add_subparsers(dest="job_command", required=True)
+    job_preview = job_sub.add_parser("preview", help="Expand a Job Definition without running it")
+    job_preview.add_argument("definition", type=Path)
+    job_submit = job_sub.add_parser("submit", help="Expand and queue a Job Definition")
+    job_submit.add_argument("definition", type=Path)
+    job_submit.add_argument("--at", dest="scheduled_at")
+    job_status = job_sub.add_parser("status", help="Show rollup status of a submitted Job Definition")
+    job_status.add_argument("parent_job_id")
+
     args = parser.parse_args(argv)
     home = args.home
     yaml_store = YamlStore(home / "yamls")
@@ -138,7 +148,55 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{job.id} {job.status}")
         return 0
 
+    if args.command == "job":
+        return _handle_job_command(args, queue, yaml_store)
+
     raise AssertionError(f"Unhandled command: {args.command}")
+
+
+def _format_matrix_key(matrix_key: dict[str, str]) -> str:
+    return ",".join(f"{k}={v}" for k, v in matrix_key.items()) or "-"
+
+
+def _handle_job_command(args, queue: JobQueue, yaml_store: YamlStore) -> int:
+    from bio_pipeline_manager.job_definition import expand
+
+    if args.job_command == "preview":
+        text = args.definition.read_text(encoding="utf-8")
+        tasks = expand(text)
+        print(f"{len(tasks)} task(s):")
+        for task in tasks:
+            print(
+                f"  [{task.stage}] {_format_matrix_key(task.matrix_key)} "
+                f"-> {task.pipeline_name} (yaml={task.pipeline_yaml})"
+            )
+            print(f"      output_dir: {task.output_dir}")
+            if task.input_sources:
+                print(f"      inputs: {task.input_sources}")
+            if task.process_arg_mapping:
+                print(f"      process_args: {task.process_arg_mapping}")
+        return 0
+
+    if args.job_command == "submit":
+        text = args.definition.read_text(encoding="utf-8")
+        scheduled_at = as_utc(datetime.fromisoformat(args.scheduled_at)) if args.scheduled_at else None
+        parent_id, records = queue.submit_definition(
+            text, yaml_resolver=yaml_store.resolve_name, scheduled_at=scheduled_at
+        )
+        print(f"{parent_id} ({len(records)} tasks queued)")
+        return 0
+
+    if args.job_command == "status":
+        summary = queue.group_status(args.parent_job_id)
+        print(f"{summary['parent_job_id']} {summary['job_name']} {summary['status']} "
+              f"({summary['total']} tasks)")
+        for status_name, count in sorted(summary["counts"].items()):
+            print(f"  {status_name}: {count}")
+        for task in summary["tasks"]:
+            print(f"  {task.id} [{task.spec.stage}] {_format_matrix_key(task.spec.matrix_key)} {task.status}")
+        return 0
+
+    raise AssertionError(f"Unhandled job command: {args.job_command}")
 
 
 def _parse_inputs(values: list[str]) -> dict[str, str]:

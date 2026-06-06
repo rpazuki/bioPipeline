@@ -350,19 +350,24 @@ stages materialize and flow into the existing claim/run machinery.
 
 ## 10. Phased rollout
 
-1. **In-process Task runner + params.** Add `python -m bio_pipeline_manager.run_task` importing
-   `labUtils.utils.build_pipeline_from_yaml`. Thread `process_arg_mapping` through `JobSpec` →
-   store → runner → API → types. **Unblocks the collate workflow** as a single Task. (Smallest
-   user-visible win; no `labUtils` change.)
+1. **[DONE]** **In-process Task runner + params.** `python -m bio_pipeline_manager.run_task` runs
+   the transferred `pipeline.engine.build_pipeline_from_yaml`. `process_arg_mapping` threaded
+   through `JobSpec` → store → runner → API → CLI (`-p`) → client → types. **Unblocks collate.**
 2. **Package Management.** `sys.executable -m pip` install/uninstall/list with **auth + audit**,
    serialized against running jobs; `installs` table; "Environment" page + `bio-pipeline env`
    CLI. Lets users provision `labUtils` and science packages from the UI.
-3. **Fan-out (single stage).** `job_definition.py` with `mapping_file`/`patterns`/`folders`/`none`,
-   templating, eager materialization, parent `Job` rollup. Replaces the two `.py` scripts.
-4. **Matrix + stages + dependencies.** Variable matrix, `needs:`, lazy stage materialization,
-   `BLOCKED`/`SKIPPED` states, dependency-aware `run_due`. Replaces the `.bat` files; covers
-   multi-YAML chaining.
-5. **Surfaces.** CLI `job` commands, API endpoints, hierarchical Jobs UI, preview-expansion.
+3. **[DONE]** **Fan-out + matrix + stages + dependencies.** `job_definition.py` expands a Job
+   Definition (`variables` matrix × ordered `stages` with `needs:` × `mapping_file`/`patterns`/
+   `folders`/`none` fan-out) into materialized Tasks with `{token}` templating. `JobSpec` carries
+   `parent_job_id`/`stage`/`matrix_key`/`depends_on`; `JobQueue.submit_definition` wires
+   per-cell dependencies; dependency-aware `run_due` gates Tasks and moves failed-upstream Tasks
+   to `BLOCKED`; `group_status` rollup. CLI `job preview`/`submit`/`status`. Replaces the two
+   `.py` scripts **and** the `.bat` files; covers multi-YAML chaining. (Fan-out currently
+   materialises eagerly at submit; lazy per-stage materialisation for filesystem-dependent
+   fan-out, e.g. `folders` produced by an upstream stage, is still pending.)
+4. **Surfaces.** API endpoints for Job Definitions, hierarchical Jobs UI, preview-expansion view.
+5. **Lazy stage materialisation.** Expand a stage's fan-out only when it becomes eligible (needed
+   when a downstream `folders`/`patterns` source is produced by an upstream stage at run time).
 
 ---
 

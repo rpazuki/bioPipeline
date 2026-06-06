@@ -12,6 +12,11 @@ class JobStatus(StrEnum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    BLOCKED = "blocked"
+
+
+# Statuses that mean a task will never succeed, so its dependents can never run.
+TERMINAL_FAILURE_STATUSES = frozenset({JobStatus.FAILED, JobStatus.CANCELLED, JobStatus.BLOCKED})
 
 
 @dataclass(frozen=True)
@@ -23,6 +28,12 @@ class JobSpec:
     process_arg_mapping: dict[str, dict[str, str]] = field(default_factory=dict)
     backend: str = "local"
     scheduled_at: datetime | None = None
+    # Job Definition grouping (empty for ad-hoc single-task submissions).
+    parent_job_id: str | None = None
+    job_name: str = ""
+    stage: str = ""
+    matrix_key: dict[str, str] = field(default_factory=dict)
+    depends_on: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
