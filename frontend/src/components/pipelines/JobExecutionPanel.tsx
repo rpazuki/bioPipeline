@@ -163,7 +163,7 @@ export default function JobExecutionPanel({ yamlName, pipelineNames, yamlIsValid
 
           <div className="grid gap-4">
             <div className="grid gap-3 md:grid-cols-2">
-              <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              <label className="grid gap-1 text-xs font-semibold text-slate-500 md:col-span-2">
                 Pipeline
                 <select
                   className="h-9 rounded-md border border-slate-300 px-3 text-sm text-slate-950"
@@ -179,7 +179,7 @@ export default function JobExecutionPanel({ yamlName, pipelineNames, yamlIsValid
                   ))}
                 </select>
               </label>
-              <label className="grid gap-1 text-xs font-semibold text-slate-500">
+              <label className="grid gap-1 text-xs font-semibold text-slate-500 md:col-span-2">
                 Output directory
                 <input className="h-9 rounded-md border border-slate-300 px-3 text-sm" value={outputDir} onChange={(event) => setOutputDir(event.target.value)} />
               </label>
