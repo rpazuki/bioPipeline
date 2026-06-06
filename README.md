@@ -208,3 +208,44 @@ tests/
 `labUtils` remains the source of truth for pipeline semantics. This manager owns only
 the surrounding operational concerns: YAML files, queue state, scheduling, logs, and
 external execution backends.
+
+## Custom Pipeline Functions
+
+Project-level reusable process functions live under:
+
+src/pipeline/helpers/
+
+Use them directly in YAML with:
+
+- package: pipeline.helpers
+- method: function_name
+
+Example:
+
+```yaml
+pipelines:
+  - demo_pipeline:
+      Inputs: []
+      Processes:
+        - generated_numbers:
+            package: pipeline.helpers
+            method: sequence
+            parameters:
+              start: 0
+              stop: 5
+              step: 1
+        - saved_path:
+            package: pipeline.helpers
+            method: save_text
+            parameters:
+              text: "pipeline run complete"
+              path: "outputs/run-001/message.txt"
+      Outputs: []
+```
+
+Built-in functions currently exposed from this package:
+
+- ensure_list
+- sequence
+- format_message
+- save_text
