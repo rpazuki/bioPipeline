@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import signal
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -42,6 +43,21 @@ class JobQueue:
             except (ProcessLookupError, PermissionError):
                 pass
         return self.store.cancel_job(job_id)
+
+    def delete(self, job_id: str) -> None:
+        self.store.delete_job(job_id)
+
+    def rewind(self, job_id: str) -> JobRecord:
+        job = self.store.get_job(job_id)
+        spec = JobSpec(
+            yaml_path=job.spec.yaml_path,
+            pipeline_name=job.spec.pipeline_name,
+            output_dir=job.spec.output_dir,
+            input_sources=job.spec.input_sources,
+            backend=job.spec.backend,
+            scheduled_at=datetime.now(timezone.utc),
+        )
+        return self.submit(spec)
 
     def run_due(self, *, parallel: int = 1) -> list[JobRecord]:
         due = self.store.list_due_jobs(limit=parallel)

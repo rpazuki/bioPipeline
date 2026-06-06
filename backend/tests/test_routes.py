@@ -74,6 +74,17 @@ def test_split_routes_storage_validation_templates_and_jobs(tmp_path: Path):
     assert job_response.status_code == 201
     assert job_response.json()["status"] == "queued"
 
+    rewind_response = client.post(f"/api/v1/jobs/{job_response.json()['id']}/rewind")
+    assert rewind_response.status_code == 201
+    assert rewind_response.json()["pipeline_name"] == "demo"
+    assert rewind_response.json()["created_at"] >= job_response.json()["created_at"]
+
+    delete_job_response = client.delete(f"/api/v1/jobs/{job_response.json()['id']}")
+    assert delete_job_response.status_code == 204
+
+    missing_job_response = client.get(f"/api/v1/jobs/{job_response.json()['id']}")
+    assert missing_job_response.status_code == 404
+
     delete_response = client.delete("/api/v1/pipeline-yamls/designs/beta/demo.yaml")
     assert delete_response.status_code == 204
 

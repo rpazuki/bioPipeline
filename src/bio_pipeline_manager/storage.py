@@ -129,6 +129,18 @@ class JobStore:
             error=reason,
         )
 
+    def delete_job(self, job_id: str) -> None:
+        job = self.get_job(job_id)
+        if job.status == JobStatus.RUNNING:
+            raise ValueError("Cannot delete a running job")
+        with self.connect() as conn:
+            conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+        try:
+            if job.log_path.exists():
+                job.log_path.unlink()
+        except OSError:
+            pass
+
     def get_job(self, job_id: str) -> JobRecord:
         with self.connect() as conn:
             row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()

@@ -133,6 +133,18 @@ export async function cancelJob(jobId: string) {
   });
 }
 
+export async function deleteJob(jobId: string) {
+  return apiFetch<void>(`/jobs/${jobId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function rewindJob(jobId: string) {
+  return apiFetch<Job>(`/jobs/${jobId}/rewind`, {
+    method: "POST",
+  });
+}
+
 export async function getJobLogs(jobId: string) {
   return apiFetch<{ id: string; log: string }>(`/jobs/${jobId}/logs`);
 }

@@ -74,6 +74,32 @@ async def cancel_job(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
+@router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_job(
+    job_id: str,
+    runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
+) -> None:
+    try:
+        runtime.queue.delete(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/{job_id}/rewind", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
+async def rewind_job(
+    job_id: str,
+    runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
+) -> JobResponse:
+    try:
+        return _job_response(runtime.queue.rewind(job_id))
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
 # Sync handler: FastAPI runs it in a threadpool, so the blocking job
 # execution never stalls the async event loop.
 @router.post("/run-due", response_model=list[JobResponse])
