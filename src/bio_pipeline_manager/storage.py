@@ -190,6 +190,14 @@ class JobStore:
             rows = conn.execute("SELECT * FROM jobs ORDER BY created_at DESC").fetchall()
         return [self._row_to_record(row) for row in rows]
 
+    def has_active_jobs(self) -> bool:
+        """True if any job is currently RUNNING (used to gate package installs)."""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM jobs WHERE status = ? LIMIT 1", (JobStatus.RUNNING.value,)
+            ).fetchone()
+        return row is not None
+
     def list_jobs_by_parent(self, parent_job_id: str) -> list[JobRecord]:
         with self.connect() as conn:
             rows = conn.execute(

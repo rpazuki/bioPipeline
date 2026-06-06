@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.deps import get_runtime
-from app.api.routes import job_definitions, jobs, runtime, storage, templates, validation
+from app.api.routes import job_definitions, jobs, packages, runtime, storage, templates, validation
 from app.core.config import settings
 from bio_pipeline_manager.worker import JobWorker
 
@@ -52,6 +52,7 @@ app.include_router(validation.router, prefix=PREFIX)
 app.include_router(templates.router, prefix=PREFIX)
 app.include_router(jobs.router, prefix=PREFIX)
 app.include_router(job_definitions.router, prefix=PREFIX)
+app.include_router(packages.router, prefix=PREFIX)
 app.include_router(runtime.router, prefix=PREFIX)
 
 

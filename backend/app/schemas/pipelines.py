@@ -169,3 +169,36 @@ class JobGroupSummary(BaseModel):
 
 class JobGroupDetail(JobGroupSummary):
     tasks: list[JobResponse]
+
+
+class PackageInfo(BaseModel):
+    name: str
+    version: str
+
+
+class PackageOpResultResponse(BaseModel):
+    id: str
+    action: str
+    spec: str
+    source_type: str
+    resolved_version: str | None = None
+    exit_code: int
+    ok: bool
+    stdout: str
+    stderr: str
+    actor: str
+    created_at: str
+
+
+class PackageListResponse(BaseModel):
+    installed: list[PackageInfo]
+    history: list[PackageOpResultResponse]
+
+
+class InstallRequest(BaseModel):
+    spec: str
+    source_type: str = "pypi"
+
+
+class UninstallRequest(BaseModel):
+    name: str

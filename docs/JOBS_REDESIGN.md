@@ -353,9 +353,14 @@ stages materialize and flow into the existing claim/run machinery.
 1. **[DONE]** **In-process Task runner + params.** `python -m bio_pipeline_manager.run_task` runs
    the transferred `pipeline.engine.build_pipeline_from_yaml`. `process_arg_mapping` threaded
    through `JobSpec` → store → runner → API → CLI (`-p`) → client → types. **Unblocks collate.**
-2. **Package Management.** `sys.executable -m pip` install/uninstall/list with **auth + audit**,
-   serialized against running jobs; `installs` table; "Environment" page + `bio-pipeline env`
-   CLI. Lets users provision `labUtils` and science packages from the UI.
+2. **[DONE]** **Package Management.** `bio_pipeline_manager/packages.py` (`PackageManager` +
+   `InstallStore`) installs/uninstalls/lists via `sys.executable -m pip`, with an **audit log**
+   (`installs.sqlite`), refusal while jobs are running (`JobStore.has_active_jobs`), and
+   `importlib.invalidate_caches()` after each change. Backend `/api/v1/packages` (list/install/
+   uninstall) gated by a bearer **admin token** (`PACKAGE_ADMIN_TOKEN`; 503 when unset, 401 on bad
+   token). `bio-pipeline env list|install|uninstall` CLI and a frontend **Environment** page
+   (token entry, install form, installed list, audit history, restart hint). Sources: pypi / git /
+   editable / requirements.
 3. **[DONE]** **Fan-out + matrix + stages + dependencies.** `job_definition.py` expands a Job
    Definition (`variables` matrix × ordered `stages` with `needs:` × `mapping_file`/`patterns`/
    `folders`/`none` fan-out) into materialized Tasks with `{token}` templating. `JobSpec` carries

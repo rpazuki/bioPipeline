@@ -86,3 +86,19 @@ def test_cli_job_submit_and_status(tmp_path: Path, capsys):
     assert "queued" in status_out
 
 
+def test_cli_env_list(tmp_path: Path, capsys):
+    assert main(["--home", str(tmp_path / "home"), "env", "list"]) == 0
+    out = capsys.readouterr().out
+    assert "==" in out  # name==version lines
+
+
+def test_cli_env_install(tmp_path: Path, capsys, monkeypatch):
+    def fake(python_executable, args):
+        return 0, "ok", ""
+
+    monkeypatch.setattr("bio_pipeline_manager.packages._default_pip_runner", fake)
+
+    assert main(["--home", str(tmp_path / "home"), "env", "install", "pytest"]) == 0
+    assert "install pytest" in capsys.readouterr().out
+
+

@@ -4,6 +4,9 @@ import type {
   JobGroupDetail,
   JobGroupSummary,
   JobSubmit,
+  PackageList,
+  PackageOpResult,
+  PackageSourceType,
   PipelineTemplate,
   PipelineTemplateSummary,
   RuntimeInfo,
@@ -173,4 +176,29 @@ export async function listJobDefinitions() {
 
 export async function getJobDefinition(parentJobId: string) {
   return apiFetch<JobGroupDetail>(`/job-definitions/${encodeURIComponent(parentJobId)}`);
+}
+
+// Package management — every call carries the admin bearer token.
+function authHeaders(token: string): Record<string, string> {
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+export async function listPackages(token: string) {
+  return apiFetch<PackageList>("/packages", { headers: authHeaders(token) });
+}
+
+export async function installPackage(token: string, spec: string, sourceType: PackageSourceType = "pypi") {
+  return apiFetch<PackageOpResult>("/packages/install", {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ spec, source_type: sourceType }),
+  });
+}
+
+export async function uninstallPackage(token: string, name: string) {
+  return apiFetch<PackageOpResult>("/packages/uninstall", {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ name }),
+  });
 }

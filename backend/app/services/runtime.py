@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from bio_pipeline_manager.job_queue import JobQueue
+from bio_pipeline_manager.packages import InstallStore, PackageManager
 from bio_pipeline_manager.storage import JobStore
 from bio_pipeline_manager.yaml_store import YamlStore
 
@@ -14,6 +15,7 @@ class PipelineRuntime:
     yaml_store: YamlStore
     job_store: JobStore
     queue: JobQueue
+    packages: PackageManager
 
 
 def create_runtime(home: str | Path) -> PipelineRuntime:
@@ -24,4 +26,8 @@ def create_runtime(home: str | Path) -> PipelineRuntime:
         yaml_store=YamlStore(root / "yamls"),
         job_store=job_store,
         queue=JobQueue(job_store, root / "logs"),
+        packages=PackageManager(
+            InstallStore(root / "installs.sqlite"),
+            job_guard=job_store.has_active_jobs,
+        ),
     )

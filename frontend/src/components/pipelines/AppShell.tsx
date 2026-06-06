@@ -10,6 +10,7 @@ const NAV = [
   { href: "/job-definitions", label: "Job Definitions" },
   { href: "/validation", label: "Validation" },
   { href: "/storage", label: "Storage" },
+  { href: "/environment", label: "Environment" },
 ];
 
 function Header() {

@@ -121,6 +121,32 @@ export interface JobGroupDetail extends JobGroupSummary {
   tasks: Job[];
 }
 
+export interface PackageInfo {
+  name: string;
+  version: string;
+}
+
+export interface PackageOpResult {
+  id: string;
+  action: string;
+  spec: string;
+  source_type: string;
+  resolved_version?: string | null;
+  exit_code: number;
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+  actor: string;
+  created_at: string;
+}
+
+export interface PackageList {
+  installed: PackageInfo[];
+  history: PackageOpResult[];
+}
+
+export type PackageSourceType = "pypi" | "git" | "editable" | "requirements";
+
 export interface RuntimeInfo {
   pipeline_home: string;
   yaml_root: string;

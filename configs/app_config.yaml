@@ -25,6 +25,11 @@ backend:
     api_prefix: /api/v1
     docs_url: /api/docs
     redoc_url: /api/redoc
+    # Bearer token required by the /packages (package management) endpoints.
+    # Empty = feature disabled (endpoints return 503). Prefer setting the real
+    # value via the PACKAGE_ADMIN_TOKEN environment variable, which overrides
+    # this — do NOT commit a real token to this file.
+    package_admin_token: "123456"
   development:
     app_env: development
   production:

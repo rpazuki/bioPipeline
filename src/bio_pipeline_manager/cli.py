@@ -73,6 +73,17 @@ def main(argv: list[str] | None = None) -> int:
     job_status = job_sub.add_parser("status", help="Show rollup status of a submitted Job Definition")
     job_status.add_argument("parent_job_id")
 
+    env_parser = subparsers.add_parser("env", help="Manage the Python environment (pip)")
+    env_sub = env_parser.add_subparsers(dest="env_command", required=True)
+    env_sub.add_parser("list", help="List installed packages")
+    env_install = env_sub.add_parser("install", help="Install a package")
+    env_install.add_argument("spec")
+    env_install.add_argument(
+        "--source-type", choices=["pypi", "git", "editable", "requirements"], default="pypi"
+    )
+    env_uninstall = env_sub.add_parser("uninstall", help="Uninstall a package")
+    env_uninstall.add_argument("name")
+
     args = parser.parse_args(argv)
     home = args.home
     yaml_store = YamlStore(home / "yamls")
@@ -151,7 +162,42 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "job":
         return _handle_job_command(args, queue, yaml_store)
 
+    if args.command == "env":
+        return _handle_env_command(args, home, store)
+
     raise AssertionError(f"Unhandled command: {args.command}")
+
+
+def _handle_env_command(args, home: Path, store: JobStore) -> int:
+    from bio_pipeline_manager.packages import InstallStore, PackageBusyError, PackageError, PackageManager
+
+    manager = PackageManager(InstallStore(home / "installs.sqlite"), job_guard=store.has_active_jobs)
+
+    if args.env_command == "list":
+        for package in manager.list_installed():
+            print(f"{package['name']}=={package['version']}")
+        return 0
+
+    try:
+        if args.env_command == "install":
+            result = manager.install(args.spec, source_type=args.source_type, actor="cli")
+        elif args.env_command == "uninstall":
+            result = manager.uninstall(args.name, actor="cli")
+        else:  # pragma: no cover - argparse guards this
+            raise AssertionError(f"Unhandled env command: {args.env_command}")
+    except PackageBusyError as exc:
+        print(f"refused: {exc}")
+        return 2
+    except PackageError as exc:
+        print(f"error: {exc}")
+        return 2
+
+    status_word = "ok" if result.ok else "failed"
+    version = f" ({result.resolved_version})" if result.resolved_version else ""
+    print(f"{result.action} {result.spec}{version}: {status_word} (exit {result.exit_code})")
+    if not result.ok and result.stderr:
+        print(result.stderr.strip())
+    return 0 if result.ok else 1
 
 
 def _format_matrix_key(matrix_key: dict[str, str]) -> str:
