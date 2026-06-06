@@ -129,3 +129,39 @@ class JobResponse(BaseModel):
 class JobLogResponse(BaseModel):
     id: str
     log: str
+
+
+class MaterializedTaskResponse(BaseModel):
+    job_name: str
+    stage: str
+    matrix_key: dict[str, str]
+    needs: list[str]
+    pipeline_yaml: str
+    pipeline_name: str
+    output_dir: str
+    input_sources: dict[str, str]
+    process_arg_mapping: dict[str, dict[str, str]]
+    item_index: int
+
+
+class JobDefinitionRequest(BaseModel):
+    content: str
+    scheduled_at: datetime | None = None
+
+
+class JobDefinitionPreviewResponse(BaseModel):
+    job_name: str
+    task_count: int
+    tasks: list[MaterializedTaskResponse]
+
+
+class JobGroupSummary(BaseModel):
+    parent_job_id: str
+    job_name: str
+    status: str
+    total: int
+    counts: dict[str, int]
+
+
+class JobGroupDetail(JobGroupSummary):
+    tasks: list[JobResponse]

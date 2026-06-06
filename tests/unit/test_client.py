@@ -44,3 +44,22 @@ def test_client_posts_json(monkeypatch):
     assert captured["body"]["process_arg_mapping"] == {"step": {"threshold": "0.5"}}
     assert captured["timeout"] == 30
 
+
+def test_client_submit_definition_posts_to_job_definitions(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["method"] = request.method
+        captured["body"] = json.loads(request.data.decode("utf-8"))
+        return FakeResponse({"parent_job_id": "grp-1", "total": 2})
+
+    monkeypatch.setattr("bio_pipeline_manager.client.urlopen", fake_urlopen)
+
+    result = PipelineClient("http://example.test").submit_definition("job: x\n")
+
+    assert result == {"parent_job_id": "grp-1", "total": 2}
+    assert captured["url"] == "http://example.test/job-definitions"
+    assert captured["method"] == "POST"
+    assert captured["body"]["content"] == "job: x\n"
+

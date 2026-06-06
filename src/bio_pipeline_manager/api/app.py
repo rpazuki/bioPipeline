@@ -1,7 +1,6 @@
-from __future__ import annotations
-
 from pathlib import Path
 
+from bio_pipeline_manager.job_definition import JobDefinitionError, expand
 from bio_pipeline_manager.job_queue import JobQueue
 from bio_pipeline_manager.models import JobSpec, as_utc
 from bio_pipeline_manager.storage import JobStore
@@ -155,5 +154,69 @@ def create_app(home: str | Path = ".bio_pipeline"):
     def cancel_job(job_id: str):
         job = queue.cancel(job_id)
         return {"id": job.id, "status": job.status, "error": job.error}
+
+    class DefinitionRequest(BaseModel):
+        content: str
+        scheduled_at: str | None = None
+
+    def _task_dict(task):
+        return {
+            "job_name": task.job_name,
+            "stage": task.stage,
+            "matrix_key": task.matrix_key,
+            "needs": task.needs,
+            "pipeline_yaml": task.pipeline_yaml,
+            "pipeline_name": task.pipeline_name,
+            "output_dir": task.output_dir,
+            "input_sources": task.input_sources,
+            "process_arg_mapping": task.process_arg_mapping,
+            "item_index": task.item_index,
+        }
+
+    @app.post("/job-definitions/preview")
+    def preview_definition(payload: DefinitionRequest):
+        try:
+            tasks = expand(payload.content)
+        except JobDefinitionError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "job_name": tasks[0].job_name if tasks else "",
+            "task_count": len(tasks),
+            "tasks": [_task_dict(t) for t in tasks],
+        }
+
+    @app.post("/job-definitions")
+    def submit_definition(payload: DefinitionRequest):
+        try:
+            parent_id, _records = queue.submit_definition(
+                payload.content,
+                yaml_resolver=yaml_store.resolve_name,
+                scheduled_at=as_utc(datetime.fromisoformat(payload.scheduled_at)) if payload.scheduled_at else None,
+            )
+        except (JobDefinitionError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        summary = queue.group_status(parent_id)
+        return summary | {
+            "tasks": [{"id": t.id, "stage": t.spec.stage, "status": t.status} for t in summary["tasks"]]
+        }
+
+    @app.get("/job-definitions")
+    def list_definitions():
+        return [
+            {k: v for k, v in queue.group_status(parent_id).items() if k != "tasks"}
+            for parent_id in job_store.list_parent_ids()
+        ]
+
+    @app.get("/job-definitions/{parent_id}")
+    def get_definition(parent_id: str):
+        if parent_id not in job_store.list_parent_ids():
+            raise HTTPException(status_code=404, detail=f"Job group not found: {parent_id}")
+        summary = queue.group_status(parent_id)
+        return summary | {
+            "tasks": [
+                {"id": t.id, "stage": t.spec.stage, "status": t.status, "matrix_key": t.spec.matrix_key}
+                for t in summary["tasks"]
+            ]
+        }
 
     return app

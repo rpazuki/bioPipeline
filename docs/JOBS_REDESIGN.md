@@ -365,7 +365,10 @@ stages materialize and flow into the existing claim/run machinery.
    `.py` scripts **and** the `.bat` files; covers multi-YAML chaining. (Fan-out currently
    materialises eagerly at submit; lazy per-stage materialisation for filesystem-dependent
    fan-out, e.g. `folders` produced by an upstream stage, is still pending.)
-4. **Surfaces.** API endpoints for Job Definitions, hierarchical Jobs UI, preview-expansion view.
+4. **Surfaces.** **[API DONE]** Job Definition endpoints on both the backend
+   (`/api/v1/job-definitions` preview/submit/list/detail) and the lightweight notebook server,
+   plus `PipelineClient.{preview,submit,list,get}_definition`. **Pending:** hierarchical Jobs UI
+   + preview-expansion view in the frontend.
 5. **Lazy stage materialisation.** Expand a stage's fan-out only when it becomes eligible (needed
    when a downstream `folders`/`patterns` source is produced by an upstream stage at run time).
 

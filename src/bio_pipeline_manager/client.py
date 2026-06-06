@@ -83,6 +83,19 @@ class PipelineClient:
     def cancel(self, job_id: str) -> dict[str, Any]:
         return self._request("POST", f"/jobs/{job_id}/cancel")
 
+    # --- Job Definitions (multi-task) ------------------------------------- #
+    def preview_definition(self, content: str) -> dict[str, Any]:
+        return self._request("POST", "/job-definitions/preview", {"content": content})
+
+    def submit_definition(self, content: str, *, scheduled_at: str | None = None) -> dict[str, Any]:
+        return self._request("POST", "/job-definitions", {"content": content, "scheduled_at": scheduled_at})
+
+    def list_definitions(self) -> list[dict[str, Any]]:
+        return self._request("GET", "/job-definitions")
+
+    def get_definition(self, parent_job_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/job-definitions/{parent_job_id}")
+
     def _request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> Any:
         body = None
         headers = {"Content-Type": "application/json"}
