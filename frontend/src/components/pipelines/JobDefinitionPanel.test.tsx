@@ -6,6 +6,10 @@ import * as api from "@/lib/api";
 
 vi.mock("@/lib/api");
 
+// The stage DAG renders ReactFlow, which needs ResizeObserver (absent in jsdom);
+// stub it so the panel's other behaviour can be tested.
+vi.mock("@/components/pipelines/JobStageGraph", () => ({ default: () => null }));
+
 const { push } = vi.hoisted(() => ({ push: vi.fn() }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
@@ -18,6 +22,8 @@ describe("JobDefinitionPanel", () => {
     mocked.listJobDefinitions.mockResolvedValue([
       { parent_job_id: "grp-1", job_name: "demo", status: "succeeded", total: 3, counts: { succeeded: 3 } },
     ]);
+    // Default so the debounced auto-preview always has something to resolve.
+    mocked.previewJobDefinition.mockResolvedValue({ job_name: "", task_count: 0, tasks: [] });
   });
 
   afterEach(() => {

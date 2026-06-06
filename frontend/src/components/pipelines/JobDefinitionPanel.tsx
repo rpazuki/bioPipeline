@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
+import JobStageGraph from "@/components/pipelines/JobStageGraph";
 import {
   getJobDefinition,
   listJobDefinitions,
@@ -71,6 +72,7 @@ export default function JobDefinitionPanel() {
   const router = useRouter();
   const [content, setContent] = useState(EXAMPLE);
   const [preview, setPreview] = useState<JobDefinitionPreview | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [groups, setGroups] = useState<JobGroupSummary[]>([]);
   const [selected, setSelected] = useState<JobGroupDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +90,27 @@ export default function JobDefinitionPanel() {
     void refreshGroups();
   }, [refreshGroups]);
 
+  const runPreview = useCallback(async (text: string) => {
+    try {
+      const result = await previewJobDefinition(text);
+      setPreview(result);
+      setPreviewError(null);
+    } catch (err) {
+      setPreview(null);
+      setPreviewError(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+
+  // Live, debounced preview: expand the definition as the user types and show
+  // the plan (stage DAG + task list) or an inline validation error.
+  useEffect(() => {
+    setSelected(null);
+    const handle = window.setTimeout(() => {
+      void runPreview(content);
+    }, 500);
+    return () => window.clearTimeout(handle);
+  }, [content, runPreview]);
+
   const run = useCallback(
     async (action: () => Promise<void>) => {
       setBusy(true);
@@ -103,11 +126,10 @@ export default function JobDefinitionPanel() {
     [],
   );
 
-  const onPreview = () =>
-    run(async () => {
-      setSelected(null);
-      setPreview(await previewJobDefinition(content));
-    });
+  const onPreview = () => {
+    setSelected(null);
+    void runPreview(content);
+  };
 
   const onSubmit = () =>
     run(async () => {
@@ -170,15 +192,27 @@ export default function JobDefinitionPanel() {
             Run due
           </button>
         </div>
+        {previewError ? (
+          <p className="rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-700">{previewError}</p>
+        ) : (
+          <p className="text-xs text-emerald-700">
+            {preview ? `Valid — expands to ${preview.task_count} task${preview.task_count === 1 ? "" : "s"}.` : "Validating…"}
+          </p>
+        )}
         {error ? <p className="text-xs text-rose-700">{error}</p> : null}
       </section>
 
       <section className="grid content-start gap-3 rounded-md border border-slate-200 bg-white p-4">
-        {preview ? <PreviewView preview={preview} /> : null}
-        {selected ? <GroupView group={selected} /> : null}
-        {!preview && !selected ? (
-          <p className="text-xs text-slate-500">Preview to see the expanded tasks, or open a submitted job below.</p>
-        ) : null}
+        {selected ? (
+          <GroupView group={selected} />
+        ) : preview ? (
+          <div className="grid gap-3">
+            <JobStageGraph tasks={preview.tasks} />
+            <PreviewView preview={preview} />
+          </div>
+        ) : (
+          <p className="text-xs text-slate-500">Edit the definition to see its plan, or open a submitted job below.</p>
+        )}
 
         <div className="mt-2 grid gap-2">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Submitted jobs</h3>
