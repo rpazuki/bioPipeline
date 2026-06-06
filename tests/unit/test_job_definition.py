@@ -350,3 +350,31 @@ stages:
 def test_no_stages_raises():
     with pytest.raises(JobDefinitionError, match="non-empty 'stages'"):
         parse_job_definition("job: x\n")
+
+
+def test_mapping_file_missing_raises_job_definition_error(tmp_path: Path):
+    text = f"""
+job: m
+stages:
+  - name: prep
+    pipeline_yaml: p.yaml
+    pipeline: demo
+    fanout: {{type: mapping_file, mapping: "{(tmp_path / 'nope.yaml').as_posix()}"}}
+    output_dir: /out
+"""
+    with pytest.raises(JobDefinitionError, match="could not read mapping file"):
+        expand(text)
+
+
+def test_folders_fanout_missing_dir_raises(tmp_path: Path):
+    text = f"""
+job: m
+stages:
+  - name: collate
+    pipeline_yaml: p.yaml
+    pipeline: demo
+    fanout: {{type: folders, data_dir: "{(tmp_path / 'missing').as_posix()}"}}
+    output_dir: /out
+"""
+    with pytest.raises(JobDefinitionError, match="folders fan-out"):
+        expand(text)

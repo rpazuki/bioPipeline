@@ -7,6 +7,7 @@ import { PipelineProvider, usePipeline } from "./PipelineContext";
 
 const NAV = [
   { href: "/", label: "Job Execution" },
+  { href: "/job-definitions", label: "Job Definitions" },
   { href: "/validation", label: "Validation" },
   { href: "/storage", label: "Storage" },
 ];

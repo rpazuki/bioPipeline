@@ -116,6 +116,10 @@ class JobResponse(BaseModel):
     process_arg_mapping: dict[str, dict[str, str]] = Field(default_factory=dict)
     backend: str
     log_path: str
+    parent_job_id: str | None = None
+    job_name: str = ""
+    stage: str = ""
+    matrix_key: dict[str, str] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
     scheduled_at: datetime | None = None

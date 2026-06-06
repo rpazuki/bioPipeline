@@ -220,9 +220,19 @@ def _fanout_items(stage: dict[str, Any], context: dict[str, str]) -> tuple[list[
     if ftype == "none":
         return [{}], extra
 
+    stage_name = stage.get("name", "?")
+    item_context = {**context, **extra}
+
     if ftype == "mapping_file":
-        mapping_path = _render(fanout["mapping"], {**context, **extra})
-        mapping = load_file_mapping(mapping_path)
+        if "mapping" not in fanout:
+            raise JobDefinitionError(f"stage '{stage_name}' mapping_file fan-out requires a 'mapping' path")
+        mapping_path = _render(fanout["mapping"], item_context)
+        try:
+            mapping = load_file_mapping(mapping_path)
+        except (FileNotFoundError, OSError, ValueError) as exc:
+            raise JobDefinitionError(
+                f"stage '{stage_name}' could not read mapping file '{mapping_path}': {exc}"
+            ) from exc
         items = [
             {"item.raw": raw, "item.meta": meta, "item.stem": Path(raw).stem, "item.name": Path(raw).name}
             for raw, meta in mapping.items()
@@ -230,11 +240,17 @@ def _fanout_items(stage: dict[str, Any], context: dict[str, str]) -> tuple[list[
         return items, extra
 
     if ftype == "patterns":
-        mapping = create_file_mapping_from_patterns(
-            extra.get("data_dir", ""),
-            _render(fanout["raw_pattern"], {**context, **extra}),
-            _render(fanout["meta_pattern"], {**context, **extra}),
-        )
+        for required in ("raw_pattern", "meta_pattern"):
+            if required not in fanout:
+                raise JobDefinitionError(f"stage '{stage_name}' patterns fan-out requires '{required}'")
+        try:
+            mapping = create_file_mapping_from_patterns(
+                extra.get("data_dir", ""),
+                _render(fanout["raw_pattern"], item_context),
+                _render(fanout["meta_pattern"], item_context),
+            )
+        except (FileNotFoundError, OSError, ValueError) as exc:
+            raise JobDefinitionError(f"stage '{stage_name}' patterns fan-out failed: {exc}") from exc
         items = [
             {"item.raw": raw, "item.meta": meta, "item.stem": Path(raw).stem, "item.name": Path(raw).name}
             for raw, meta in mapping.items()
@@ -242,7 +258,12 @@ def _fanout_items(stage: dict[str, Any], context: dict[str, str]) -> tuple[list[
         return items, extra
 
     if ftype == "folders":
-        folders = list_folders(extra.get("data_dir", ""))
+        try:
+            folders = list_folders(extra.get("data_dir", ""))
+        except (FileNotFoundError, OSError) as exc:
+            raise JobDefinitionError(
+                f"stage '{stage_name}' folders fan-out could not list '{extra.get('data_dir', '')}': {exc}"
+            ) from exc
         items = [
             {"item.path": str(p), "item.name": p.name, "item.stem": p.stem}
             for p in sorted(folders)

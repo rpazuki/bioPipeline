@@ -1,5 +1,8 @@
 import type {
   Job,
+  JobDefinitionPreview,
+  JobGroupDetail,
+  JobGroupSummary,
   JobSubmit,
   PipelineTemplate,
   PipelineTemplateSummary,
@@ -147,4 +150,27 @@ export async function rewindJob(jobId: string) {
 
 export async function getJobLogs(jobId: string) {
   return apiFetch<{ id: string; log: string }>(`/jobs/${jobId}/logs`);
+}
+
+// Job Definitions (multi-task)
+export async function previewJobDefinition(content: string) {
+  return apiFetch<JobDefinitionPreview>("/job-definitions/preview", {
+    method: "POST",
+    body: JSON.stringify({ content }),
+  });
+}
+
+export async function submitJobDefinition(content: string, scheduledAt: string | null = null) {
+  return apiFetch<JobGroupDetail>("/job-definitions", {
+    method: "POST",
+    body: JSON.stringify({ content, scheduled_at: scheduledAt }),
+  });
+}
+
+export async function listJobDefinitions() {
+  return apiFetch<JobGroupSummary[]>("/job-definitions");
+}
+
+export async function getJobDefinition(parentJobId: string) {
+  return apiFetch<JobGroupDetail>(`/job-definitions/${encodeURIComponent(parentJobId)}`);
 }

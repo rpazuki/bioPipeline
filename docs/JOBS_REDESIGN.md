@@ -367,8 +367,11 @@ stages materialize and flow into the existing claim/run machinery.
    fan-out, e.g. `folders` produced by an upstream stage, is still pending.)
 4. **Surfaces.** **[API DONE]** Job Definition endpoints on both the backend
    (`/api/v1/job-definitions` preview/submit/list/detail) and the lightweight notebook server,
-   plus `PipelineClient.{preview,submit,list,get}_definition`. **Pending:** hierarchical Jobs UI
-   + preview-expansion view in the frontend.
+   plus `PipelineClient.{preview,submit,list,get}_definition`. **[UI DONE — unverified]** Frontend
+   "Job Definitions" page (`/job-definitions`): YAML editor, Preview (expanded task list), Submit,
+   Run-due, and a hierarchical group view (stages → per-cell tasks with rollup). `JobResponse`
+   now exposes `stage`/`matrix_key`/`parent_job_id` for grouping. Frontend `type-check`/`vitest`
+   could not be run in the dev sandbox (no Node runtime) — run `npm run type-check && npm run test`.
 5. **Lazy stage materialisation.** Expand a stage's fan-out only when it becomes eligible (needed
    when a downstream `folders`/`patterns` source is produced by an upstream stage at run time).
 

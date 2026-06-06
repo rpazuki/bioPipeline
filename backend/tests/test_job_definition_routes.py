@@ -68,6 +68,26 @@ def test_preview_invalid_definition_returns_400(tmp_path: Path):
     get_runtime.cache_clear()
 
 
+def test_preview_missing_mapping_file_returns_400_not_500(tmp_path: Path):
+    """A fan-out source that cannot be read is a client error, not a server crash."""
+    client = _client(tmp_path)
+    content = (
+        "job: m\n"
+        "stages:\n"
+        "  - name: prep\n"
+        "    pipeline_yaml: demo.yaml\n"
+        "    pipeline: demo\n"
+        "    fanout: {type: mapping_file, mapping: definitely_missing.yaml}\n"
+        "    output_dir: /out\n"
+    )
+    response = client.post("/api/v1/job-definitions/preview", json={"content": content})
+    assert response.status_code == 400
+    assert "mapping" in response.json()["detail"].lower()
+
+    app.dependency_overrides.clear()
+    get_runtime.cache_clear()
+
+
 def test_submit_lists_and_fetches_group(tmp_path: Path):
     client = _client(tmp_path)
     client.post("/api/v1/pipeline-yamls", json={"name": "demo.yaml", "content": VALID_YAML, "overwrite": True})
@@ -80,6 +100,9 @@ def test_submit_lists_and_fetches_group(tmp_path: Path):
     assert group["total"] == 4
     assert group["status"] in {"queued", "running"}
     assert len(group["tasks"]) == 4
+    # Tasks expose their stage + matrix cell so the UI can group them hierarchically.
+    assert {t["stage"] for t in group["tasks"]} == {"first", "second"}
+    assert all("tag" in t["matrix_key"] for t in group["tasks"])
 
     listing = client.get("/api/v1/job-definitions")
     assert listing.status_code == 200

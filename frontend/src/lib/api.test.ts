@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createYamlFolder, deletePipelineYaml, deleteYamlFolder, getPipelineYaml, movePipelineYaml, savePipelineYaml, submitJob, validateYamlContent } from "./api";
+import { createYamlFolder, deletePipelineYaml, deleteYamlFolder, getJobDefinition, getPipelineYaml, listJobDefinitions, movePipelineYaml, previewJobDefinition, savePipelineYaml, submitJob, submitJobDefinition, validateYamlContent } from "./api";
 
 function mockFetch(payload: unknown) {
   const fetchMock = vi.fn().mockResolvedValue({
@@ -44,6 +44,21 @@ describe("pipeline API client", () => {
     expect(fetchMock.mock.calls[2][0]).toBe("/api/v1/pipeline-yamls/folders/designs/alpha");
     expect(fetchMock.mock.calls[3][0]).toBe("/api/v1/pipeline-yamls/move");
     expect(fetchMock.mock.calls[4][0]).toBe("/api/v1/pipeline-yamls/designs/beta/demo.yaml");
+  });
+
+  it("targets the job-definition endpoints", async () => {
+    const fetchMock = mockFetch({ tasks: [] });
+
+    await previewJobDefinition("job: x");
+    await submitJobDefinition("job: x");
+    await listJobDefinitions();
+    await getJobDefinition("grp-1");
+
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/job-definitions/preview");
+    expect(fetchMock.mock.calls[1][0]).toBe("/api/v1/job-definitions");
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).content).toBe("job: x");
+    expect(fetchMock.mock.calls[2][0]).toBe("/api/v1/job-definitions");
+    expect(fetchMock.mock.calls[3][0]).toBe("/api/v1/job-definitions/grp-1");
   });
 });
 

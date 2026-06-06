@@ -66,6 +66,10 @@ export interface Job {
   process_arg_mapping?: Record<string, Record<string, string>>;
   backend: string;
   log_path: string;
+  parent_job_id?: string | null;
+  job_name?: string;
+  stage?: string;
+  matrix_key?: Record<string, string>;
   created_at: string;
   updated_at: string;
   scheduled_at?: string | null;
@@ -84,6 +88,37 @@ export interface JobSubmit {
   process_arg_mapping?: Record<string, Record<string, string>>;
   backend?: string;
   scheduled_at?: string | null;
+}
+
+export interface MaterializedTask {
+  job_name: string;
+  stage: string;
+  matrix_key: Record<string, string>;
+  needs: string[];
+  pipeline_yaml: string;
+  pipeline_name: string;
+  output_dir: string;
+  input_sources: Record<string, string>;
+  process_arg_mapping: Record<string, Record<string, string>>;
+  item_index: number;
+}
+
+export interface JobDefinitionPreview {
+  job_name: string;
+  task_count: number;
+  tasks: MaterializedTask[];
+}
+
+export interface JobGroupSummary {
+  parent_job_id: string;
+  job_name: string;
+  status: string;
+  total: number;
+  counts: Record<string, number>;
+}
+
+export interface JobGroupDetail extends JobGroupSummary {
+  tasks: Job[];
 }
 
 export interface RuntimeInfo {
