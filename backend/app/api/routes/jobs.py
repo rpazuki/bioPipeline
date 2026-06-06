@@ -123,6 +123,7 @@ def _job_response(job: JobRecord) -> JobResponse:
         backend=job.spec.backend,
         log_path=str(job.log_path),
         created_at=job.created_at,
+        updated_at=job.updated_at,
         scheduled_at=job.spec.scheduled_at,
         started_at=job.started_at,
         finished_at=job.finished_at,

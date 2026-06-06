@@ -67,6 +67,7 @@ export interface Job {
   backend: string;
   log_path: string;
   created_at: string;
+  updated_at: string;
   scheduled_at?: string | null;
   started_at?: string | null;
   finished_at?: string | null;

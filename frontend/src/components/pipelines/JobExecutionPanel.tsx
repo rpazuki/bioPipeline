@@ -80,7 +80,6 @@ export default function JobExecutionPanel({ yamlName, pipelineNames, yamlIsValid
   const [tree, setTree] = useState<YamlTreeNode[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [runtimeInfo, setRuntimeInfo] = useState<RuntimeInfo | null>(null);
-  const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState("");
   const [pipelineName, setPipelineName] = useState("");
   const [outputDir, setOutputDir] = useState("./outputs/run-001");
@@ -112,7 +111,6 @@ export default function JobExecutionPanel({ yamlName, pipelineNames, yamlIsValid
 
   async function refreshJobs() {
     setJobs(await listJobs());
-    setLastRefreshedAt(new Date().toISOString());
   }
 
   async function refreshAll() {
@@ -429,7 +427,7 @@ export default function JobExecutionPanel({ yamlName, pipelineNames, yamlIsValid
                             </td>
                             <td className="px-3 py-3 text-xs text-slate-500">{job.created_at}</td>
                             <td className="px-3 py-3 text-xs text-slate-500">
-                              {formatRelativeTime(lastRefreshedAt)}
+                              {formatRelativeTime(job.updated_at)}
                             </td>
                           </tr>
                           {expanded ? (

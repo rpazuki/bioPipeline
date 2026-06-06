@@ -33,6 +33,7 @@ class JobStore:
                     status TEXT NOT NULL,
                     log_path TEXT NOT NULL,
                     created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
                     scheduled_at TEXT,
                     started_at TEXT,
                     finished_at TEXT,
@@ -48,6 +49,9 @@ class JobStore:
                 conn.execute("ALTER TABLE jobs ADD COLUMN pid INTEGER")
             if "process_arg_mapping" not in columns:
                 conn.execute("ALTER TABLE jobs ADD COLUMN process_arg_mapping TEXT NOT NULL DEFAULT '{}'")
+            if "updated_at" not in columns:
+                conn.execute("ALTER TABLE jobs ADD COLUMN updated_at TEXT")
+                conn.execute("UPDATE jobs SET updated_at = created_at WHERE updated_at IS NULL")
 
     def connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, timeout=30.0)
@@ -76,15 +80,16 @@ class JobStore:
             status=JobStatus.QUEUED,
             log_path=Path(log_path),
             created_at=created_at,
+            updated_at=created_at,
         )
         with self.connect() as conn:
             conn.execute(
                 """
                 INSERT INTO jobs (
                     id, yaml_path, pipeline_name, output_dir, input_sources, process_arg_mapping,
-                    backend, status, log_path, created_at, scheduled_at
+                    backend, status, log_path, created_at, updated_at, scheduled_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.id,
@@ -97,6 +102,7 @@ class JobStore:
                     record.status.value,
                     str(record.log_path),
                     record.created_at.isoformat(),
+                    record.updated_at.isoformat(),
                     spec.scheduled_at.isoformat() if spec.scheduled_at else None,
                 ),
             )
@@ -112,16 +118,16 @@ class JobStore:
             cursor = conn.execute(
                 """
                 UPDATE jobs
-                SET status = ?, started_at = COALESCE(started_at, ?)
+                SET status = ?, started_at = COALESCE(started_at, ?), updated_at = ?
                 WHERE id = ? AND status = ?
                 """,
-                (JobStatus.RUNNING.value, utc_now().isoformat(), job_id, JobStatus.QUEUED.value),
+                (JobStatus.RUNNING.value, utc_now().isoformat(), utc_now().isoformat(), job_id, JobStatus.QUEUED.value),
             )
             return cursor.rowcount == 1
 
     def set_pid(self, job_id: str, pid: int | None) -> None:
         with self.connect() as conn:
-            conn.execute("UPDATE jobs SET pid = ? WHERE id = ?", (pid, job_id))
+            conn.execute("UPDATE jobs SET pid = ?, updated_at = ? WHERE id = ?", (pid, utc_now().isoformat(), job_id))
 
     def cancel_job(self, job_id: str, *, reason: str = "Cancelled by user") -> JobRecord:
         job = self.get_job(job_id)
@@ -191,6 +197,7 @@ class JobStore:
                 """
                 UPDATE jobs
                 SET status = ?,
+                    updated_at = ?,
                     started_at = COALESCE(?, started_at),
                     finished_at = COALESCE(?, finished_at),
                     exit_code = COALESCE(?, exit_code),
@@ -199,6 +206,7 @@ class JobStore:
                 """,
                 (
                     status.value,
+                    utc_now().isoformat(),
                     started_at.isoformat() if started_at else None,
                     finished_at.isoformat() if finished_at else None,
                     exit_code,
@@ -232,6 +240,7 @@ class JobStore:
             status=JobStatus(row["status"]),
             log_path=Path(row["log_path"]),
             created_at=_parse_dt(row["created_at"]),
+            updated_at=_parse_dt(row["updated_at"]) if "updated_at" in row_keys and row["updated_at"] else _parse_dt(row["created_at"]),
             started_at=_parse_dt(row["started_at"]),
             finished_at=_parse_dt(row["finished_at"]),
             exit_code=row["exit_code"],

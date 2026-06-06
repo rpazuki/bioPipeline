@@ -117,6 +117,7 @@ class JobResponse(BaseModel):
     backend: str
     log_path: str
     created_at: datetime
+    updated_at: datetime
     scheduled_at: datetime | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None

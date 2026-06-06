@@ -32,6 +32,7 @@ class JobRecord:
     status: JobStatus
     log_path: Path
     created_at: datetime
+    updated_at: datetime
     started_at: datetime | None = None
     finished_at: datetime | None = None
     exit_code: int | None = None
