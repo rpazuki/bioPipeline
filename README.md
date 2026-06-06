@@ -3,12 +3,18 @@
 Lightweight YAML authoring, queueing, scheduling, and execution tooling for existing
 `labUtils` pipelines.
 
-This project does not reimplement the `labUtils` pipeline engine. It treats `labUtils`
-as an external library and runs pipelines through:
+The process/YAML pipeline engine lives in this project's `pipeline` package (transferred
+from `labUtils`). Each job runs as an isolated subprocess that builds and executes the
+pipeline in-process via the engine:
 
 ```bash
-python -m labUtils.scripts.run_a_pipeline PIPELINE.yaml PIPELINE_NAME -o OUTPUT_DIR
+python -m bio_pipeline_manager.run_task TASK.json
 ```
+
+This lets a job carry `process_arg_mapping` (per-process parameter overrides), which the old
+`labUtils.scripts.run_a_pipeline` CLI never exposed. The **science** process functions still
+live in `labUtils`, installed separately and referenced from YAML as `package: labUtils.*`.
+See `docs/JOBS_REDESIGN.md` for the full design.
 
 ## Project Shape
 
@@ -205,9 +211,9 @@ tests/
 
 ## Design Principle
 
-`labUtils` remains the source of truth for pipeline semantics. This manager owns only
-the surrounding operational concerns: YAML files, queue state, scheduling, logs, and
-external execution backends.
+The manager owns the pipeline engine (`pipeline` package) plus the surrounding operational
+concerns: YAML files, queue state, scheduling, logs, and execution backends. `labUtils`
+remains the source of truth for the **science** process functions referenced from YAML.
 
 ## Custom Pipeline Functions
 

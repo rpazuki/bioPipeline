@@ -47,6 +47,14 @@ def main(argv: list[str] | None = None) -> int:
     submit.add_argument("--backend", default="local")
     submit.add_argument("--at", dest="scheduled_at")
     submit.add_argument("-i", "--input", action="append", default=[])
+    submit.add_argument(
+        "-p",
+        "--process-arg",
+        action="append",
+        default=[],
+        metavar="PROCESS.KEY=VALUE",
+        help="Per-process parameter override. Repeatable.",
+    )
 
     run_due = subparsers.add_parser("run-due")
     run_due.add_argument("--parallel", type=int, default=1)
@@ -99,12 +107,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "submit":
         input_sources = _parse_inputs(args.input)
+        process_arg_mapping = _parse_process_args(args.process_arg)
         scheduled_at = as_utc(datetime.fromisoformat(args.scheduled_at)) if args.scheduled_at else None
         spec = JobSpec(
             yaml_path=yaml_store.resolve_name(args.yaml_name),
             pipeline_name=args.pipeline_name,
             output_dir=args.output_dir,
             input_sources=input_sources,
+            process_arg_mapping=process_arg_mapping,
             backend=args.backend,
             scheduled_at=scheduled_at,
         )
@@ -139,6 +149,18 @@ def _parse_inputs(values: list[str]) -> dict[str, str]:
         name, path = value.split("=", 1)
         inputs[name.strip()] = path.strip()
     return inputs
+
+
+def _parse_process_args(values: list[str]) -> dict[str, dict[str, str]]:
+    """Parse repeated PROCESS.KEY=VALUE overrides into a nested mapping."""
+    mapping: dict[str, dict[str, str]] = {}
+    for value in values:
+        if "=" not in value or "." not in value.split("=", 1)[0]:
+            raise ValueError(f"Process arg override must be PROCESS.KEY=VALUE: {value}")
+        target, raw_value = value.split("=", 1)
+        process, key = target.split(".", 1)
+        mapping.setdefault(process.strip(), {})[key.strip()] = raw_value.strip()
+    return mapping
 
 
 if __name__ == "__main__":

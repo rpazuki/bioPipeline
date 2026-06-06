@@ -101,6 +101,7 @@ class JobSubmitRequest(BaseModel):
     pipeline_name: str
     output_dir: str
     input_sources: dict[str, str] = Field(default_factory=dict)
+    process_arg_mapping: dict[str, dict[str, str]] = Field(default_factory=dict)
     backend: str = "local"
     scheduled_at: datetime | None = None
 
@@ -112,6 +113,7 @@ class JobResponse(BaseModel):
     pipeline_name: str
     output_dir: str
     input_sources: dict[str, str]
+    process_arg_mapping: dict[str, dict[str, str]] = Field(default_factory=dict)
     backend: str
     log_path: str
     created_at: datetime

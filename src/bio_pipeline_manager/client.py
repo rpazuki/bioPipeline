@@ -50,6 +50,7 @@ class PipelineClient:
         output_dir: str,
         *,
         input_sources: dict[str, str] | None = None,
+        process_arg_mapping: dict[str, dict[str, str]] | None = None,
         scheduled_at: str | None = None,
         backend: str = "local",
     ) -> dict[str, Any]:
@@ -61,6 +62,7 @@ class PipelineClient:
                 "pipeline_name": pipeline_name,
                 "output_dir": output_dir,
                 "input_sources": input_sources or {},
+                "process_arg_mapping": process_arg_mapping or {},
                 "scheduled_at": scheduled_at,
                 "backend": backend,
             },

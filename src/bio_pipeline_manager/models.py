@@ -20,6 +20,7 @@ class JobSpec:
     pipeline_name: str
     output_dir: Path
     input_sources: dict[str, str] = field(default_factory=dict)
+    process_arg_mapping: dict[str, dict[str, str]] = field(default_factory=dict)
     backend: str = "local"
     scheduled_at: datetime | None = None
 

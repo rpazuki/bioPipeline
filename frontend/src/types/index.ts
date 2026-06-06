@@ -63,6 +63,7 @@ export interface Job {
   pipeline_name: string;
   output_dir: string;
   input_sources: Record<string, string>;
+  process_arg_mapping?: Record<string, Record<string, string>>;
   backend: string;
   log_path: string;
   created_at: string;
@@ -79,6 +80,7 @@ export interface JobSubmit {
   pipeline_name: string;
   output_dir: string;
   input_sources: Record<string, string>;
+  process_arg_mapping?: Record<string, Record<string, string>>;
   backend?: string;
   scheduled_at?: string | null;
 }

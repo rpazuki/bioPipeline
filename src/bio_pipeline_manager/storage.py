@@ -28,6 +28,7 @@ class JobStore:
                     pipeline_name TEXT NOT NULL,
                     output_dir TEXT NOT NULL,
                     input_sources TEXT NOT NULL,
+                    process_arg_mapping TEXT NOT NULL DEFAULT '{}',
                     backend TEXT NOT NULL,
                     status TEXT NOT NULL,
                     log_path TEXT NOT NULL,
@@ -41,10 +42,12 @@ class JobStore:
                 )
                 """
             )
-            # Migrate pre-existing databases that lack the pid column.
+            # Migrate pre-existing databases that lack newer columns.
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}
             if "pid" not in columns:
                 conn.execute("ALTER TABLE jobs ADD COLUMN pid INTEGER")
+            if "process_arg_mapping" not in columns:
+                conn.execute("ALTER TABLE jobs ADD COLUMN process_arg_mapping TEXT NOT NULL DEFAULT '{}'")
 
     def connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, timeout=30.0)
@@ -63,6 +66,7 @@ class JobStore:
             pipeline_name=spec.pipeline_name,
             output_dir=spec.output_dir,
             input_sources=spec.input_sources,
+            process_arg_mapping=spec.process_arg_mapping,
             backend=spec.backend,
             scheduled_at=as_utc(spec.scheduled_at),
         )
@@ -77,10 +81,10 @@ class JobStore:
             conn.execute(
                 """
                 INSERT INTO jobs (
-                    id, yaml_path, pipeline_name, output_dir, input_sources, backend,
-                    status, log_path, created_at, scheduled_at
+                    id, yaml_path, pipeline_name, output_dir, input_sources, process_arg_mapping,
+                    backend, status, log_path, created_at, scheduled_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.id,
@@ -88,6 +92,7 @@ class JobStore:
                     spec.pipeline_name,
                     str(spec.output_dir),
                     json.dumps(spec.input_sources, sort_keys=True),
+                    json.dumps(spec.process_arg_mapping, sort_keys=True),
                     spec.backend,
                     record.status.value,
                     str(record.log_path),
@@ -206,11 +211,18 @@ class JobStore:
     @staticmethod
     def _row_to_record(row: sqlite3.Row) -> JobRecord:
         scheduled_at = _parse_dt(row["scheduled_at"])
+        row_keys = row.keys()
+        process_arg_mapping = (
+            json.loads(row["process_arg_mapping"])
+            if "process_arg_mapping" in row_keys and row["process_arg_mapping"]
+            else {}
+        )
         spec = JobSpec(
             yaml_path=Path(row["yaml_path"]),
             pipeline_name=row["pipeline_name"],
             output_dir=Path(row["output_dir"]),
             input_sources=json.loads(row["input_sources"]),
+            process_arg_mapping=process_arg_mapping,
             backend=row["backend"],
             scheduled_at=scheduled_at,
         )

@@ -9,28 +9,45 @@ from bio_pipeline_manager.storage import JobStore
 from bio_pipeline_manager.worker import JobWorker
 
 
-def _install_fake_labutils(tmp_path: Path, body: str) -> dict[str, str]:
-    fake = tmp_path / "fake_labutils"
-    script_dir = fake / "labUtils" / "scripts"
-    script_dir.mkdir(parents=True)
-    (fake / "labUtils" / "__init__.py").write_text("", encoding="utf-8")
-    (script_dir / "__init__.py").write_text("", encoding="utf-8")
-    (script_dir / "run_a_pipeline.py").write_text(body, encoding="utf-8")
-    return {"PYTHONPATH": str(fake)}
+def _install_slow_process(tmp_path: Path) -> dict[str, str]:
+    """Create an importable package with a process function that sleeps."""
+    pkg_root = tmp_path / "slowpkg_root"
+    pkg = pkg_root / "slowpkg"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text(
+        "import time\n\n\ndef run(**kwargs):\n    for _ in range(200):\n        time.sleep(0.1)\n",
+        encoding="utf-8",
+    )
+    return {"PYTHONPATH": str(pkg_root)}
+
+
+def _write_pipeline(yaml_path: Path, *, package: str, method: str) -> None:
+    yaml_path.write_text(
+        f"""
+pipelines:
+  - demo:
+      Inputs: []
+      Processes:
+        - step:
+            package: {package}
+            method: {method}
+            parameters: {{}}
+      Outputs: []
+""",
+        encoding="utf-8",
+    )
 
 
 def test_cancel_kills_running_subprocess(tmp_path: Path):
-    env = _install_fake_labutils(
-        tmp_path,
-        "import sys, time\n"
-        "for _ in range(200):\n"
-        "    time.sleep(0.1)\n",
-    )
+    env = _install_slow_process(tmp_path)
+    yaml_path = tmp_path / "pipe.yaml"
+    _write_pipeline(yaml_path, package="slowpkg", method="run")
+
     store = JobStore(tmp_path / "state.sqlite")
     queue = JobQueue(store, tmp_path / "logs")
     job = queue.submit(
         JobSpec(
-            yaml_path=tmp_path / "pipe.yaml",
+            yaml_path=yaml_path,
             pipeline_name="demo",
             output_dir=tmp_path / "out",
         )
@@ -55,22 +72,32 @@ def test_cancel_kills_running_subprocess(tmp_path: Path):
 
 
 def test_worker_drains_due_jobs(tmp_path: Path):
-    env = _install_fake_labutils(
-        tmp_path,
-        "import argparse\n"
-        "p = argparse.ArgumentParser()\n"
-        "p.add_argument('yaml_file')\n"
-        "p.add_argument('pipeline_name')\n"
-        "p.add_argument('-o', '--output-dir', required=True)\n"
-        "p.add_argument('-i', '--input', action='append', default=[])\n"
-        "p.parse_args()\n",
+    yaml_path = tmp_path / "pipe.yaml"
+    # sequence() is a project helper, so no external env is needed.
+    yaml_path.write_text(
+        """
+pipelines:
+  - demo:
+      Inputs: []
+      Processes:
+        - step:
+            package: pipeline.helpers
+            method: sequence
+            parameters:
+              start: 0
+              stop: 3
+              step: 1
+      Outputs: []
+""",
+        encoding="utf-8",
     )
+
     store = JobStore(tmp_path / "state.sqlite")
-    runner = LocalSubprocessRunner(store, extra_env=env)
+    runner = LocalSubprocessRunner(store)
     queue = JobQueue(store, tmp_path / "logs", runner=runner)
     job = queue.submit(
         JobSpec(
-            yaml_path=tmp_path / "pipe.yaml",
+            yaml_path=yaml_path,
             pipeline_name="demo",
             output_dir=tmp_path / "out",
         )

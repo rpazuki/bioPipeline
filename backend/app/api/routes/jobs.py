@@ -31,6 +31,7 @@ async def submit_job(
         pipeline_name=body.pipeline_name,
         output_dir=Path(body.output_dir),
         input_sources=body.input_sources,
+        process_arg_mapping=body.process_arg_mapping,
         backend=body.backend,
         scheduled_at=body.scheduled_at,
     )
@@ -118,6 +119,7 @@ def _job_response(job: JobRecord) -> JobResponse:
         pipeline_name=job.spec.pipeline_name,
         output_dir=str(job.spec.output_dir),
         input_sources=job.spec.input_sources,
+        process_arg_mapping=job.spec.process_arg_mapping,
         backend=job.spec.backend,
         log_path=str(job.log_path),
         created_at=job.created_at,

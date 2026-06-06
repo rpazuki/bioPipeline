@@ -1,4 +1,4 @@
-"""Custom pipeline functions callable from labUtils YAML configs.
+"""Custom pipeline functions callable from pipeline YAML configs.
 
 Use package: pipeline.helpers and method: <function_name> in pipeline YAML
 process entries.

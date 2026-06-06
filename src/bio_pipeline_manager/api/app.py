@@ -36,6 +36,7 @@ def create_app(home: str | Path = ".bio_pipeline"):
         pipeline_name: str
         output_dir: str
         input_sources: dict[str, str] = {}
+        process_arg_mapping: dict[str, dict[str, str]] = {}
         backend: str = "local"
         scheduled_at: str | None = None
 
@@ -99,6 +100,7 @@ def create_app(home: str | Path = ".bio_pipeline"):
             pipeline_name=payload.pipeline_name,
             output_dir=Path(payload.output_dir),
             input_sources=payload.input_sources,
+            process_arg_mapping=payload.process_arg_mapping,
             backend=payload.backend,
             scheduled_at=as_utc(datetime.fromisoformat(payload.scheduled_at)) if payload.scheduled_at else None,
         )

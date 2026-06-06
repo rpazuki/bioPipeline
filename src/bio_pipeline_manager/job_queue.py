@@ -54,6 +54,7 @@ class JobQueue:
             pipeline_name=job.spec.pipeline_name,
             output_dir=job.spec.output_dir,
             input_sources=job.spec.input_sources,
+            process_arg_mapping=job.spec.process_arg_mapping,
             backend=job.spec.backend,
             scheduled_at=datetime.now(timezone.utc),
         )
