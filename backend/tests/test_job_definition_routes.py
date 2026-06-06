@@ -97,11 +97,13 @@ def test_submit_lists_and_fetches_group(tmp_path: Path):
     group = submit.json()
     parent_id = group["parent_job_id"]
     assert group["job_name"] == "api_demo"
-    assert group["total"] == 4
+    # Lazy materialisation: only the eligible first stage (2 cells) is queued at
+    # submit; `second` is materialised later once `first` succeeds.
+    assert group["total"] == 2
     assert group["status"] in {"queued", "running"}
-    assert len(group["tasks"]) == 4
+    assert len(group["tasks"]) == 2
     # Tasks expose their stage + matrix cell so the UI can group them hierarchically.
-    assert {t["stage"] for t in group["tasks"]} == {"first", "second"}
+    assert {t["stage"] for t in group["tasks"]} == {"first"}
     assert all("tag" in t["matrix_key"] for t in group["tasks"])
 
     listing = client.get("/api/v1/job-definitions")
@@ -110,7 +112,7 @@ def test_submit_lists_and_fetches_group(tmp_path: Path):
 
     detail = client.get(f"/api/v1/job-definitions/{parent_id}")
     assert detail.status_code == 200
-    assert detail.json()["total"] == 4
+    assert detail.json()["total"] == 2
 
     missing = client.get("/api/v1/job-definitions/does-not-exist")
     assert missing.status_code == 404

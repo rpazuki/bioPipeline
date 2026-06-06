@@ -21,11 +21,12 @@ class PipelineRuntime:
 def create_runtime(home: str | Path) -> PipelineRuntime:
     root = Path(home)
     job_store = JobStore(root / "state.sqlite")
+    yaml_store = YamlStore(root / "yamls")
     return PipelineRuntime(
         home=root,
-        yaml_store=YamlStore(root / "yamls"),
+        yaml_store=yaml_store,
         job_store=job_store,
-        queue=JobQueue(job_store, root / "logs"),
+        queue=JobQueue(job_store, root / "logs", yaml_resolver=yaml_store.resolve_name),
         packages=PackageManager(
             InstallStore(root / "installs.sqlite"),
             job_guard=job_store.has_active_jobs,

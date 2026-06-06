@@ -153,10 +153,11 @@ per-item fields are available for templating.
 - **`folders`** makes one Task per immediate sub-directory of `data_dir`
   (useful for "collate everything under this folder").
 
-> Fan-out is resolved **when the definition is expanded** (at preview/submit).
-> `mapping_file`, `patterns`, and `folders` therefore read the filesystem on the
-> machine running the backend. If a referenced file or folder is missing you get
-> a clear validation error (HTTP 400), not a server crash. `none` needs no files.
+> A stage's fan-out reads the filesystem on the machine running the backend when
+> the stage is **materialised**: at submit for eligible (first) stages, and at run
+> time for stages gated behind `needs` (so a source produced upstream is fine —
+> see §8). A genuinely missing source on a first stage gives a clear validation
+> error (HTTP 400), not a server crash. `none` needs no files.
 
 `data_dir`, when present, is itself templated and is also exposed to
 `input_sources`/`output_dir` templates as `{data_dir}`.
@@ -256,11 +257,19 @@ The parent job's status is derived from its Tasks:
 
 ### Expansion model
 
-The matrix is expanded **eagerly** at submit time (every cell × stage), and each
-stage's fan-out is resolved from the filesystem at the same time. All Tasks are
-created up-front and gated by their dependencies. (Lazy per-stage fan-out — for a
-downstream source produced by an upstream stage at run time — is not yet
-implemented; pre-create the directories or use absolute paths that exist.)
+The matrix is expanded **eagerly** at submit (every cell), but each stage's
+fan-out is materialised **lazily**: only stages that are immediately eligible
+(no unmet `needs`) are queued at submit; a downstream stage is materialised when
+its upstream stages in the same cell have **succeeded**. This means a stage whose
+`folders`/`patterns` source is *produced by an upstream stage at run time* works
+fine — the source need not exist at submit. Consequences:
+
+- The total task count of a group **grows over time** as stages materialise.
+- If an upstream stage fails, the downstream stage is materialised as a single
+  **`blocked`** placeholder (it never runs) so it stays visible in the rollup.
+- **Preview** is lenient: a downstream stage whose source isn't available yet is
+  shown as one `deferred` entry (it "fans out at run time") rather than failing.
+  A *first* stage with a missing source is still a real error.
 
 ---
 

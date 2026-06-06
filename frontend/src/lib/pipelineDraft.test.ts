@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
@@ -9,9 +9,10 @@ import {
   type PipelineDraft,
 } from "./pipelineDraft";
 
-// Vitest runs with cwd = frontend/; the YAML store sits one level up in the repo.
+// Committed fixture next to this test, so the suite does not depend on the
+// gitignored runtime YAML store (.bio_pipeline/).
 const SAMPLE = readFileSync(
-  resolve(process.cwd(), "../.bio_pipeline/yamls/growth_rates_pipeline.yaml"),
+  fileURLToPath(new URL("./__fixtures__/growth_rates_pipeline.yaml", import.meta.url)),
   "utf-8",
 );
 

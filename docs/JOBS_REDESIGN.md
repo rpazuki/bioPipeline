@@ -377,8 +377,13 @@ stages materialize and flow into the existing claim/run machinery.
    Run-due, and a hierarchical group view (stages → per-cell tasks with rollup). `JobResponse`
    now exposes `stage`/`matrix_key`/`parent_job_id` for grouping. Frontend `type-check`/`vitest`
    could not be run in the dev sandbox (no Node runtime) — run `npm run type-check && npm run test`.
-5. **Lazy stage materialisation.** Expand a stage's fan-out only when it becomes eligible (needed
-   when a downstream `folders`/`patterns` source is produced by an upstream stage at run time).
+5. **[DONE]** **Lazy stage materialisation.** A Job Definition is stored (`job_groups` table);
+   `submit_definition` materialises only eligible (needs-empty) stages, and `run_due` materialises
+   each downstream stage once its upstream stages in the cell have succeeded — so a
+   `folders`/`patterns` source produced by an upstream stage need not exist at submit. Failed
+   upstream → a single `BLOCKED` placeholder; preview (`expand(lenient=True)`) shows not-yet-
+   resolvable downstream stages as `deferred`. `JobQueue` takes a `yaml_resolver` so lazy
+   materialisation resolves stored YAML names in any process (CLI/worker/API).
 
 ---
 

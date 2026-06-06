@@ -378,3 +378,46 @@ stages:
 """
     with pytest.raises(JobDefinitionError, match="folders fan-out"):
         expand(text)
+
+
+def test_lenient_preview_defers_downstream_missing_source(tmp_path: Path):
+    text = f"""
+job: lazy
+stages:
+  - name: prep
+    pipeline_yaml: p.yaml
+    pipeline: demo
+    fanout: {{type: none}}
+    output_dir: "{tmp_path.as_posix()}/processed/x"
+  - name: collate
+    needs: [prep]
+    pipeline_yaml: c.yaml
+    pipeline: demo
+    fanout: {{type: folders, data_dir: "{tmp_path.as_posix()}/processed"}}
+    output_dir: "/out/{{item.name}}"
+"""
+    # Non-lenient expansion fails (the folder does not exist yet).
+    with pytest.raises(JobDefinitionError):
+        expand(text)
+
+    # Lenient (preview) shows the downstream stage as a single deferred entry.
+    tasks = expand(text, lenient=True)
+    prep = [t for t in tasks if t.stage == "prep"]
+    collate = [t for t in tasks if t.stage == "collate"]
+    assert len(prep) == 1 and prep[0].deferred is False
+    assert len(collate) == 1 and collate[0].deferred is True
+
+
+def test_lenient_preview_still_errors_on_first_stage_missing_source(tmp_path: Path):
+    # A first stage (no needs) with a missing source is a real error even in preview.
+    text = f"""
+job: bad
+stages:
+  - name: prep
+    pipeline_yaml: p.yaml
+    pipeline: demo
+    fanout: {{type: mapping_file, mapping: "{(tmp_path / 'missing.yaml').as_posix()}"}}
+    output_dir: /out
+"""
+    with pytest.raises(JobDefinitionError):
+        expand(text, lenient=True)

@@ -88,7 +88,9 @@ def main(argv: list[str] | None = None) -> int:
     home = args.home
     yaml_store = YamlStore(home / "yamls")
     store = JobStore(home / "state.sqlite")
-    queue = JobQueue(store, home / "logs")
+    # Pass the resolver so lazily-materialised stages (during run-due) resolve
+    # stored pipeline YAML names, even in a different process than the submit.
+    queue = JobQueue(store, home / "logs", yaml_resolver=yaml_store.resolve_name)
 
     if args.command == "init":
         home.mkdir(parents=True, exist_ok=True)
@@ -209,11 +211,12 @@ def _handle_job_command(args, queue: JobQueue, yaml_store: YamlStore) -> int:
 
     if args.job_command == "preview":
         text = args.definition.read_text(encoding="utf-8")
-        tasks = expand(text)
+        tasks = expand(text, lenient=True)
         print(f"{len(tasks)} task(s):")
         for task in tasks:
+            marker = " [deferred]" if task.deferred else ""
             print(
-                f"  [{task.stage}] {_format_matrix_key(task.matrix_key)} "
+                f"  [{task.stage}]{marker} {_format_matrix_key(task.matrix_key)} "
                 f"-> {task.pipeline_name} (yaml={task.pipeline_yaml})"
             )
             print(f"      output_dir: {task.output_dir}")

@@ -24,7 +24,7 @@ router = APIRouter(prefix="/job-definitions", tags=["job-definitions"])
 async def preview_job_definition(body: JobDefinitionRequest) -> JobDefinitionPreviewResponse:
     """Expand a Job Definition into its Tasks without queueing anything."""
     try:
-        tasks = expand(body.content)
+        tasks = expand(body.content, lenient=True)
     except JobDefinitionError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -43,6 +43,7 @@ async def preview_job_definition(body: JobDefinitionRequest) -> JobDefinitionPre
                 input_sources=task.input_sources,
                 process_arg_mapping=task.process_arg_mapping,
                 item_index=task.item_index,
+                deferred=task.deferred,
             )
             for task in tasks
         ],

@@ -101,6 +101,7 @@ export interface MaterializedTask {
   input_sources: Record<string, string>;
   process_arg_mapping: Record<string, Record<string, string>>;
   item_index: number;
+  deferred?: boolean;
 }
 
 export interface JobDefinitionPreview {

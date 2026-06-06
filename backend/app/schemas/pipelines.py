@@ -146,6 +146,7 @@ class MaterializedTaskResponse(BaseModel):
     input_sources: dict[str, str]
     process_arg_mapping: dict[str, dict[str, str]]
     item_index: int
+    deferred: bool = False
 
 
 class JobDefinitionRequest(BaseModel):

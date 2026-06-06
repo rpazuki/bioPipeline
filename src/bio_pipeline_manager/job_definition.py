@@ -54,6 +54,10 @@ class MaterializedTask:
     input_sources: dict[str, str] = field(default_factory=dict)
     process_arg_mapping: dict[str, dict[str, str]] = field(default_factory=dict)
     item_index: int = 0
+    # True when a stage's fan-out source is not yet available (it will be
+    # produced by an upstream stage at run time). Used only for preview display;
+    # such stages are materialised lazily when they become eligible.
+    deferred: bool = False
 
 
 @dataclass(frozen=True)
@@ -148,21 +152,27 @@ def _check_no_cycles(stages: list[dict[str, Any]]) -> None:
 # --------------------------------------------------------------------------- #
 # Templating
 # --------------------------------------------------------------------------- #
-def _render(template: Any, context: dict[str, str]) -> Any:
-    """Render ``{token}`` substitutions in strings / nested dicts / lists."""
+def _render(template: Any, context: dict[str, str], *, lenient: bool = False) -> Any:
+    """Render ``{token}`` substitutions in strings / nested dicts / lists.
+
+    With ``lenient=True`` an unknown token is left as-is instead of raising
+    (used for preview of deferred stages, whose item fields are not yet known).
+    """
     if isinstance(template, str):
 
         def replace(match: re.Match) -> str:
             key = match.group(1)
             if key not in context:
+                if lenient:
+                    return match.group(0)
                 raise JobDefinitionError(f"unresolved template variable '{{{key}}}'")
             return str(context[key])
 
         return _TOKEN_RE.sub(replace, template)
     if isinstance(template, dict):
-        return {k: _render(v, context) for k, v in template.items()}
+        return {k: _render(v, context, lenient=lenient) for k, v in template.items()}
     if isinstance(template, list):
-        return [_render(v, context) for v in template]
+        return [_render(v, context, lenient=lenient) for v in template]
     return template
 
 
@@ -201,6 +211,22 @@ def _cell_context(job_def: JobDefinition, cell: dict[str, Any]) -> dict[str, str
     for key, value in job_def.defaults.items():
         context[key] = _render(value, context)
     return context
+
+
+def cell_matrix_key(cell: dict[str, Any]) -> dict[str, str]:
+    """The stable key identifying a matrix cell (dict variables use their name)."""
+    return {k: (v if not isinstance(v, dict) else v.get("name", "")) for k, v in cell.items()}
+
+
+def stage_names(job_def: JobDefinition) -> list[str]:
+    return [stage["name"] for stage in job_def.stages]
+
+
+def stage_by_name(job_def: JobDefinition, name: str) -> dict[str, Any]:
+    for stage in job_def.stages:
+        if stage["name"] == name:
+            return stage
+    raise JobDefinitionError(f"unknown stage '{name}'")
 
 
 def _fanout_items(stage: dict[str, Any], context: dict[str, str]) -> tuple[list[dict[str, str]], dict[str, str]]:
@@ -273,35 +299,79 @@ def _fanout_items(stage: dict[str, Any], context: dict[str, str]) -> tuple[list[
     raise JobDefinitionError(f"unknown fanout type '{ftype}'")  # pragma: no cover - guarded in parse
 
 
-def expand(text_or_def: str | JobDefinition) -> list[MaterializedTask]:
+def materialize_stage(
+    job_def: JobDefinition,
+    cell: dict[str, Any],
+    stage: dict[str, Any],
+    *,
+    lenient: bool = False,
+) -> list[MaterializedTask]:
+    """Resolve one stage for one matrix cell into concrete Tasks.
+
+    When ``lenient`` is set and the fan-out source cannot be read yet (it will be
+    produced by an upstream stage at run time), a single ``deferred`` placeholder
+    Task is returned instead of raising — so a preview can still show the plan.
+    """
+    context = _cell_context(job_def, cell)
+    matrix_key = cell_matrix_key(cell)
+    needs = list(stage.get("needs", []) or [])
+
+    try:
+        items, extra = _fanout_items(stage, context)
+    except JobDefinitionError:
+        if not lenient:
+            raise
+        return [
+            MaterializedTask(
+                job_name=job_def.name,
+                stage=stage["name"],
+                matrix_key=matrix_key,
+                needs=needs,
+                pipeline_yaml=_render(stage["pipeline_yaml"], context, lenient=True),
+                pipeline_name=_render(stage["pipeline"], context, lenient=True),
+                output_dir=_render(stage["output_dir"], context, lenient=True),
+                input_sources=_render(stage.get("input_sources", {}) or {}, context, lenient=True),
+                process_arg_mapping=_render(stage.get("process_arg_mapping", {}) or {}, context, lenient=True),
+                item_index=-1,
+                deferred=True,
+            )
+        ]
+
+    tasks: list[MaterializedTask] = []
+    for index, item in enumerate(items):
+        item_context = {**context, **extra, **item}
+        tasks.append(
+            MaterializedTask(
+                job_name=job_def.name,
+                stage=stage["name"],
+                matrix_key=matrix_key,
+                needs=needs,
+                pipeline_yaml=_render(stage["pipeline_yaml"], item_context),
+                pipeline_name=_render(stage["pipeline"], item_context),
+                output_dir=_render(stage["output_dir"], item_context),
+                input_sources=_render(stage.get("input_sources", {}) or {}, item_context),
+                process_arg_mapping=_render(stage.get("process_arg_mapping", {}) or {}, item_context),
+                item_index=index,
+            )
+        )
+    return tasks
+
+
+def expand(text_or_def: str | JobDefinition, *, lenient: bool = False) -> list[MaterializedTask]:
     """Expand a Job Definition into a flat list of materialized Tasks.
 
-    Matrix is expanded eagerly. Fan-out is resolved where its source is
-    available (``none``/``mapping_file`` always; ``patterns``/``folders`` need
-    the directory to exist). Raises :class:`JobDefinitionError` on any problem.
+    The matrix is expanded eagerly. Each stage's fan-out is resolved from the
+    filesystem. With ``lenient=True`` (used for preview), a stage whose fan-out
+    source is not yet available is shown as one ``deferred`` placeholder instead
+    of raising; otherwise any problem raises :class:`JobDefinitionError`.
     """
     job_def = text_or_def if isinstance(text_or_def, JobDefinition) else parse_job_definition(text_or_def)
 
     tasks: list[MaterializedTask] = []
     for cell in iter_cells(job_def):
-        context = _cell_context(job_def, cell)
-        matrix_key = {k: (v if not isinstance(v, dict) else v.get("name", "")) for k, v in cell.items()}
         for stage in job_def.stages:
-            items, extra = _fanout_items(stage, context)
-            for index, item in enumerate(items):
-                item_context = {**context, **extra, **item}
-                tasks.append(
-                    MaterializedTask(
-                        job_name=job_def.name,
-                        stage=stage["name"],
-                        matrix_key=matrix_key,
-                        needs=list(stage.get("needs", []) or []),
-                        pipeline_yaml=_render(stage["pipeline_yaml"], item_context),
-                        pipeline_name=_render(stage["pipeline"], item_context),
-                        output_dir=_render(stage["output_dir"], item_context),
-                        input_sources=_render(stage.get("input_sources", {}) or {}, item_context),
-                        process_arg_mapping=_render(stage.get("process_arg_mapping", {}) or {}, item_context),
-                        item_index=index,
-                    )
-                )
+            # Only a stage with unmet `needs` may legitimately defer (its source is
+            # produced upstream). A first stage with a missing source is a real error.
+            stage_lenient = lenient and bool(stage.get("needs"))
+            tasks.extend(materialize_stage(job_def, cell, stage, lenient=stage_lenient))
     return tasks

@@ -48,6 +48,17 @@ class JobStore:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS job_groups (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    definition TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    scheduled_at TEXT
+                )
+                """
+            )
             # Migrate pre-existing databases that lack newer columns.
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}
             if "pid" not in columns:
@@ -197,6 +208,31 @@ class JobStore:
                 "SELECT 1 FROM jobs WHERE status = ? LIMIT 1", (JobStatus.RUNNING.value,)
             ).fetchone()
         return row is not None
+
+    def create_group(
+        self, group_id: str, name: str, definition: str, scheduled_at: datetime | None = None
+    ) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                "INSERT INTO job_groups (id, name, definition, created_at, scheduled_at) VALUES (?, ?, ?, ?, ?)",
+                (
+                    group_id,
+                    name,
+                    definition,
+                    utc_now().isoformat(),
+                    scheduled_at.isoformat() if scheduled_at else None,
+                ),
+            )
+
+    def get_group(self, group_id: str) -> dict | None:
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM job_groups WHERE id = ?", (group_id,)).fetchone()
+        return dict(row) if row else None
+
+    def list_group_ids(self) -> list[str]:
+        with self.connect() as conn:
+            rows = conn.execute("SELECT id FROM job_groups ORDER BY created_at DESC").fetchall()
+        return [row["id"] for row in rows]
 
     def list_jobs_by_parent(self, parent_job_id: str) -> list[JobRecord]:
         with self.connect() as conn:

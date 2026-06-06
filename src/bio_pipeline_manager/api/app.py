@@ -18,7 +18,7 @@ def create_app(home: str | Path = ".bio_pipeline"):
     home = Path(home)
     yaml_store = YamlStore(home / "yamls")
     job_store = JobStore(home / "state.sqlite")
-    queue = JobQueue(job_store, home / "logs")
+    queue = JobQueue(job_store, home / "logs", yaml_resolver=yaml_store.resolve_name)
     app = FastAPI(title="Bio Pipeline Manager")
 
     class YamlDocument(BaseModel):
@@ -171,12 +171,13 @@ def create_app(home: str | Path = ".bio_pipeline"):
             "input_sources": task.input_sources,
             "process_arg_mapping": task.process_arg_mapping,
             "item_index": task.item_index,
+            "deferred": task.deferred,
         }
 
     @app.post("/job-definitions/preview")
     def preview_definition(payload: DefinitionRequest):
         try:
-            tasks = expand(payload.content)
+            tasks = expand(payload.content, lenient=True)
         except JobDefinitionError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {

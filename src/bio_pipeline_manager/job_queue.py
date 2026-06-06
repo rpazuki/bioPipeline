@@ -10,7 +10,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from bio_pipeline_manager.job_definition import MaterializedTask, expand
+from bio_pipeline_manager.job_definition import (
+    JobDefinitionError,
+    cell_matrix_key,
+    iter_cells,
+    materialize_stage,
+    parse_job_definition,
+)
 from bio_pipeline_manager.models import (
     TERMINAL_FAILURE_STATUSES,
     JobRecord,
@@ -22,6 +28,13 @@ from bio_pipeline_manager.runner import LocalSubprocessRunner
 from bio_pipeline_manager.storage import JobStore
 
 
+def _safe_resolve(resolver: Callable[[str], Path], name: str) -> Path:
+    try:
+        return resolver(name)
+    except Exception:  # noqa: BLE001 - placeholder tasks never run; path is cosmetic
+        return Path(name)
+
+
 class JobQueue:
     """Small queue facade around the SQLite store and local runner."""
 
@@ -31,11 +44,14 @@ class JobQueue:
         logs_dir: str | Path,
         *,
         runner: LocalSubprocessRunner | None = None,
+        yaml_resolver: Callable[[str], Path] | None = None,
     ):
         self.store = store
         self.logs_dir = Path(logs_dir)
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         self.runner = runner or LocalSubprocessRunner(store)
+        # Used to resolve a stage's pipeline_yaml name when materialising lazily.
+        self.yaml_resolver: Callable[[str], Path] = yaml_resolver or Path
 
     def submit(self, spec: JobSpec) -> JobRecord:
         provisional_log_path = self.logs_dir / "pending.log"
@@ -49,49 +65,146 @@ class JobQueue:
         self,
         text: str,
         *,
-        yaml_resolver: Callable[[str], Path],
+        yaml_resolver: Callable[[str], Path] | None = None,
         scheduled_at: datetime | None = None,
     ) -> tuple[str, list[JobRecord]]:
-        """Expand a Job Definition and queue its Tasks as one parent group.
+        """Queue a Job Definition as one parent group, materialising lazily.
 
-        Within each matrix cell, a stage's Tasks depend on every Task of the
-        stages named in its ``needs`` (filesystem hand-off between pipelines).
-        Returns ``(parent_job_id, task_records)``.
+        Only stages that are immediately eligible (no unmet ``needs``) are
+        materialised now; downstream stages are materialised by ``run_due`` once
+        their upstream stages in the same cell have succeeded — so a fan-out
+        source produced by an upstream stage need not exist at submit time.
+        Returns ``(parent_job_id, initial_task_records)``.
         """
-        tasks: list[MaterializedTask] = expand(text)
-        parent_job_id = uuid.uuid4().hex
+        # Validate up-front so a bad definition fails the submit, not later.
+        job_def = parse_job_definition(text)
+        if yaml_resolver is not None:
+            self.yaml_resolver = yaml_resolver
 
-        stage_order = {name: i for i, name in enumerate(dict.fromkeys(t.stage for t in tasks))}
-        groups: dict[str, list[MaterializedTask]] = defaultdict(list)
-        for task in tasks:
-            groups[json.dumps(task.matrix_key, sort_keys=True)].append(task)
+        # Validate static pipeline_yaml references now (raises on out-of-store
+        # paths) so a bad reference fails the submit cleanly instead of later.
+        for stage in job_def.stages:
+            pipeline_yaml = stage["pipeline_yaml"]
+            if "{" not in pipeline_yaml:
+                self.yaml_resolver(pipeline_yaml)
+
+        parent_job_id = uuid.uuid4().hex
+        self.store.create_group(parent_job_id, job_def.name, text, scheduled_at)
+        return parent_job_id, self._materialize_ready(parent_job_id)
+
+    def _materialize_ready(self, parent_job_id: str) -> list[JobRecord]:
+        """Create Tasks for every stage that has become eligible but isn't yet
+        materialised. Idempotent; safe to call repeatedly from ``run_due``."""
+        group = self.store.get_group(parent_job_id)
+        if group is None:
+            return []
+        job_def = parse_job_definition(group["definition"])
+        scheduled_at = (
+            datetime.fromisoformat(group["scheduled_at"]) if group.get("scheduled_at") else None
+        )
+
+        # Snapshot existing tasks, indexed by (cell key, stage name).
+        by_cell_stage: dict[tuple[str, str], list[JobRecord]] = defaultdict(list)
+        for record in self.store.list_jobs_by_parent(parent_job_id):
+            by_cell_stage[(json.dumps(record.spec.matrix_key, sort_keys=True), record.spec.stage)].append(record)
+
+        created: list[JobRecord] = []
+        for cell in iter_cells(job_def):
+            matrix_key = cell_matrix_key(cell)
+            key_json = json.dumps(matrix_key, sort_keys=True)
+            for stage in job_def.stages:
+                stage_name = stage["name"]
+                if by_cell_stage.get((key_json, stage_name)):
+                    continue  # already materialised
+
+                needs = list(stage.get("needs", []) or [])
+                upstream: list[JobRecord] = []
+                eligible = True
+                for need in needs:
+                    need_records = by_cell_stage.get((key_json, need))
+                    if not need_records:
+                        eligible = False  # upstream not materialised yet
+                        break
+                    upstream.extend(need_records)
+                if not eligible:
+                    continue
+                upstream_ids = [r.id for r in upstream]
+                if needs:
+                    statuses = {record.status for record in upstream}
+                    if statuses & TERMINAL_FAILURE_STATUSES:
+                        # An upstream will never succeed: settle this stage as a
+                        # single BLOCKED placeholder so it is visible and not retried.
+                        new_records = [
+                            self._materialize_placeholder(
+                                parent_job_id, job_def, cell, stage, upstream_ids, scheduled_at,
+                                JobStatus.BLOCKED, "Upstream dependency did not succeed",
+                            )
+                        ]
+                        by_cell_stage[(key_json, stage_name)].extend(new_records)
+                        created.extend(new_records)
+                        continue
+                    if statuses != {JobStatus.SUCCEEDED}:
+                        continue  # still running/queued; wait
+
+                new_records = self._materialize_one(
+                    parent_job_id, job_def, cell, stage, upstream_ids, scheduled_at
+                )
+                by_cell_stage[(key_json, stage_name)].extend(new_records)
+                created.extend(new_records)
+        return created
+
+    def _materialize_one(
+        self,
+        parent_job_id: str,
+        job_def,
+        cell: dict,
+        stage: dict,
+        depends_on: list[str],
+        scheduled_at: datetime | None,
+    ) -> list[JobRecord]:
+        try:
+            tasks = materialize_stage(job_def, cell, stage)
+        except JobDefinitionError as exc:
+            # Eligible (upstream succeeded) but the fan-out source still can't be
+            # read — surface a single FAILED placeholder so it settles and shows.
+            return [
+                self._materialize_placeholder(
+                    parent_job_id, job_def, cell, stage, depends_on, scheduled_at,
+                    JobStatus.FAILED, str(exc),
+                )
+            ]
 
         records: list[JobRecord] = []
-        for group in groups.values():
-            group.sort(key=lambda t: (stage_order[t.stage], t.item_index))
-            # Track the queued ids per stage so dependents can reference them.
-            stage_ids: dict[str, list[str]] = defaultdict(list)
-            for task in group:
-                depends_on: list[str] = []
-                for need in task.needs:
-                    depends_on.extend(stage_ids.get(need, []))
-                spec = JobSpec(
-                    yaml_path=yaml_resolver(task.pipeline_yaml),
-                    pipeline_name=task.pipeline_name,
-                    output_dir=Path(task.output_dir),
-                    input_sources=task.input_sources,
-                    process_arg_mapping=task.process_arg_mapping,
-                    scheduled_at=scheduled_at,
-                    parent_job_id=parent_job_id,
-                    job_name=task.job_name,
-                    stage=task.stage,
-                    matrix_key=task.matrix_key,
-                    depends_on=depends_on,
-                )
-                record = self.submit(spec)
-                stage_ids[task.stage].append(record.id)
-                records.append(record)
-        return parent_job_id, records
+        for task in tasks:
+            spec = self._spec_from_task(parent_job_id, task, depends_on, scheduled_at)
+            records.append(self.submit(spec))
+        return records
+
+    def _materialize_placeholder(
+        self, parent_job_id, job_def, cell, stage, depends_on, scheduled_at, status, error
+    ) -> JobRecord:
+        """Create one non-running placeholder Task (FAILED/BLOCKED) for a stage
+        that became eligible but cannot run, so it is visible in the rollup."""
+        placeholder = materialize_stage(job_def, cell, stage, lenient=True)[0]
+        spec = self._spec_from_task(parent_job_id, placeholder, depends_on, scheduled_at, safe=True)
+        record = self.submit(spec)
+        return self.store.update_status(record.id, status, finished_at=utc_now(), error=error)
+
+    def _spec_from_task(self, parent_job_id, task, depends_on, scheduled_at, *, safe: bool = False) -> JobSpec:
+        yaml_path = _safe_resolve(self.yaml_resolver, task.pipeline_yaml) if safe else self.yaml_resolver(task.pipeline_yaml)
+        return JobSpec(
+            yaml_path=yaml_path,
+            pipeline_name=task.pipeline_name,
+            output_dir=Path(task.output_dir),
+            input_sources=task.input_sources,
+            process_arg_mapping=task.process_arg_mapping,
+            scheduled_at=scheduled_at,
+            parent_job_id=parent_job_id,
+            job_name=task.job_name,
+            stage=task.stage,
+            matrix_key=task.matrix_key,
+            depends_on=depends_on,
+        )
 
     def cancel(self, job_id: str) -> JobRecord:
         """Cancel a job, killing its subprocess if it is already running."""
@@ -147,6 +260,15 @@ class JobQueue:
         return runnable
 
     def run_due(self, *, parallel: int = 1) -> list[JobRecord]:
+        # Materialise any stages whose upstreams have just succeeded, so newly
+        # eligible Tasks (e.g. a collate that fans out over preprocess output)
+        # appear before we select what to run.
+        for group_id in self.store.list_group_ids():
+            try:
+                self._materialize_ready(group_id)
+            except Exception:  # noqa: BLE001 - a bad group must not stall the queue
+                pass
+
         candidates = self.store.list_due_jobs()
         runnable = self._select_runnable(candidates)
         if not runnable:

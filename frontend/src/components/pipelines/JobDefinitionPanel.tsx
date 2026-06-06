@@ -221,7 +221,14 @@ function PreviewView({ preview }: { preview: JobDefinitionPreview }) {
         {preview.tasks.map((task, index) => (
           <li key={index} className="rounded-md border border-slate-200 px-3 py-2 text-xs">
             <div className="flex items-center justify-between gap-2">
-              <span className="font-semibold text-slate-900">[{task.stage}]</span>
+              <span className="font-semibold text-slate-900">
+                [{task.stage}]
+                {task.deferred ? (
+                  <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                    deferred · fans out at run time
+                  </span>
+                ) : null}
+              </span>
               <span className="text-slate-500">{formatMatrixKey(task.matrix_key)}</span>
             </div>
             <div className="mt-1 text-slate-700">
