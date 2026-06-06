@@ -3,8 +3,8 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 
 import YamlTreeView from "@/components/pipelines/YamlTreeView";
-import { cancelJob, deleteJob, getJobLogs, getPipelineYaml, getPipelineYamlTree, listJobs, rewindJob, runDueJobs, submitJob } from "@/lib/api";
-import type { Job, YamlTreeNode } from "@/types";
+import { cancelJob, deleteJob, getJobLogs, getPipelineYaml, getPipelineYamlTree, getRuntimeInfo, listJobs, rewindJob, runDueJobs, submitJob } from "@/lib/api";
+import type { Job, RuntimeInfo, YamlTreeNode } from "@/types";
 
 interface Props {
   yamlName: string;
@@ -55,9 +55,31 @@ function formatRelativeTime(value: string | null): string {
   return `${days}d ago`;
 }
 
+function formatRelativeYamlPath(yamlPath: string, yamlRoot: string | null): string {
+  if (!yamlPath) {
+    return "—";
+  }
+  if (yamlRoot) {
+    const normalizedRoot = yamlRoot.replace(/\/+$/, "");
+    if (yamlPath === normalizedRoot) {
+      return "—";
+    }
+    if (yamlPath.startsWith(`${normalizedRoot}/`)) {
+      return yamlPath.slice(normalizedRoot.length + 1);
+    }
+  }
+  const marker = "/yamls/";
+  const index = yamlPath.indexOf(marker);
+  if (index >= 0) {
+    return yamlPath.slice(index + marker.length);
+  }
+  return yamlPath;
+}
+
 export default function JobExecutionPanel({ yamlName, pipelineNames, yamlIsValid, yamlError, onYamlSelect, onStatus }: Props) {
   const [tree, setTree] = useState<YamlTreeNode[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [runtimeInfo, setRuntimeInfo] = useState<RuntimeInfo | null>(null);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState("");
   const [pipelineName, setPipelineName] = useState("");
@@ -84,13 +106,17 @@ export default function JobExecutionPanel({ yamlName, pipelineNames, yamlIsValid
     setTree(await getPipelineYamlTree());
   }
 
+  async function refreshRuntime() {
+    setRuntimeInfo(await getRuntimeInfo());
+  }
+
   async function refreshJobs() {
     setJobs(await listJobs());
     setLastRefreshedAt(new Date().toISOString());
   }
 
   async function refreshAll() {
-    await Promise.all([refreshTree(), refreshJobs()]);
+    await Promise.all([refreshTree(), refreshRuntime(), refreshJobs()]);
   }
 
   useEffect(() => {
@@ -338,16 +364,17 @@ export default function JobExecutionPanel({ yamlName, pipelineNames, yamlIsValid
                   <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-500">
                     <tr>
                       <th className="w-[12%] px-3 py-2">Actions</th>
-                      <th className="w-[22%] px-3 py-2">Pipeline</th>
+                      <th className="w-[22%] px-3 py-2">YAML Path</th>
+                      <th className="w-[18%] px-3 py-2">Pipeline</th>
                       <th className="w-[11%] px-3 py-2">Status</th>
-                      <th className="w-[18%] px-3 py-2">Created</th>
-                      <th className="w-[18%] px-3 py-2">Last Refreshed</th>
+                      <th className="w-[17%] px-3 py-2">Created</th>
+                      <th className="w-[20%] px-3 py-2">Last Refreshed</th>
                     </tr>
                   </thead>
                   <tbody>
                     {pagedJobs.length === 0 ? (
                       <tr>
-                        <td className="px-3 py-4 text-sm text-slate-500" colSpan={5}>
+                        <td className="px-3 py-4 text-sm text-slate-500" colSpan={6}>
                           No jobs yet.
                         </td>
                       </tr>
@@ -391,6 +418,9 @@ export default function JobExecutionPanel({ yamlName, pipelineNames, yamlIsValid
                                 ) : null}
                               </div>
                             </td>
+                            <td className="px-3 py-3 text-xs text-slate-600">
+                              {formatRelativeYamlPath(job.yaml_path, runtimeInfo?.yaml_root ?? null)}
+                            </td>
                             <td className="px-3 py-3 font-semibold text-slate-950">{job.pipeline_name}</td>
                             <td className="px-3 py-3">
                               <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">
@@ -404,11 +434,11 @@ export default function JobExecutionPanel({ yamlName, pipelineNames, yamlIsValid
                           </tr>
                           {expanded ? (
                             <tr key={`${job.id}-log`} className="border-b border-slate-200">
-                              <td className="px-3 pb-3 text-left" colSpan={5}>
+                              <td className="px-3 pb-3 text-left" colSpan={6}>
                                 <div className="w-full max-w-4xl rounded-md bg-black p-3 text-xs leading-6 text-emerald-300">
                                   <div className="grid gap-1 text-slate-100">
                                     <div className="font-semibold">Log for {job.id}</div>
-                                    <div className="text-slate-300">YAML: {job.yaml_path}</div>
+                                    <div className="text-slate-300">YAML: {formatRelativeYamlPath(job.yaml_path, runtimeInfo?.yaml_root ?? null)}</div>
                                   </div>
                                   <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words">
                                     {logText || "No logs yet."}
