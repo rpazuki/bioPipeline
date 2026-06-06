@@ -18,7 +18,7 @@ async def validate_yaml_content(body: ValidateYamlRequest) -> ValidationReportRe
     return ValidationReportResponse(**validate_labutils_yaml(body.content, validate_imports=body.imports).as_dict())
 
 
-@router.get("/pipeline-yamls/{yaml_name}", response_model=ValidationReportResponse)
+@router.get("/pipeline-yamls/{yaml_name:path}", response_model=ValidationReportResponse)
 async def validate_stored_yaml(
     yaml_name: str,
     runtime: Annotated[PipelineRuntime, Depends(get_runtime)],

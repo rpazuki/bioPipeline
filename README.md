@@ -21,6 +21,8 @@ The project is split into:
 
 The frontend treats YAML storage, YAML validation, and job execution as separate flows.
 
+Storage is tree-based: users organize YAML files in folders, select files from the tree, and create folders from the Storage page. New or edited YAML files are saved from the Validation page, which is now the only save surface.
+
 ## Development Setup
 
 Create and activate the development environment:

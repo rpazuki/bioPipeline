@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 
-import { validateYamlContent } from "@/lib/api";
+import { savePipelineYaml, validateYamlContent } from "@/lib/api";
 import {
   emitDraftsToYaml,
   parseYamlToDrafts,
@@ -18,16 +18,22 @@ const PipelineBuilder = dynamic(() => import("./PipelineBuilder"), {
 });
 
 interface Props {
+  yamlName: string;
   yamlContent: string;
+  onYamlNameChange: (name: string) => void;
   onYamlContentChange: (content: string) => void;
   onPipelinesChange: (pipelines: string[]) => void;
+  onYamlValidityChange: (isValid: boolean, error: string | null) => void;
   onStatus: (message: string) => void;
 }
 
 export default function ValidationPanel({
+  yamlName,
   yamlContent,
+  onYamlNameChange,
   onYamlContentChange,
   onPipelinesChange,
+  onYamlValidityChange,
   onStatus,
 }: Props) {
   const [report, setReport] = useState<ValidationReport | null>(null);
@@ -35,6 +41,7 @@ export default function ValidationPanel({
   const [drafts, setDrafts] = useState<PipelineDraft[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [parseError, setParseError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   // The text we last generated from the graph; lets the text→graph effect skip
   // re-parsing our own output (and so preserve comments until a canvas edit).
   const lastEmitted = useRef<string | null>(null);
@@ -45,21 +52,24 @@ export default function ValidationPanel({
     if (yamlContent.trim() === "") {
       setParseError(null);
       setDrafts([]);
+      onYamlValidityChange(true, null);
       return;
     }
     const timer = setTimeout(() => {
       const { drafts: parsed, error } = parseYamlToDrafts(yamlContent);
       if (error) {
         setParseError(error);
+        onYamlValidityChange(false, error);
         return;
       }
       setParseError(null);
       setDrafts(parsed);
       setActiveIndex((index) => Math.min(index, Math.max(parsed.length - 1, 0)));
       onPipelinesChange(parsed.map((draft) => draft.name));
+      onYamlValidityChange(true, null);
     }, 400);
     return () => clearTimeout(timer);
-  }, [yamlContent, onPipelinesChange]);
+  }, [yamlContent, onPipelinesChange, onYamlValidityChange]);
 
   // Graph → text. Synchronous so the builder receives the updated draft at once.
   function applyDraft(next: PipelineDraft) {
@@ -74,7 +84,20 @@ export default function ValidationPanel({
   async function validate() {
     const nextReport = await validateYamlContent(yamlContent, validateImports);
     setReport(nextReport);
+    onYamlValidityChange(nextReport.is_valid, nextReport.issues[0]?.message ?? null);
     onStatus(nextReport.is_valid ? "YAML is valid" : "YAML has validation errors");
+  }
+
+  async function save() {
+    setSaveError(null);
+    if (!yamlName.trim()) {
+      throw new Error("Enter a YAML path before saving");
+    }
+    const document = await savePipelineYaml(yamlName, yamlContent, true);
+    onYamlNameChange(document.name);
+    onPipelinesChange(document.pipelines);
+    onYamlValidityChange(document.is_valid, document.error ?? null);
+    onStatus(`Saved ${document.name}`);
   }
 
   const activeDraft = drafts[Math.min(activeIndex, drafts.length - 1)] ?? null;
@@ -86,13 +109,29 @@ export default function ValidationPanel({
           <div>
             <h2 className="text-sm font-semibold text-slate-950">Validation &amp; Builder</h2>
             <p className="mt-1 text-xs text-slate-500">
-              Edit the graph or the YAML — they stay in sync. Validate for full structure checks.
+              Edit the graph or the YAML here, then save here. Storage only organizes files.
             </p>
           </div>
-          <button className="rounded-md bg-cyan-700 px-3 py-2 text-sm font-semibold text-white" onClick={validate}>
-            Validate
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold" onClick={validate}>
+              Validate
+            </button>
+            <button className="rounded-md bg-cyan-700 px-3 py-2 text-sm font-semibold text-white" onClick={() => save().catch((error: Error) => {
+              setSaveError(error.message);
+              onStatus(`Save failed: ${error.message}`);
+            })}>
+              Save YAML
+            </button>
+          </div>
         </div>
+        <label className="grid gap-1 text-xs font-semibold text-slate-600">
+          YAML path
+          <input
+            className="h-9 rounded-md border border-slate-300 px-3 text-sm text-slate-950"
+            value={yamlName}
+            onChange={(event) => onYamlNameChange(event.target.value)}
+          />
+        </label>
         <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
           <input
             type="checkbox"
@@ -129,6 +168,8 @@ export default function ValidationPanel({
             )}
           </div>
         ) : null}
+
+        {saveError ? <div className="rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700">{saveError}</div> : null}
 
         <div className="grid gap-2 border-t border-slate-200 pt-3">
           <div className="flex items-center justify-between gap-3">

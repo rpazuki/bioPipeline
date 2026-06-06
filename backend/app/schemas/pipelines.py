@@ -12,6 +12,16 @@ class YamlSummary(BaseModel):
     error: str | None = None
 
 
+class YamlTreeNode(BaseModel):
+    name: str
+    path: str
+    node_type: str
+    pipelines: list[str] = Field(default_factory=list)
+    is_valid: bool = True
+    error: str | None = None
+    children: list["YamlTreeNode"] = Field(default_factory=list)
+
+
 class YamlDocument(BaseModel):
     name: str
     content: str
@@ -24,6 +34,15 @@ class YamlSaveRequest(BaseModel):
     name: str
     content: str
     overwrite: bool = False
+
+
+class YamlFolderCreateRequest(BaseModel):
+    path: str
+
+
+class YamlMoveRequest(BaseModel):
+    source_path: str
+    destination_path: str
 
 
 class ValidationIssueResponse(BaseModel):

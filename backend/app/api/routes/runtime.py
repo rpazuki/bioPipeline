@@ -19,7 +19,7 @@ async def runtime_info(
     runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
 ) -> RuntimeInfo:
     yaml_root = runtime.yaml_store.root
-    yaml_files = [path.name for path in runtime.yaml_store.list()]
+    yaml_files = [runtime.yaml_store.relative_name(path) for path in runtime.yaml_store.list()]
     return RuntimeInfo(
         pipeline_home=str(runtime.home),
         yaml_root=str(yaml_root),

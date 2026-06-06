@@ -4,14 +4,20 @@ import { usePipeline } from "@/components/pipelines/PipelineContext";
 import ValidationPanel from "@/components/pipelines/ValidationPanel";
 
 export default function ValidationPage() {
-  const { yamlContent, setYamlContent, setPipelineNames, setStatus } = usePipeline();
+  const { yamlName, yamlContent, setYamlName, setYamlContent, setPipelineNames, setYamlIsValid, setYamlError, setStatus } = usePipeline();
 
   return (
     <div className="grid min-h-[620px] grid-rows-[auto_1fr] p-5">
       <ValidationPanel
+        yamlName={yamlName}
         yamlContent={yamlContent}
+        onYamlNameChange={setYamlName}
         onYamlContentChange={setYamlContent}
         onPipelinesChange={setPipelineNames}
+        onYamlValidityChange={(isValid, error) => {
+          setYamlIsValid(isValid);
+          setYamlError(error);
+        }}
         onStatus={setStatus}
       />
       <textarea

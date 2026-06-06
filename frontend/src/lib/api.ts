@@ -7,9 +7,18 @@ import type {
   ValidationReport,
   YamlDocument,
   YamlSummary,
+  YamlTreeNode,
 } from "@/types";
 
 const API_PREFIX = process.env.NEXT_PUBLIC_API_PREFIX ?? "/api/v1";
+
+function encodePath(path: string) {
+  return path
+    .split("/")
+    .filter((part) => part.length > 0)
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+}
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
@@ -36,8 +45,38 @@ export async function listPipelineYamls() {
   return apiFetch<YamlSummary[]>("/pipeline-yamls");
 }
 
+export async function getPipelineYamlTree() {
+  return apiFetch<YamlTreeNode[]>("/pipeline-yamls/tree");
+}
+
+export async function createYamlFolder(path: string) {
+  return apiFetch<YamlTreeNode>("/pipeline-yamls/folders", {
+    method: "POST",
+    body: JSON.stringify({ path }),
+  });
+}
+
+export async function deleteYamlFolder(path: string) {
+  return apiFetch<void>(`/pipeline-yamls/folders/${encodePath(path)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function movePipelineYaml(sourcePath: string, destinationPath: string) {
+  return apiFetch<YamlDocument>("/pipeline-yamls/move", {
+    method: "POST",
+    body: JSON.stringify({ source_path: sourcePath, destination_path: destinationPath }),
+  });
+}
+
 export async function getPipelineYaml(name: string) {
-  return apiFetch<YamlDocument>(`/pipeline-yamls/${encodeURIComponent(name)}`);
+  return apiFetch<YamlDocument>(`/pipeline-yamls/${encodePath(name)}`);
+}
+
+export async function deletePipelineYaml(name: string) {
+  return apiFetch<void>(`/pipeline-yamls/${encodePath(name)}`, {
+    method: "DELETE",
+  });
 }
 
 export async function savePipelineYaml(name: string, content: string, overwrite = true) {
@@ -57,7 +96,7 @@ export async function validateYamlContent(content: string, imports = false) {
 
 export async function validateStoredYaml(name: string, imports = false) {
   return apiFetch<ValidationReport>(
-    `/validation/pipeline-yamls/${encodeURIComponent(name)}?imports=${imports ? "true" : "false"}`
+    `/validation/pipeline-yamls/${encodePath(name)}?imports=${imports ? "true" : "false"}`
   );
 }
 

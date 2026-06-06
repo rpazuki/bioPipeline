@@ -5,6 +5,16 @@ export interface YamlSummary {
   error?: string | null;
 }
 
+export interface YamlTreeNode {
+  name: string;
+  path: string;
+  node_type: "folder" | "file";
+  pipelines: string[];
+  is_valid: boolean;
+  error?: string | null;
+  children: YamlTreeNode[];
+}
+
 export interface YamlDocument extends YamlSummary {
   content: string;
 }
