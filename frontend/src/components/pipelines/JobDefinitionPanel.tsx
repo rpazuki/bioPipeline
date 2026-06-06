@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import {
@@ -67,6 +68,7 @@ function formatMatrixKey(matrixKey: Record<string, string>): string {
 }
 
 export default function JobDefinitionPanel() {
+  const router = useRouter();
   const [content, setContent] = useState(EXAMPLE);
   const [preview, setPreview] = useState<JobDefinitionPreview | null>(null);
   const [groups, setGroups] = useState<JobGroupSummary[]>([]);
@@ -109,10 +111,8 @@ export default function JobDefinitionPanel() {
 
   const onSubmit = () =>
     run(async () => {
-      const group = await submitJobDefinition(content);
-      setPreview(null);
-      setSelected(group);
-      await refreshGroups();
+      await submitJobDefinition(content);
+      router.push("/");
     });
 
   const onRunDue = () =>

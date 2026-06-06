@@ -6,8 +6,9 @@ import { usePathname } from "next/navigation";
 import { PipelineProvider, usePipeline } from "./PipelineContext";
 
 const NAV = [
-  { href: "/", label: "Job Execution" },
+  { href: "/", label: "Job Queue" },
   { href: "/job-definitions", label: "Job Definitions" },
+  { href: "/submit", label: "Submit" },
   { href: "/validation", label: "Validation" },
   { href: "/storage", label: "Storage" },
   { href: "/environment", label: "Environment" },

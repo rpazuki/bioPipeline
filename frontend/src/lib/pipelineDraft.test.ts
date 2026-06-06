@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -9,10 +9,10 @@ import {
   type PipelineDraft,
 } from "./pipelineDraft";
 
-// Committed fixture next to this test, so the suite does not depend on the
-// gitignored runtime YAML store (.bio_pipeline/).
+// Committed fixture (vitest runs with cwd = frontend/), so the suite does not
+// depend on the gitignored runtime YAML store (.bio_pipeline/).
 const SAMPLE = readFileSync(
-  fileURLToPath(new URL("./__fixtures__/growth_rates_pipeline.yaml", import.meta.url)),
+  resolve(process.cwd(), "src/lib/__fixtures__/growth_rates_pipeline.yaml"),
   "utf-8",
 );
 

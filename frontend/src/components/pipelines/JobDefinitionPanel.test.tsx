@@ -6,6 +6,11 @@ import * as api from "@/lib/api";
 
 vi.mock("@/lib/api");
 
+const { push } = vi.hoisted(() => ({ push: vi.fn() }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push }),
+}));
+
 const mocked = vi.mocked(api);
 
 describe("JobDefinitionPanel", () => {
@@ -74,5 +79,22 @@ describe("JobDefinitionPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Preview" }));
 
     expect(await screen.findByText("bad definition")).toBeInTheDocument();
+  });
+
+  it("navigates to the Job Queue after a successful submit", async () => {
+    mocked.submitJobDefinition.mockResolvedValue({
+      parent_job_id: "grp-9",
+      job_name: "demo",
+      status: "queued",
+      total: 1,
+      counts: { queued: 1 },
+      tasks: [],
+    });
+
+    render(<JobDefinitionPanel />);
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+
+    await waitFor(() => expect(mocked.submitJobDefinition).toHaveBeenCalled());
+    expect(push).toHaveBeenCalledWith("/");
   });
 });
