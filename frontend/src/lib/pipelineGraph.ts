@@ -1,6 +1,7 @@
 import dagre from "dagre";
 import type { Edge, Node } from "@xyflow/react";
 import { Position } from "@xyflow/react";
+import { MarkerType } from "@xyflow/react";
 
 import type { PipelineSummary, ProcessSummary } from "@/types";
 import type { PipelineDraft } from "./pipelineDraft";
@@ -43,6 +44,12 @@ function keySuggestsPayload(key: string): boolean {
   return REFERENCE_PARAMETER_NAMES.has(key) || key.endsWith("_df");
 }
 
+function valueLooksLikePayloadRef(value: string): boolean {
+  // Avoid linking obviously free-form text while still accepting typical
+  // payload identifiers (letters, digits, underscore).
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(value);
+}
+
 /** Project the richer editable draft down to the summary the graph builder consumes. */
 export function draftToSummary(draft: PipelineDraft): PipelineSummary {
   return {
@@ -70,7 +77,7 @@ export function buildPipelineGraph(pipeline: PipelineSummary): {
   nodes: PipelineNode[];
   edges: Edge[];
 } {
-  const producers = new Set<string>([
+  const allProducers = new Set<string>([
     ...pipeline.inputs,
     ...pipeline.processes.map((process) => process.name),
   ]);
@@ -116,23 +123,37 @@ export function buildPipelineGraph(pipeline: PipelineSummary): {
     const id = `${source}->${target}${label ? `:${label}` : ""}`;
     if (seen.has(id)) return;
     seen.add(id);
-    edges.push({ id, source, target, label });
+    edges.push({
+      id,
+      source,
+      target,
+      label,
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        width: 24,
+        height: 24,
+      },
+    });
   }
 
   // Process input dependencies, from parameter references.
+  const availableProducers = new Set<string>(pipeline.inputs);
   for (const process of pipeline.processes) {
     for (const [key, value] of Object.entries(process.parameters)) {
       if (typeof value !== "string") continue;
-      if (!keySuggestsPayload(key)) continue;
-      if (!producers.has(value)) continue;
+      const keyBasedReference = keySuggestsPayload(key);
+      const inferredReference = valueLooksLikePayloadRef(value) && availableProducers.has(value);
+      if (!keyBasedReference && !inferredReference) continue;
+      if (!availableProducers.has(value)) continue;
       const source = pipeline.inputs.includes(value) ? `input:${value}` : `proc:${value}`;
       addEdge(source, `proc:${process.name}`, key);
     }
+    availableProducers.add(process.name);
   }
 
   // Output links, from each output back to its producing payload.
   for (const name of pipeline.outputs) {
-    if (!producers.has(name)) continue;
+    if (!allProducers.has(name)) continue;
     const source = pipeline.inputs.includes(name) ? `input:${name}` : `proc:${name}`;
     addEdge(source, `output:${name}`);
   }

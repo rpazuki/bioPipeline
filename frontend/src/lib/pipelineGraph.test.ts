@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { MarkerType } from "@xyflow/react";
 
 import type { PipelineSummary } from "@/types";
 
@@ -76,9 +77,36 @@ describe("buildPipelineGraph", () => {
 
   it("ignores parameters whose key does not suggest a payload", () => {
     const { edges } = buildPipelineGraph(pipeline);
-    // value_column_name / value_col are plain params, not payload references.
+    // value_column_name / value_col are plain literals, not payload references.
     expect(edges.some((edge) => edge.label === "value_column_name")).toBe(false);
     expect(edges.some((edge) => edge.label === "value_col")).toBe(false);
+  });
+
+  it("infers an edge when a string parameter value matches an earlier payload name", () => {
+    const inferred: PipelineSummary = {
+      name: "inferred",
+      inputs: [],
+      processes: [
+        {
+          name: "a",
+          package: "p",
+          method: "m",
+          parameters: { value: "x" },
+        },
+        {
+          name: "b",
+          package: "p",
+          method: "m",
+          parameters: { message: "a" },
+        },
+      ],
+      outputs: [],
+    };
+
+    const { edges } = buildPipelineGraph(inferred);
+    expect(edges).toContainEqual(
+      expect.objectContaining({ source: "proc:a", target: "proc:b", label: "message" }),
+    );
   });
 
   it("links each output back to its producing payload", () => {
@@ -89,6 +117,14 @@ describe("buildPipelineGraph", () => {
     expect(edges).toContainEqual(
       expect.objectContaining({ source: "proc:df_combined_fit", target: "output:df_combined_fit" }),
     );
+  });
+
+  it("adds a directional arrow marker to edges", () => {
+    const { edges } = buildPipelineGraph(pipeline);
+    expect(edges.length).toBeGreaterThan(0);
+    for (const edge of edges) {
+      expect(edge.markerEnd).toEqual({ type: MarkerType.ArrowClosed, width: 24, height: 24 });
+    }
   });
 
   it("does not create an edge for a reference to an unknown payload", () => {
@@ -106,6 +142,30 @@ describe("buildPipelineGraph", () => {
       outputs: [],
     };
     expect(buildPipelineGraph(broken).edges).toHaveLength(0);
+  });
+
+  it("does not infer forward references to later process names", () => {
+    const forward: PipelineSummary = {
+      name: "forward",
+      inputs: [],
+      processes: [
+        {
+          name: "first",
+          package: "p",
+          method: "m",
+          parameters: { note: "second" },
+        },
+        {
+          name: "second",
+          package: "p",
+          method: "m",
+          parameters: {},
+        },
+      ],
+      outputs: [],
+    };
+
+    expect(buildPipelineGraph(forward).edges).toHaveLength(0);
   });
 });
 
