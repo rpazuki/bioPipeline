@@ -59,6 +59,18 @@ class JobStore:
                 )
                 """
             )
+            # Records which (group, cell, stage) have been materialised, so a
+            # stage is never re-created even if its Task rows are later removed.
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS materialized_stages (
+                    parent_job_id TEXT NOT NULL,
+                    cell_key TEXT NOT NULL,
+                    stage TEXT NOT NULL,
+                    PRIMARY KEY (parent_job_id, cell_key, stage)
+                )
+                """
+            )
             # Migrate pre-existing databases that lack newer columns.
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}
             if "pid" not in columns:
@@ -233,6 +245,21 @@ class JobStore:
         with self.connect() as conn:
             rows = conn.execute("SELECT id FROM job_groups ORDER BY created_at DESC").fetchall()
         return [row["id"] for row in rows]
+
+    def mark_stage_materialized(self, parent_job_id: str, cell_key: str, stage: str) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO materialized_stages (parent_job_id, cell_key, stage) VALUES (?, ?, ?)",
+                (parent_job_id, cell_key, stage),
+            )
+
+    def materialized_stages(self, parent_job_id: str) -> set[tuple[str, str]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT cell_key, stage FROM materialized_stages WHERE parent_job_id = ?",
+                (parent_job_id,),
+            ).fetchall()
+        return {(row["cell_key"], row["stage"]) for row in rows}
 
     def list_jobs_by_parent(self, parent_job_id: str) -> list[JobRecord]:
         with self.connect() as conn:

@@ -107,6 +107,9 @@ class JobQueue:
         by_cell_stage: dict[tuple[str, str], list[JobRecord]] = defaultdict(list)
         for record in self.store.list_jobs_by_parent(parent_job_id):
             by_cell_stage[(json.dumps(record.spec.matrix_key, sort_keys=True), record.spec.stage)].append(record)
+        # Persistent record of stages already materialised, so a stage is never
+        # re-created (resurrected) after its Task rows are cancelled+deleted.
+        materialized = self.store.materialized_stages(parent_job_id)
 
         created: list[JobRecord] = []
         for cell in iter_cells(job_def):
@@ -114,8 +117,10 @@ class JobQueue:
             key_json = json.dumps(matrix_key, sort_keys=True)
             for stage in job_def.stages:
                 stage_name = stage["name"]
-                if by_cell_stage.get((key_json, stage_name)):
-                    continue  # already materialised
+                if (key_json, stage_name) in materialized or by_cell_stage.get((key_json, stage_name)):
+                    # Already materialised (even if its tasks were since removed).
+                    self.store.mark_stage_materialized(parent_job_id, key_json, stage_name)
+                    continue
 
                 needs = list(stage.get("needs", []) or [])
                 upstream: list[JobRecord] = []
@@ -141,6 +146,7 @@ class JobQueue:
                             )
                         ]
                         by_cell_stage[(key_json, stage_name)].extend(new_records)
+                        self.store.mark_stage_materialized(parent_job_id, key_json, stage_name)
                         created.extend(new_records)
                         continue
                     if statuses != {JobStatus.SUCCEEDED}:
@@ -150,6 +156,7 @@ class JobQueue:
                     parent_job_id, job_def, cell, stage, upstream_ids, scheduled_at
                 )
                 by_cell_stage[(key_json, stage_name)].extend(new_records)
+                self.store.mark_stage_materialized(parent_job_id, key_json, stage_name)
                 created.extend(new_records)
         return created
 

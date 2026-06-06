@@ -89,6 +89,10 @@ class LocalSubprocessRunner:
                 env=env,
             )
             self.store.set_pid(job.id, process.pid)
+            # A cancel may have raced in after the claim but before the pid was
+            # recorded, so it could not signal the process — honor it now.
+            if self.store.get_job(job.id).status == JobStatus.CANCELLED:
+                process.terminate()
             try:
                 returncode = process.wait()
             finally:
