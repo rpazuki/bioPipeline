@@ -388,7 +388,7 @@ export interface AIToolCallRecord {
 }
 
 export interface AIArtifactDraft {
-  kind: "pipeline_yaml" | "job_definition" | "published_fields";
+  kind: "pipeline_yaml" | "job_definition";
   name: string;
   content: string | Record<string, unknown> | unknown[];
   source: "model" | "tool";
@@ -399,7 +399,6 @@ export interface AIChatRequest {
   messages: AIChatMessage[];
   active_pipeline_yaml?: string;
   active_job_definition?: string;
-  active_published_fields?: PublishedField[];
   confirmations?: Record<string, boolean>;
 }
 

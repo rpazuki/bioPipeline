@@ -178,6 +178,19 @@ def _render(template: Any, context: dict[str, str], *, lenient: bool = False) ->
     return template
 
 
+def _render_sources(raw: Any, context: dict[str, str], *, lenient: bool = False) -> dict[str, str]:
+    """Render input_sources and force string values.
+
+    input_sources are `src` overrides and must be strings (paths/globs). A
+    scalar slipping in (e.g. a number bound by mistake) is coerced here so it
+    cannot reach storage as a non-string and crash job serialization later.
+    """
+    rendered = _render(raw, context, lenient=lenient)
+    if not isinstance(rendered, dict):
+        return {}
+    return {str(key): str(value) for key, value in rendered.items()}
+
+
 def _flatten_binding(name: str, value: Any) -> dict[str, str]:
     """Expose a matrix binding as flat template keys.
 
@@ -332,7 +345,7 @@ def materialize_stage(
                 pipeline_yaml=_render(stage["pipeline_yaml"], context, lenient=True),
                 pipeline_name=_render(stage["pipeline"], context, lenient=True),
                 output_dir=_render(stage["output_dir"], context, lenient=True),
-                input_sources=_render(stage.get("input_sources", {}) or {}, context, lenient=True),
+                input_sources=_render_sources(stage.get("input_sources", {}) or {}, context, lenient=True),
                 input_arg_mapping=_render(stage.get("input_arg_mapping", {}) or {}, context, lenient=True),
                 process_arg_mapping=_render(stage.get("process_arg_mapping", {}) or {}, context, lenient=True),
                 output_path_mapping=_render(stage.get("output_path_mapping", {}) or {}, context, lenient=True),
@@ -353,7 +366,7 @@ def materialize_stage(
                 pipeline_yaml=_render(stage["pipeline_yaml"], item_context),
                 pipeline_name=_render(stage["pipeline"], item_context),
                 output_dir=_render(stage["output_dir"], item_context),
-                input_sources=_render(stage.get("input_sources", {}) or {}, item_context),
+                input_sources=_render_sources(stage.get("input_sources", {}) or {}, item_context),
                 input_arg_mapping=_render(stage.get("input_arg_mapping", {}) or {}, item_context),
                 process_arg_mapping=_render(stage.get("process_arg_mapping", {}) or {}, item_context),
                 output_path_mapping=_render(stage.get("output_path_mapping", {}) or {}, item_context),

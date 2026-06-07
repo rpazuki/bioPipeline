@@ -52,7 +52,19 @@ class AISchemaProvider:
                     "conflicts with older prose examples."
                 ),
                 "Tool arguments must match each tool's input_schema.",
-                "Submit and publish tools require explicit confirmation.",
+                "Submitting a Job Definition to the queue requires confirmation.",
+                (
+                    "input_sources values are strings only (a file path, glob, or "
+                    "directory). Never place numbers or booleans in input_sources."
+                ),
+                (
+                    "Model scalar values (start, stop, step, counts, thresholds, "
+                    "flags) as Process parameters, not as Inputs."
+                ),
+                (
+                    "Publishing user-facing jobs is manual and out of scope; do "
+                    "not design or create Published Jobs."
+                ),
             ],
         }
         digest = self._digest(content)
@@ -63,8 +75,28 @@ class AISchemaProvider:
         )
 
     def build_prompt_context(self) -> str:
+        """Compact schema context for the system prompt.
+
+        The full bundle (with Pydantic JSON schemas, tool schemas, and example
+        YAML) is large and would be re-sent on every tool-loop iteration. The
+        verbose parts are dropped here because: tool schemas already travel via
+        the provider ``tools`` parameter, example YAML already lives in the
+        markdown context, and the Pydantic JSON schemas are available to the UI
+        through ``GET /ai-chat/schema``. Only the compact structural rules and
+        notes are kept so the model still has authoritative shape guidance.
+        """
         bundle = self.build_bundle()
-        return json.dumps(asdict(bundle), indent=2, sort_keys=True)
+        # Published Jobs are out of the AI's scope (publishing is manual), so the
+        # published_job schema is omitted from the model-facing prompt. It stays
+        # in the full bundle for the /ai-chat/schema endpoint and UI.
+        compact = {
+            "version": bundle.version,
+            "digest": bundle.digest,
+            "pipeline_yaml": _drop(bundle.pipeline_yaml, "pydantic"),
+            "job_definition": _drop(bundle.job_definition, "pydantic"),
+            "notes": bundle.notes,
+        }
+        return json.dumps(compact, indent=2, sort_keys=True)
 
     def _pipeline_yaml_schema(self) -> dict[str, Any]:
         return {
@@ -189,3 +221,7 @@ class AISchemaProvider:
     def _digest(content: dict[str, Any]) -> str:
         payload = json.dumps(content, sort_keys=True, default=str)
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _drop(mapping: dict[str, Any], key: str) -> dict[str, Any]:
+    return {name: value for name, value in mapping.items() if name != key}

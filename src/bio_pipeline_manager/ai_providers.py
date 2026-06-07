@@ -256,11 +256,20 @@ class ClaudeProviderClient:
             "model": config.model,
             "max_tokens": config.max_tokens,
             "temperature": config.temperature,
-            "system": system_prompt,
+            # Cache the static system prefix so the long context/schema text is
+            # billed once per ~5-minute window rather than on every tool-loop
+            # iteration. This sharply lowers input-token-per-minute pressure.
+            "system": [
+                {
+                    "type": "text",
+                    "text": system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
             "messages": self._messages(messages),
         }
         if tools:
-            payload["tools"] = [
+            tool_payload = [
                 {
                     "name": tool["name"],
                     "description": tool.get("description", ""),
@@ -268,6 +277,9 @@ class ClaudeProviderClient:
                 }
                 for tool in tools
             ]
+            # Caching the final tool extends the cached prefix over all tool defs.
+            tool_payload[-1]["cache_control"] = {"type": "ephemeral"}
+            payload["tools"] = tool_payload
         data = _post_json(
             f"{base_url}/v1/messages",
             headers={

@@ -6,8 +6,7 @@ from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
 
-from bio_pipeline_manager.job_definition import JobDefinitionError, expand
-from bio_pipeline_manager.published_jobs import PublishedJobError, inspect_definition
+from bio_pipeline_manager.job_definition import expand
 from bio_pipeline_manager.yaml_validation import validate_labutils_yaml
 
 
@@ -80,14 +79,9 @@ class AIToolRegistry:
                 result=tool.handler(args),
                 requires_confirmation=tool.definition.requires_confirmation,
             )
-        except (
-            FileExistsError,
-            FileNotFoundError,
-            ValueError,
-            JobDefinitionError,
-            PublishedJobError,
-            KeyError,
-        ) as exc:
+        except Exception as exc:  # noqa: BLE001 - tool errors must reach the model, not 500
+            # Any tool failure is reported back as a failed tool result so the
+            # model can react. It must never propagate and crash the request.
             return AIToolExecution(
                 id=uuid4().hex,
                 name=name,
@@ -163,28 +157,6 @@ class AIToolRegistry:
             ),
             _Tool(
                 AIToolDefinition(
-                    name="inspect_published_job_fields",
-                    description=(
-                        "Inspect a Job Definition and return candidate "
-                        "Published Job fields."
-                    ),
-                    input_schema=_object_schema(
-                        {"content": {"type": "string"}},
-                        required=["content"],
-                    ),
-                ),
-                self._inspect_published_job_fields,
-            ),
-            _Tool(
-                AIToolDefinition(
-                    name="list_published_jobs_admin",
-                    description="List admin-visible Published Jobs.",
-                    input_schema=_object_schema({}),
-                ),
-                self._list_published_jobs_admin,
-            ),
-            _Tool(
-                AIToolDefinition(
                     name="save_pipeline_yaml",
                     description="Save Pipeline YAML into the YAML store.",
                     input_schema=_object_schema(
@@ -217,27 +189,6 @@ class AIToolRegistry:
             ),
             _Tool(
                 AIToolDefinition(
-                    name="create_published_job_draft",
-                    description=(
-                        "Create a draft Published Job from a Job Definition "
-                        "and selected fields."
-                    ),
-                    input_schema=_object_schema(
-                        {
-                            "name": {"type": "string"},
-                            "description": {"type": "string"},
-                            "definition_name": {"type": "string"},
-                            "definition_content": {"type": "string"},
-                            "fields": {"type": "array"},
-                        },
-                        required=["name", "definition_content", "fields"],
-                    ),
-                    read_only=False,
-                ),
-                self._create_published_job_draft,
-            ),
-            _Tool(
-                AIToolDefinition(
                     name="submit_job_definition",
                     description="Submit a Job Definition to the queue.",
                     input_schema=_object_schema(
@@ -251,19 +202,6 @@ class AIToolRegistry:
                     requires_confirmation=True,
                 ),
                 self._submit_job_definition,
-            ),
-            _Tool(
-                AIToolDefinition(
-                    name="publish_published_job",
-                    description="Publish a draft Published Job.",
-                    input_schema=_object_schema(
-                        {"published_job_id": {"type": "string"}},
-                        required=["published_job_id"],
-                    ),
-                    read_only=False,
-                    requires_confirmation=True,
-                ),
-                self._publish_published_job,
             ),
             _Tool(
                 AIToolDefinition(
@@ -355,13 +293,6 @@ class AIToolRegistry:
             "tasks": [_serialize(task) for task in tasks],
         }
 
-    def _inspect_published_job_fields(self, args: dict[str, Any]) -> dict[str, Any]:
-        content = _required_str(args, "content")
-        return {"candidates": inspect_definition(content, yaml_loader=self.runtime.yaml_store.load)}
-
-    def _list_published_jobs_admin(self, _args: dict[str, Any]) -> dict[str, Any]:
-        return {"items": [_serialize(record) for record in self.runtime.published_jobs.list()]}
-
     def _save_pipeline_yaml(self, args: dict[str, Any]) -> dict[str, Any]:
         name = _required_str(args, "name")
         content = _required_str(args, "content")
@@ -384,18 +315,6 @@ class AIToolRegistry:
         resolved_name = self.runtime.definition_store.relative_name(path)
         return self._get_job_definition({"name": resolved_name})
 
-    def _create_published_job_draft(self, args: dict[str, Any]) -> dict[str, Any]:
-        record = self.runtime.published_jobs.create(
-            name=_required_str(args, "name"),
-            description=str(args.get("description", "")),
-            definition_name=str(args.get("definition_name", "")),
-            definition_content=_required_str(args, "definition_content"),
-            fields=list(args.get("fields", [])),
-            actor=self.actor,
-            status="draft",
-        )
-        return _serialize(record)
-
     def _submit_job_definition(self, args: dict[str, Any]) -> dict[str, Any]:
         parent_id, _records = self.runtime.queue.submit_definition(
             _required_str(args, "content"),
@@ -406,14 +325,6 @@ class AIToolRegistry:
             "parent_job_id": parent_id,
             "group": _serialize(self.runtime.queue.group_status(parent_id)),
         }
-
-    def _publish_published_job(self, args: dict[str, Any]) -> dict[str, Any]:
-        record = self.runtime.published_jobs.set_status(
-            _required_str(args, "published_job_id"),
-            "published",
-            actor=self.actor,
-        )
-        return _serialize(record)
 
     def _run_due_jobs(self, args: dict[str, Any]) -> dict[str, Any]:
         parallel = int(args.get("parallel", 1))

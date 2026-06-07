@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
 
@@ -15,14 +16,17 @@ from bio_pipeline_manager.ai_tools import AIToolExecution, AIToolRegistry
 
 BASE_SYSTEM_PROMPT = (
     "You are the Bio Pipeline Manager AI Designer.\n"
-    "You help admins design pipeline YAML, Job Definition YAML, and Published "
-    "Jobs.\n"
-    "Use tools to inspect existing YAML and validate drafts before finalizing.\n"
-    "Validate pipeline YAML and preview Job Definitions before claiming success.\n"
-    "Never submit or publish without explicit admin confirmation.\n"
+    "You help admins design and save pipeline YAML and Job Definition YAML.\n"
+    "Use tools to inspect existing YAML, validate pipeline YAML, and preview Job "
+    "Definitions before claiming success.\n"
+    "Never submit a Job Definition to the queue without explicit admin "
+    "confirmation.\n"
+    "Publishing user-facing jobs is handled manually outside this chat; do not "
+    "design, create, or publish Published Jobs.\n"
     "Treat the schema bundle as authoritative when it conflicts with older "
     "prose examples.\n"
-    "Keep responses short and operational."
+    "Keep responses short and operational. Format replies in concise Markdown; "
+    "use tables when comparing options or listing fields/parameters."
 )
 
 # Draft kind for each tool whose result should surface a draft artifact in the UI.
@@ -88,17 +92,21 @@ class AIChatAgent:
         messages: list[_MessageLike],
         selection: _SelectionLike | None = None,
         confirmations: dict[str, bool] | None = None,
+        active_pipeline_yaml: str = "",
+        active_job_definition: str = "",
     ) -> AIChatOutcome:
         confirmations = confirmations or {}
         config = self._resolve_config(selection)
         client = self.client_factory(config.provider)
+        # The system prompt is kept byte-identical across requests (no volatile
+        # workspace, no timestamps) so providers can cache it once for the whole
+        # session. Cache reads do not count toward the input-token-per-minute
+        # rate limit, so only the first call pays for the large prefix.
         system_prompt = self._system_prompt()
         tools = self.registry.definitions()
 
-        conversation: list[ConversationMessage] = [
-            ConversationMessage(role=_normalize_role(m.role), content=m.content)
-            for m in messages
-        ]
+        workspace = self._workspace_block(active_pipeline_yaml, active_job_definition)
+        conversation = self._build_conversation(messages, workspace)
 
         max_iterations = int(self.ai_config.get("max_tool_iterations", 8))
         outcome = AIChatOutcome(text="", provider=config.provider, model=config.model)
@@ -148,10 +156,14 @@ class AIChatAgent:
                     role="tool",
                     tool_call_id=call.id,
                     tool_name=call.name,
+                    # Feed the model a trimmed result. The full result still goes
+                    # to the UI/drafts; the conversation only carries what the
+                    # model needs to decide the next step, so large dumps (e.g.
+                    # preview task lists) are not re-sent on every round.
                     tool_result=(
-                        execution.result
+                        _model_tool_result(call.name, execution.result)
                         if execution.status == "succeeded"
-                        else {"error": execution.error}
+                        else {"error": _cap_str(execution.error or "")}
                     ),
                 )
             )
@@ -181,6 +193,129 @@ class AIChatAgent:
             f"<schema_bundle>\n{self.schema_provider.build_prompt_context()}\n</schema_bundle>"
         )
         return "\n\n".join(parts)
+
+    @staticmethod
+    def _build_conversation(
+        messages: list[_MessageLike], workspace: str
+    ) -> list[ConversationMessage]:
+        conversation = [
+            ConversationMessage(role=_normalize_role(m.role), content=m.content)
+            for m in messages
+        ]
+        # Attach the volatile workspace to the latest user turn rather than the
+        # cached system prompt, so the cached prefix stays stable per session.
+        if workspace:
+            for index in range(len(conversation) - 1, -1, -1):
+                if conversation[index].role == "user":
+                    conversation[index] = ConversationMessage(
+                        role="user",
+                        content=f"{workspace}\n\n{conversation[index].content}",
+                    )
+                    break
+        return conversation
+
+    @staticmethod
+    def _workspace_block(pipeline_yaml: str, job_definition: str) -> str:
+        sections: list[str] = []
+        if pipeline_yaml.strip():
+            sections.append(f"<pipeline_yaml>\n{pipeline_yaml}\n</pipeline_yaml>")
+        if job_definition.strip():
+            sections.append(f"<job_definition>\n{job_definition}\n</job_definition>")
+        if not sections:
+            return ""
+        body = "\n".join(sections)
+        return (
+            "<workspace_state>\n"
+            "The admin's current editor drafts. Build on these unless asked to "
+            "start fresh.\n"
+            f"{body}\n"
+            "</workspace_state>"
+        )
+
+
+# Caps on what a tool result contributes to the model conversation. These bound
+# token growth (results are re-sent every round) without starving the model of
+# the fields it needs to act.
+_MAX_TOOL_RESULT_CHARS = 4000
+_MAX_CONTENT_CHARS = 6000
+_MAX_LIST_ITEMS = 60
+
+
+def _cap_str(value: str, limit: int = _MAX_CONTENT_CHARS) -> str:
+    if len(value) <= limit:
+        return value
+    return value[:limit] + f"\n…[truncated {len(value) - limit} chars]"
+
+
+def _model_tool_result(name: str, result: Any) -> Any:
+    """Compact a tool result for the model conversation.
+
+    Keeps the fields the model needs to continue (content for `get_*`, validity
+    and issues for validators, names for saves) and drops verbose payloads
+    (preview task lists, saved-content echoes, pipeline summaries) that would
+    otherwise be re-sent on every subsequent provider call.
+    """
+    if not isinstance(result, dict):
+        return _enforce_cap(result)
+
+    if name == "validate_pipeline_yaml":
+        out: Any = {"is_valid": result.get("is_valid"), "issues": result.get("issues", [])}
+    elif name == "preview_job_definition":
+        tasks = result.get("tasks") or []
+        out = {
+            "job_name": result.get("job_name"),
+            "task_count": result.get("task_count"),
+            "first_task": tasks[0] if tasks else None,
+        }
+    elif name == "save_pipeline_yaml":
+        out = {
+            "name": result.get("name"),
+            "pipelines": result.get("pipelines"),
+            "is_valid": result.get("is_valid"),
+            "error": result.get("error"),
+        }
+    elif name == "save_job_definition":
+        out = {
+            "name": result.get("name"),
+            "job": result.get("job"),
+            "is_valid": result.get("is_valid"),
+            "error": result.get("error"),
+        }
+    elif name == "get_pipeline_yaml":
+        out = {
+            "name": result.get("name"),
+            "content": _cap_str(str(result.get("content", ""))),
+            "pipelines": result.get("pipelines"),
+            "is_valid": result.get("is_valid"),
+            "error": result.get("error"),
+        }
+    elif name == "get_job_definition":
+        out = {
+            "name": result.get("name"),
+            "content": _cap_str(str(result.get("content", ""))),
+            "job": result.get("job"),
+            "is_valid": result.get("is_valid"),
+            "error": result.get("error"),
+        }
+    elif name == "get_runtime_info":
+        out = {
+            "yaml_count": result.get("yaml_count"),
+            "definition_count": result.get("definition_count"),
+            "yaml_files": (result.get("yaml_files") or [])[:_MAX_LIST_ITEMS],
+        }
+    elif name in ("list_pipeline_yamls", "list_job_definitions"):
+        items = result.get("items") or []
+        out = {"count": len(items), "items": items[:_MAX_LIST_ITEMS]}
+    else:
+        out = result
+    return _enforce_cap(out)
+
+
+def _enforce_cap(out: Any) -> Any:
+    payload = json.dumps(out, default=str)
+    if len(payload) <= _MAX_TOOL_RESULT_CHARS:
+        return out
+    return {"truncated": True, "preview": payload[:_MAX_TOOL_RESULT_CHARS]}
 
 
 def _normalize_role(role: str) -> str:
@@ -213,24 +348,6 @@ def _drafts_from(
                 "kind": "job_definition",
                 "name": str(result.get("name", arguments.get("name", ""))),
                 "content": result.get("content", arguments.get("content", "")),
-                "source": "tool",
-            }
-        ]
-    if name == "inspect_published_job_fields":
-        return [
-            {
-                "kind": "published_fields",
-                "name": "",
-                "content": result.get("candidates", []),
-                "source": "tool",
-            }
-        ]
-    if name == "create_published_job_draft":
-        return [
-            {
-                "kind": "published_fields",
-                "name": str(result.get("name", arguments.get("name", ""))),
-                "content": result.get("fields", []),
                 "source": "tool",
             }
         ]

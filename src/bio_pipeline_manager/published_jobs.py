@@ -609,7 +609,12 @@ def _apply_binding(data: dict[str, Any], binding: dict[str, Any], value: Any) ->
         return
     stage = _stage_by_name(data, str(binding.get("stage", "")))
     if target == "stage_input_source":
-        stage.setdefault("input_sources", {})[binding["input"]] = value
+        # input_sources values are string `src` overrides. Coerce so a field of
+        # the wrong type (e.g. an integer bound here by mistake) degrades to a
+        # controlled pipeline error instead of crashing job serialization.
+        stage.setdefault("input_sources", {})[binding["input"]] = (
+            value if isinstance(value, str) else str(value)
+        )
     elif target == "stage_input_arg":
         stage.setdefault("input_arg_mapping", {}).setdefault(binding["input"], {})[binding["parameter"]] = value
     elif target == "stage_process_arg":

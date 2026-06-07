@@ -1,4 +1,7 @@
 .venv/
+.env
+.env.local
+backend/.env
 .bio_pipeline/
 .pytest_cache/
 __pycache__/

@@ -4,8 +4,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from app.schemas.pipelines import PublishedField
-
 
 AIProvider = Literal["claude", "openai", "gemini", "openai_compatible", "fake"]
 
@@ -55,7 +53,7 @@ class AIToolCallRecord(BaseModel):
 
 
 class AIArtifactDraft(BaseModel):
-    kind: Literal["pipeline_yaml", "job_definition", "published_fields"]
+    kind: Literal["pipeline_yaml", "job_definition"]
     name: str = ""
     content: str | dict[str, Any] | list[Any]
     source: Literal["model", "tool"] = "model"
@@ -66,7 +64,6 @@ class AIChatRequest(BaseModel):
     messages: list[AIChatMessage]
     active_pipeline_yaml: str = ""
     active_job_definition: str = ""
-    active_published_fields: list[PublishedField] = Field(default_factory=list)
     confirmations: dict[str, bool] = Field(default_factory=dict)
     requested_tools: list[AIToolExecuteRequest] = Field(default_factory=list)
 

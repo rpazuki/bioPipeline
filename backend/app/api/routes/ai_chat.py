@@ -99,8 +99,9 @@ async def test_ai_provider(body: AIProviderSelection) -> AIProviderTestResponse:
     return AIProviderTestResponse(**result)
 
 
+# Sync: confirmed tools may submit/run jobs (blocking). Runs in a threadpool.
 @router.post("/tools/execute", response_model=AIToolCallRecord)
-async def execute_ai_tool(
+def execute_ai_tool(
     body: AIToolExecuteRequest,
     runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
     admin: Annotated[UserRecord, Depends(require_admin)],
@@ -113,8 +114,11 @@ async def execute_ai_tool(
     return AIToolCallRecord(**asdict(execution))
 
 
+# Sync handler: the agent loop makes blocking httpx provider calls. FastAPI runs
+# a sync def in a threadpool, so the multi-second tool loop never stalls the
+# event loop (which would starve other requests and reset proxied connections).
 @router.post("/messages", response_model=AIChatResponse)
-async def send_ai_chat_message(
+def send_ai_chat_message(
     body: AIChatRequest,
     runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
     admin: Annotated[UserRecord, Depends(require_admin)],
@@ -131,11 +135,33 @@ async def send_ai_chat_message(
             messages=body.messages,
             selection=body.provider,
             confirmations=body.confirmations,
+            active_pipeline_yaml=body.active_pipeline_yaml,
+            active_job_definition=body.active_job_definition,
         )
-    except (AIProviderError, ValueError) as exc:
+    except AIProviderError as exc:
+        message = redact_provider_error(str(exc), settings.ai)
+        if "429" in message or "rate_limit" in message:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=(
+                    "AI provider rate limit reached (input tokens per minute). "
+                    "Wait about a minute and retry. If it persists, lower "
+                    "max_tool_iterations in configs/app_config.yaml or request a "
+                    "higher limit from the provider."
+                ),
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=message
+        ) from exc
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=redact_provider_error(str(exc), settings.ai),
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 - return a readable error, never a bare 500
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"AI chat failed: {redact_provider_error(str(exc), settings.ai)}",
         ) from exc
     return AIChatResponse(
         message={"role": "assistant", "content": outcome.text},

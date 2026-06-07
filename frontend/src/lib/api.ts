@@ -54,7 +54,17 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
   const response = await fetch(`${API_PREFIX}${path}`, { credentials: "include", ...options, headers });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body?.detail ?? `API error ${response.status}`);
+    if (body?.detail) {
+      throw new Error(body.detail);
+    }
+    // No JSON detail on a 5xx usually means the dev proxy returned it (backend
+    // restarted or the request timed out), not the API itself.
+    if (response.status >= 500) {
+      throw new Error(
+        `Server error ${response.status} — the backend may have restarted or the request timed out. Wait a moment and retry.`,
+      );
+    }
+    throw new Error(`API error ${response.status}`);
   }
   if (response.status === 204) {
     return undefined as T;

@@ -3,7 +3,11 @@
 Last updated: 2026-06-07
 
 Status: planning only. This document describes the planned AI chat/admin agent
-feature. It does not record an implemented surface yet.
+feature. Parts that mention Published Jobs are superseded: **publishing was
+removed from the AI process.** The agent now only designs, validates, and saves
+Pipeline YAML and Job Definition YAML. Creating and publishing Published Jobs is
+a manual admin task on the Job Publishing page. The live guide is
+`docs/AI_PIPELINE_DESIGNER_CONTEXT.md`.
 
 ## Goal
 

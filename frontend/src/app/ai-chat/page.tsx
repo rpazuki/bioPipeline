@@ -1,6 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { executeAITool, getAIContext, sendAIChatMessage, testAIProvider } from "@/lib/api";
 import type {
@@ -10,43 +13,104 @@ import type {
   AIToolCallRecord,
 } from "@/types";
 
+type DeepLink = { href: string; label: string };
+
+// Saved artifacts map to the admin page that manages them.
+const ARTIFACT_LINKS: Record<string, { href: string; label: (result: Record<string, unknown>) => string }> = {
+  save_pipeline_yaml: { href: "/storage", label: (r) => `Pipeline Storage: ${r.name ?? ""}` },
+  save_job_definition: { href: "/job-storage", label: (r) => `Job Storage: ${r.name ?? ""}` },
+};
+
+// Tailwind-styled renderers so GitHub-flavored Markdown (tables, lists, code)
+// reads well in the assistant bubble.
+const MARKDOWN_COMPONENTS: Components = {
+  p: ({ children }) => <p className="my-1.5 leading-relaxed first:mt-0 last:mb-0">{children}</p>,
+  h1: ({ children }) => <h1 className="mb-1.5 mt-2 text-base font-semibold">{children}</h1>,
+  h2: ({ children }) => <h2 className="mb-1.5 mt-2 text-sm font-semibold">{children}</h2>,
+  h3: ({ children }) => <h3 className="mb-1 mt-2 text-sm font-semibold">{children}</h3>,
+  ul: ({ children }) => <ul className="my-1.5 list-disc pl-5">{children}</ul>,
+  ol: ({ children }) => <ol className="my-1.5 list-decimal pl-5">{children}</ol>,
+  li: ({ children }) => <li className="my-0.5">{children}</li>,
+  a: ({ children, href }) => (
+    <a href={href} target="_blank" rel="noreferrer" className="text-cyan-700 underline">
+      {children}
+    </a>
+  ),
+  code: ({ className, children }) =>
+    className?.includes("language-") ? (
+      <code className={className}>{children}</code>
+    ) : (
+      <code className="rounded bg-slate-200/70 px-1 py-0.5 font-mono text-[0.8em]">{children}</code>
+    ),
+  pre: ({ children }) => (
+    <pre className="my-2 overflow-auto rounded-md bg-slate-900 p-3 font-mono text-xs text-slate-100">
+      {children}
+    </pre>
+  ),
+  table: ({ children }) => (
+    <div className="my-2 overflow-auto">
+      <table className="w-full border-collapse text-xs">{children}</table>
+    </div>
+  ),
+  thead: ({ children }) => <thead className="bg-slate-100">{children}</thead>,
+  th: ({ children }) => (
+    <th className="border border-slate-300 px-2 py-1 text-left font-semibold">{children}</th>
+  ),
+  td: ({ children }) => <td className="border border-slate-200 px-2 py-1 align-top">{children}</td>,
+  blockquote: ({ children }) => (
+    <blockquote className="my-2 border-l-2 border-slate-300 pl-3 text-slate-600">{children}</blockquote>
+  ),
+};
+
 type Drafts = {
   pipeline_yaml: string;
   job_definition: string;
-  published_fields: string;
 };
 
-const EMPTY_DRAFTS: Drafts = { pipeline_yaml: "", job_definition: "", published_fields: "" };
+const EMPTY_DRAFTS: Drafts = { pipeline_yaml: "", job_definition: "" };
 
 function asText(content: unknown): string {
   if (typeof content === "string") return content;
   return JSON.stringify(content, null, 2);
 }
 
-function toolStatusClasses(status: string): string {
-  switch (status) {
-    case "succeeded":
-      return "bg-emerald-100 text-emerald-800";
-    case "failed":
-      return "bg-rose-100 text-rose-800";
-    case "pending_confirmation":
-      return "bg-amber-100 text-amber-800";
-    case "running":
-      return "bg-cyan-100 text-cyan-800";
-    default:
-      return "bg-slate-100 text-slate-700";
+// Persist the conversation so it survives navigating away from the page and
+// full reloads. Cleared by the Reset button.
+const STORAGE_KEY = "ai-designer-conversation-v1";
+
+type PersistedState = {
+  provider: string;
+  messages: AIChatMessage[];
+  input: string;
+  toolCalls: AIToolCallRecord[];
+  drafts: Drafts;
+  pendingConfirmation: AIToolCallRecord | null;
+  confirmations: Record<string, boolean>;
+};
+
+function loadPersisted(): Partial<PersistedState> {
+  if (typeof window === "undefined") return {};
+  try {
+    return JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "{}") as Partial<PersistedState>;
+  } catch {
+    return {};
   }
 }
 
 export default function AIChatPage() {
+  const persisted = useMemo(loadPersisted, []);
   const [context, setContext] = useState<AIContextResponse | null>(null);
-  const [provider, setProvider] = useState<string>("");
-  const [messages, setMessages] = useState<AIChatMessage[]>([]);
-  const [input, setInput] = useState("");
-  const [toolCalls, setToolCalls] = useState<AIToolCallRecord[]>([]);
-  const [drafts, setDrafts] = useState<Drafts>(EMPTY_DRAFTS);
-  const [pendingConfirmation, setPendingConfirmation] = useState<AIToolCallRecord | null>(null);
-  const [confirmations, setConfirmations] = useState<Record<string, boolean>>({});
+  const [provider, setProvider] = useState<string>(persisted.provider ?? "");
+  const [messages, setMessages] = useState<AIChatMessage[]>(persisted.messages ?? []);
+  const [input, setInput] = useState(persisted.input ?? "");
+  const [toolCalls, setToolCalls] = useState<AIToolCallRecord[]>(persisted.toolCalls ?? []);
+  const [drafts, setDrafts] = useState<Drafts>(persisted.drafts ?? EMPTY_DRAFTS);
+  const [pendingConfirmation, setPendingConfirmation] = useState<AIToolCallRecord | null>(
+    persisted.pendingConfirmation ?? null,
+  );
+  const [confirmations, setConfirmations] = useState<Record<string, boolean>>(
+    persisted.confirmations ?? {},
+  );
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("Loading provider configuration...");
   const [error, setError] = useState<string | null>(null);
@@ -56,11 +120,41 @@ export default function AIChatPage() {
     [context, provider],
   );
 
+  const deepLinks: DeepLink[] = useMemo(() => {
+    const seen = new Set<string>();
+    const links: DeepLink[] = [];
+    for (const call of toolCalls) {
+      if (call.status !== "succeeded" || !call.result) continue;
+      const spec = ARTIFACT_LINKS[call.name];
+      if (!spec) continue;
+      const label = spec.label(call.result);
+      const key = `${spec.href}:${label}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      links.push({ href: spec.href, label });
+    }
+    return links;
+  }, [toolCalls]);
+
+  const validation = useMemo(() => {
+    let pipeline: boolean | null = null;
+    let taskCount: number | null = null;
+    for (const call of toolCalls) {
+      if (call.status !== "succeeded" || !call.result) continue;
+      if (call.name === "validate_pipeline_yaml") pipeline = Boolean(call.result.is_valid);
+      if (call.name === "preview_job_definition" && typeof call.result.task_count === "number") {
+        taskCount = call.result.task_count;
+      }
+    }
+    return { pipeline, taskCount };
+  }, [toolCalls]);
+
   useEffect(() => {
     getAIContext()
       .then((data) => {
         setContext(data);
-        setProvider(data.default_provider);
+        // Keep a restored provider selection; only default when none persisted.
+        setProvider((current) => current || data.default_provider);
         setStatus(`Schema context ${data.schema_digest} · ${data.tools.length} tools available`);
       })
       .catch((cause: Error) => {
@@ -68,6 +162,33 @@ export default function AIChatPage() {
         setStatus("Provider configuration unavailable");
       });
   }, []);
+
+  // Persist conversation state across navigation/reload.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const payload: PersistedState = {
+      provider,
+      messages,
+      input,
+      toolCalls,
+      drafts,
+      pendingConfirmation,
+      confirmations,
+    };
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  }, [provider, messages, input, toolCalls, drafts, pendingConfirmation, confirmations]);
+
+  function resetConversation() {
+    setMessages([]);
+    setInput("");
+    setToolCalls([]);
+    setDrafts(EMPTY_DRAFTS);
+    setPendingConfirmation(null);
+    setConfirmations({});
+    setError(null);
+    setStatus("Conversation reset");
+    if (typeof window !== "undefined") window.localStorage.removeItem(STORAGE_KEY);
+  }
 
   function applyDrafts(updates: { kind: keyof Drafts; content: unknown }[]) {
     if (updates.length === 0) return;
@@ -93,6 +214,8 @@ export default function AIChatPage() {
         provider: { provider: provider as never },
         messages: history,
         confirmations: mergedConfirmations,
+        active_pipeline_yaml: drafts.pipeline_yaml,
+        active_job_definition: drafts.job_definition,
       });
       setMessages((current) => [...current, response.message]);
       if (response.tool_calls.length) setToolCalls((current) => [...current, ...response.tool_calls]);
@@ -160,8 +283,8 @@ export default function AIChatPage() {
           <h2 className="text-lg font-semibold text-slate-950">AI Designer</h2>
           <p className="mt-1 text-sm text-slate-500">
             Describe a workflow in natural language. The agent inspects storage, drafts Pipeline and
-            Job Definition YAML, validates and previews it, and prepares Published Jobs. Submit and
-            publish require your explicit confirmation.
+            Job Definition YAML, validates and previews it, and saves the result. Publishing a
+            user-facing job is done manually on the Job Publishing page.
           </p>
         </div>
         <span className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
@@ -214,11 +337,23 @@ export default function AIChatPage() {
         </button>
       </section>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(380px,0.8fr)]">
-        {/* Chat thread */}
-        <section className="grid content-start gap-3 rounded-md border border-slate-200 bg-white p-4">
-          <h3 className="text-sm font-semibold text-slate-950">Conversation</h3>
-          <div className="grid max-h-[460px] gap-2 overflow-auto pr-1">
+      {/* Chat thread */}
+      <section className="grid content-start gap-3 rounded-md border border-slate-200 bg-white p-4">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-slate-950">Conversation</h3>
+            <button
+              type="button"
+              className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              onClick={() => {
+                if (messages.length && !window.confirm("Reset the conversation and clear drafts?")) return;
+                resetConversation();
+              }}
+              disabled={busy || (messages.length === 0 && !drafts.pipeline_yaml && !drafts.job_definition)}
+            >
+              Reset
+            </button>
+          </div>
+          <div className="grid max-h-[520px] gap-2 overflow-auto pr-1">
             {messages.length === 0 ? (
               <p className="text-sm text-slate-500">
                 Ask the agent to design a pipeline or job definition from an existing YAML.
@@ -236,7 +371,15 @@ export default function AIChatPage() {
                 <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                   {message.role}
                 </div>
-                <div className="whitespace-pre-wrap">{message.content}</div>
+                {message.role === "assistant" ? (
+                  <div className="text-sm text-slate-900">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+                      {message.content}
+                    </ReactMarkdown>
+                  </div>
+                ) : (
+                  <div className="whitespace-pre-wrap">{message.content}</div>
+                )}
               </div>
             ))}
           </div>
@@ -295,51 +438,50 @@ export default function AIChatPage() {
               </button>
             </div>
           </div>
-        </section>
+      </section>
 
-        {/* Tool trace */}
-        <section className="grid content-start gap-2 rounded-md border border-slate-200 bg-white p-4">
-          <h3 className="text-sm font-semibold text-slate-950">Tool Trace</h3>
-          {toolCalls.length === 0 ? (
-            <p className="text-sm text-slate-500">Tool calls the agent runs will appear here.</p>
+      {/* Results strip: validation badges + deep links to artifact pages */}
+      {validation.pipeline !== null || validation.taskCount !== null || deepLinks.length ? (
+        <section className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-white p-3">
+          {validation.pipeline !== null ? (
+            <span
+              className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                validation.pipeline ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"
+              }`}
+            >
+              Pipeline YAML {validation.pipeline ? "valid" : "invalid"}
+            </span>
           ) : null}
-          <div className="grid max-h-[560px] gap-2 overflow-auto pr-1">
-            {toolCalls.map((call) => (
-              <div key={call.id} className="grid gap-1 rounded-md border border-slate-200 p-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-mono text-xs font-semibold text-slate-800">{call.name}</span>
-                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${toolStatusClasses(call.status)}`}>
-                    {call.status}
-                  </span>
-                </div>
-                {call.error ? <p className="text-xs text-rose-700">{call.error}</p> : null}
-                {call.result ? (
-                  <pre className="max-h-32 overflow-auto rounded-md bg-slate-50 p-2 text-[11px] text-slate-600">
-                    {JSON.stringify(call.result, null, 2)}
-                  </pre>
-                ) : null}
-              </div>
-            ))}
-          </div>
+          {validation.taskCount !== null ? (
+            <span className="rounded-full bg-cyan-100 px-2.5 py-1 text-xs font-semibold text-cyan-800">
+              Preview: {validation.taskCount} task{validation.taskCount === 1 ? "" : "s"}
+            </span>
+          ) : null}
+          {deepLinks.map((link) => (
+            <Link
+              key={link.href + link.label}
+              href={link.href}
+              className="rounded-full border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              {link.label} →
+            </Link>
+          ))}
         </section>
-      </div>
+      ) : null}
 
       {/* Draft workspace */}
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-2">
         <DraftPanel
           title="Pipeline YAML"
+          filename="pipeline.yaml"
           value={drafts.pipeline_yaml}
           onChange={(value) => setDrafts((current) => ({ ...current, pipeline_yaml: value }))}
         />
         <DraftPanel
           title="Job Definition"
+          filename="job_definition.yaml"
           value={drafts.job_definition}
           onChange={(value) => setDrafts((current) => ({ ...current, job_definition: value }))}
-        />
-        <DraftPanel
-          title="Published Fields"
-          value={drafts.published_fields}
-          onChange={(value) => setDrafts((current) => ({ ...current, published_fields: value }))}
         />
       </div>
     </section>
@@ -348,16 +490,58 @@ export default function AIChatPage() {
 
 function DraftPanel({
   title,
+  filename,
   value,
   onChange,
 }: {
   title: string;
+  filename: string;
   value: string;
   onChange: (value: string) => void;
 }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    if (!value) return;
+    await navigator.clipboard.writeText(value);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
+  function download() {
+    if (!value) return;
+    const blob = new Blob([value], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <section className="grid content-start gap-2 rounded-md border border-slate-200 bg-white p-4">
-      <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
+        <div className="flex gap-1.5">
+          <button
+            type="button"
+            className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+            onClick={() => void copy()}
+            disabled={!value}
+          >
+            {copied ? "Copied" : "Copy"}
+          </button>
+          <button
+            type="button"
+            className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+            onClick={download}
+            disabled={!value}
+          >
+            Download
+          </button>
+        </div>
+      </div>
       <textarea
         className="min-h-64 rounded-md border border-slate-300 p-3 font-mono text-xs"
         value={value}

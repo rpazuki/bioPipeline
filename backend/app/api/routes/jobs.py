@@ -120,7 +120,10 @@ def _job_response(job: JobRecord) -> JobResponse:
         yaml_path=str(job.spec.yaml_path),
         pipeline_name=job.spec.pipeline_name,
         output_dir=str(job.spec.output_dir),
-        input_sources=job.spec.input_sources,
+        # input_sources are string `src` overrides. Coerce defensively so a
+        # record stored with a non-string value (e.g. a legacy bad job) never
+        # crashes the read path / blocks the whole job list.
+        input_sources={key: str(value) for key, value in (job.spec.input_sources or {}).items()},
         input_arg_mapping=job.spec.input_arg_mapping,
         process_arg_mapping=job.spec.process_arg_mapping,
         output_path_mapping=job.spec.output_path_mapping,

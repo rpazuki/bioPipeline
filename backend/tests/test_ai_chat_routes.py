@@ -182,56 +182,27 @@ def test_ai_tools_validate_save_preview_and_confirmation(tmp_path: Path, monkeyp
     _reset()
 
 
-def test_ai_tools_create_draft_and_publish_requires_confirmation(tmp_path: Path, monkeypatch):
+def test_ai_publishing_tools_are_removed(tmp_path: Path, monkeypatch):
     _set_fake_ai_config(monkeypatch)
     client = _client(tmp_path)
-    field = {
-        "id": "tag",
-        "label": "Run tag",
-        "type": "string",
-        "required": True,
-        "default": "A",
-        "help": "Selects the run tag.",
-        "example": "A",
-        "options": [],
-        "bindings": [{"target": "definition_path", "path": ["variables", "tag"]}],
-    }
 
-    create = client.post(
-        "/api/v1/ai-chat/tools/execute",
-        json={
-            "name": "create_published_job_draft",
-            "arguments": {
-                "name": "AI demo",
-                "description": "Draft from AI",
-                "definition_name": "ai_demo.yaml",
-                "definition_content": JOB_DEF,
-                "fields": [field],
-            },
-        },
-    )
-    assert create.status_code == 200
-    assert create.json()["status"] == "succeeded"
-    draft = create.json()["result"]
-    assert draft["status"] == "draft"
+    context = client.get("/api/v1/ai-chat/context")
+    tool_names = {tool["name"] for tool in context.json()["tools"]}
+    for removed in (
+        "inspect_published_job_fields",
+        "create_published_job_draft",
+        "publish_published_job",
+        "list_published_jobs_admin",
+    ):
+        assert removed not in tool_names
 
-    blocked_publish = client.post(
+    blocked = client.post(
         "/api/v1/ai-chat/tools/execute",
-        json={"name": "publish_published_job", "arguments": {"published_job_id": draft["id"]}},
+        json={"name": "create_published_job_draft", "arguments": {}},
     )
-    assert blocked_publish.status_code == 200
-    assert blocked_publish.json()["status"] == "pending_confirmation"
-
-    published = client.post(
-        "/api/v1/ai-chat/tools/execute",
-        json={
-            "name": "publish_published_job",
-            "arguments": {"published_job_id": draft["id"]},
-            "confirmed": True,
-        },
-    )
-    assert published.status_code == 200
-    assert published.json()["result"]["status"] == "published"
+    assert blocked.status_code == 200
+    assert blocked.json()["status"] == "failed"
+    assert "Unknown AI tool" in blocked.json()["error"]
 
     _reset()
 

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 import yaml
+from dotenv import load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -14,6 +16,55 @@ _THIS_FILE = Path(__file__).resolve()
 _BACKEND_DIR = _THIS_FILE.parents[2]
 _REPO_ROOT = _THIS_FILE.parents[3]
 _DEFAULT_CONFIG_PATH = _REPO_ROOT / "configs" / "app_config.yaml"
+
+# Load .env into the process environment before reading the YAML config, so
+# secrets such as provider API keys can be referenced as ${VAR} placeholders.
+for _env_path in (_REPO_ROOT / ".env", _BACKEND_DIR / ".env"):
+    if _env_path.exists():
+        load_dotenv(_env_path, override=False)
+
+_ENV_PLACEHOLDER = re.compile(r"\$\{([A-Z0-9_]+)\}")
+
+# Fallback environment variable names when a provider's api_key is left blank.
+_DEFAULT_AI_KEY_ENV = {
+    "claude": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+    "openai_compatible": "OPENAI_COMPATIBLE_API_KEY",
+}
+
+
+def _expand_env(value: str) -> str:
+    return _ENV_PLACEHOLDER.sub(lambda match: os.environ.get(match.group(1), ""), value)
+
+
+def _resolve_ai_secrets(ai: Any) -> Any:
+    """Fill provider api_key/base_url from the environment.
+
+    Supports ``${VAR}`` placeholders, an explicit ``api_key_env`` field, and a
+    conventional per-provider env var when the key is left blank. Keys are read
+    server-side only and are never echoed back to the frontend.
+    """
+    if not isinstance(ai, dict):
+        return ai
+    providers = ai.get("providers")
+    if not isinstance(providers, dict):
+        return ai
+    for name, raw in providers.items():
+        if not isinstance(raw, dict):
+            continue
+        api_key = str(raw.get("api_key", ""))
+        if "${" in api_key:
+            api_key = _expand_env(api_key)
+        if not api_key.strip():
+            env_name = str(raw.get("api_key_env", "")) or _DEFAULT_AI_KEY_ENV.get(name, "")
+            if env_name:
+                api_key = os.environ.get(env_name, "")
+        raw["api_key"] = api_key
+        base_url = raw.get("base_url")
+        if isinstance(base_url, str) and "${" in base_url:
+            raw["base_url"] = _expand_env(base_url)
+    return ai
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -54,6 +105,8 @@ def load_backend_config() -> dict[str, Any]:
 
     merged = _deep_merge(shared, env_data)
     merged.setdefault("app_env", active_env)
+    if "ai" in merged:
+        merged["ai"] = _resolve_ai_secrets(merged["ai"])
     return merged
 
 
