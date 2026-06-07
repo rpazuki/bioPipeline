@@ -218,8 +218,8 @@ export default function PipelineBuilder({ draft, onChange }: Props) {
   const selectedNode = selection?.type === "node" ? splitId(selection.id) : null;
 
   return (
-    <div className="grid gap-3 lg:grid-cols-[1fr_280px]">
-      <div className="grid gap-2">
+    <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="grid min-w-0 gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <button className={buttonBase} onClick={addInput}>
             + Input
@@ -238,7 +238,7 @@ export default function PipelineBuilder({ draft, onChange }: Props) {
             Delete selected
           </button>
         </div>
-        <div className="h-[460px] rounded-md border border-slate-200 bg-white">
+        <div className="h-[460px] min-w-0 overflow-hidden rounded-md border border-slate-200 bg-white">
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -250,6 +250,7 @@ export default function PipelineBuilder({ draft, onChange }: Props) {
             onPaneClick={() => setSelection(null)}
             deleteKeyCode={null}
             fitView
+            fitViewOptions={{ padding: 0.25 }}
             proOptions={{ hideAttribution: true }}
           >
             <Background />

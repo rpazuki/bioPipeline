@@ -58,9 +58,9 @@ function OutputNode({ data }: NodeProps) {
 }
 
 export const nodeTypes: NodeTypes = {
-  input: InputNode,
-  process: ProcessNode,
-  output: OutputNode,
+  pipelineInput: InputNode,
+  pipelineProcess: ProcessNode,
+  pipelineOutput: OutputNode,
 };
 
 function formatValue(value: unknown): string {
@@ -90,7 +90,7 @@ export default function PipelineSchematic({ pipeline }: Props) {
 
   return (
     <div className="grid gap-3">
-      <div className="h-[480px] rounded-md border border-slate-200 bg-white">
+      <div className="h-[480px] overflow-hidden rounded-md border border-slate-200 bg-white">
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -103,6 +103,7 @@ export default function PipelineSchematic({ pipeline }: Props) {
           }}
           onPaneClick={() => setSelected(null)}
           fitView
+          fitViewOptions={{ padding: 0.25 }}
           proOptions={{ hideAttribution: true }}
         >
           <Background />

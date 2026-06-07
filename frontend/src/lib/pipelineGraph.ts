@@ -39,6 +39,11 @@ export type PipelineNode = Node<PipelineNodeData>;
 
 const NODE_WIDTH = 180;
 const NODE_HEIGHT = 70; // used only for dagre vertical spacing estimate
+const NODE_TYPES: Record<PipelineNodeKind, string> = {
+  input: "pipelineInput",
+  process: "pipelineProcess",
+  output: "pipelineOutput",
+};
 
 function keySuggestsPayload(key: string): boolean {
   return REFERENCE_PARAMETER_NAMES.has(key) || key.endsWith("_df");
@@ -87,7 +92,7 @@ export function buildPipelineGraph(pipeline: PipelineSummary): {
   for (const name of pipeline.inputs) {
     nodes.push({
       id: `input:${name}`,
-      type: "input",
+      type: NODE_TYPES.input,
       position: { x: 0, y: 0 },
       width: NODE_WIDTH,
       data: { kind: "input", label: name },
@@ -97,7 +102,7 @@ export function buildPipelineGraph(pipeline: PipelineSummary): {
   for (const process of pipeline.processes) {
     nodes.push({
       id: `proc:${process.name}`,
-      type: "process",
+      type: NODE_TYPES.process,
       position: { x: 0, y: 0 },
       width: NODE_WIDTH,
       data: {
@@ -112,7 +117,7 @@ export function buildPipelineGraph(pipeline: PipelineSummary): {
   for (const name of pipeline.outputs) {
     nodes.push({
       id: `output:${name}`,
-      type: "output",
+      type: NODE_TYPES.output,
       position: { x: 0, y: 0 },
       width: NODE_WIDTH,
       data: { kind: "output", label: name },
