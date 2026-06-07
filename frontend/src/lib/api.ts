@@ -11,6 +11,12 @@ import type {
   PackageList,
   PackageOpResult,
   PackageSourceType,
+  PublishedField,
+  PublishedJobAdmin,
+  PublishedJobPublicDetail,
+  PublishedJobPublicSummary,
+  PublishedRunDetail,
+  PublishedRunSummary,
   PipelineTemplate,
   PipelineTemplateSummary,
   RuntimeInfo,
@@ -242,6 +248,112 @@ export async function listJobDefinitions() {
 
 export async function getJobDefinition(parentJobId: string) {
   return apiFetch<JobGroupDetail>(`/job-definitions/${encodeURIComponent(parentJobId)}`);
+}
+
+// Published jobs
+export async function inspectPublishedJob(content: string) {
+  return apiFetch<{ job_name: string; candidates: PublishedField[] }>("/published-jobs/admin/inspect", {
+    method: "POST",
+    body: JSON.stringify({ content }),
+  });
+}
+
+export async function listAdminPublishedJobs() {
+  return apiFetch<PublishedJobAdmin[]>("/published-jobs/admin");
+}
+
+export async function listAdminPublishedRuns() {
+  return apiFetch<PublishedRunSummary[]>("/published-jobs/admin/runs");
+}
+
+export async function listAdminPublishedJobRuns(id: string) {
+  return apiFetch<PublishedRunSummary[]>(`/published-jobs/admin/${encodeURIComponent(id)}/runs`);
+}
+
+export async function getAdminPublishedJob(id: string) {
+  return apiFetch<PublishedJobAdmin>(`/published-jobs/admin/${encodeURIComponent(id)}`);
+}
+
+export async function createPublishedJob(payload: {
+  name: string;
+  description: string;
+  definition_name?: string;
+  definition_content: string;
+  fields: PublishedField[];
+  status?: "draft" | "published";
+}) {
+  return apiFetch<PublishedJobAdmin>("/published-jobs/admin", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updatePublishedJob(
+  id: string,
+  payload: Partial<{
+    name: string;
+    description: string;
+    definition_name: string;
+    definition_content: string;
+    fields: PublishedField[];
+  }>,
+) {
+  return apiFetch<PublishedJobAdmin>(`/published-jobs/admin/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function publishPublishedJob(id: string) {
+  return apiFetch<PublishedJobAdmin>(`/published-jobs/admin/${encodeURIComponent(id)}/publish`, { method: "POST" });
+}
+
+export async function archivePublishedJob(id: string) {
+  return apiFetch<PublishedJobAdmin>(`/published-jobs/admin/${encodeURIComponent(id)}/archive`, { method: "POST" });
+}
+
+export async function validatePublishedJob(id: string) {
+  return apiFetch<{ is_valid: boolean; candidate_count: number; field_count: number; run_count: number }>(
+    `/published-jobs/admin/${encodeURIComponent(id)}/validate`,
+    { method: "POST" },
+  );
+}
+
+export async function deletePublishedJob(id: string, force = false) {
+  return apiFetch<void>(`/published-jobs/admin/${encodeURIComponent(id)}?force=${force ? "true" : "false"}`, {
+    method: "DELETE",
+  });
+}
+
+export async function listPublishedJobs() {
+  return apiFetch<PublishedJobPublicSummary[]>("/published-jobs");
+}
+
+export async function getPublishedJob(id: string) {
+  return apiFetch<PublishedJobPublicDetail>(`/published-jobs/catalog/${encodeURIComponent(id)}`);
+}
+
+export async function submitPublishedJobRun(id: string, values: Record<string, unknown>, scheduledAt: string | null = null) {
+  return apiFetch<PublishedRunDetail>(`/published-jobs/catalog/${encodeURIComponent(id)}/runs`, {
+    method: "POST",
+    body: JSON.stringify({ values, scheduled_at: scheduledAt }),
+  });
+}
+
+export async function listMyPublishedRuns() {
+  return apiFetch<PublishedRunSummary[]>("/published-jobs/my-runs");
+}
+
+export async function getMyPublishedRun(id: string) {
+  return apiFetch<PublishedRunDetail>(`/published-jobs/my-runs/${encodeURIComponent(id)}`);
+}
+
+export async function cancelMyPublishedRun(id: string) {
+  return apiFetch<PublishedRunDetail>(`/published-jobs/my-runs/${encodeURIComponent(id)}/cancel`, { method: "POST" });
+}
+
+export async function rewindMyPublishedRun(id: string) {
+  return apiFetch<PublishedRunDetail>(`/published-jobs/my-runs/${encodeURIComponent(id)}/rewind`, { method: "POST" });
 }
 
 // Job Definition store (saved/archived reusable definitions)

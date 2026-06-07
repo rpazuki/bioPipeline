@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -101,7 +102,9 @@ class JobSubmitRequest(BaseModel):
     pipeline_name: str
     output_dir: str
     input_sources: dict[str, str] = Field(default_factory=dict)
-    process_arg_mapping: dict[str, dict[str, str]] = Field(default_factory=dict)
+    input_arg_mapping: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    process_arg_mapping: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    output_path_mapping: dict[str, Any] = Field(default_factory=dict)
     backend: str = "local"
     scheduled_at: datetime | None = None
 
@@ -113,7 +116,9 @@ class JobResponse(BaseModel):
     pipeline_name: str
     output_dir: str
     input_sources: dict[str, str]
-    process_arg_mapping: dict[str, dict[str, str]] = Field(default_factory=dict)
+    input_arg_mapping: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    process_arg_mapping: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    output_path_mapping: dict[str, Any] = Field(default_factory=dict)
     backend: str
     log_path: str
     parent_job_id: str | None = None
@@ -144,7 +149,9 @@ class MaterializedTaskResponse(BaseModel):
     pipeline_name: str
     output_dir: str
     input_sources: dict[str, str]
-    process_arg_mapping: dict[str, dict[str, str]]
+    input_arg_mapping: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    process_arg_mapping: dict[str, dict[str, Any]]
+    output_path_mapping: dict[str, Any] = Field(default_factory=dict)
     item_index: int
     deferred: bool = False
 
@@ -170,6 +177,125 @@ class JobGroupSummary(BaseModel):
 
 class JobGroupDetail(JobGroupSummary):
     tasks: list[JobResponse]
+
+
+class PublishedFieldOption(BaseModel):
+    label: str
+    value: Any
+
+
+class PublishedFieldBinding(BaseModel):
+    target: str
+    path: list[Any] | None = None
+    stage: str | None = None
+    input: str | None = None
+    process: str | None = None
+    parameter: str | None = None
+    output: str | None = None
+
+
+class PublishedField(BaseModel):
+    id: str
+    label: str
+    type: str = "string"
+    required: bool = True
+    default: Any = None
+    help: str = ""
+    example: str = ""
+    placeholder: str = ""
+    options: list[PublishedFieldOption] = Field(default_factory=list)
+    bindings: list[PublishedFieldBinding] = Field(default_factory=list)
+
+
+class PublicPublishedField(BaseModel):
+    id: str
+    label: str
+    type: str = "string"
+    required: bool = True
+    default: Any = None
+    help: str = ""
+    example: str = ""
+    placeholder: str = ""
+    options: list[PublishedFieldOption] = Field(default_factory=list)
+
+
+class PublishedJobInspectRequest(BaseModel):
+    content: str
+
+
+class PublishedJobInspectResponse(BaseModel):
+    job_name: str
+    candidates: list[PublishedField]
+
+
+class PublishedJobSaveRequest(BaseModel):
+    name: str
+    description: str = ""
+    definition_name: str = ""
+    definition_content: str
+    fields: list[PublishedField]
+    status: str = "draft"
+
+
+class PublishedJobUpdateRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    definition_name: str | None = None
+    definition_content: str | None = None
+    fields: list[PublishedField] | None = None
+
+
+class PublishedJobAdminResponse(BaseModel):
+    id: str
+    name: str
+    description: str
+    status: str
+    version: int
+    definition_name: str
+    definition_content: str
+    fields: list[PublishedField]
+    created_at: datetime
+    updated_at: datetime
+    published_at: datetime | None = None
+    created_by: str
+    updated_by: str
+
+
+class PublishedJobPublicSummary(BaseModel):
+    id: str
+    name: str
+    description: str
+    version: int
+
+
+class PublishedJobPublicDetail(PublishedJobPublicSummary):
+    fields: list[PublicPublishedField]
+
+
+class PublishedJobRunRequest(BaseModel):
+    values: dict[str, Any] = Field(default_factory=dict)
+    scheduled_at: datetime | None = None
+
+
+class PublishedRunSummary(BaseModel):
+    id: str
+    published_job_id: str
+    published_version: int
+    published_job_name: str
+    user_id: str
+    username: str = ""
+    user_display_name: str = ""
+    parent_job_id: str
+    status: str
+    total: int
+    counts: dict[str, int]
+    values: dict[str, Any]
+    created_at: datetime
+
+
+class PublishedRunDetail(PublishedRunSummary):
+    group: JobGroupDetail
+    logs: dict[str, str] = Field(default_factory=dict)
 
 
 class PackageInfo(BaseModel):

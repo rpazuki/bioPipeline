@@ -63,31 +63,6 @@ function LoginScreen() {
   );
 }
 
-function UnderConstructionScreen() {
-  const { logout, user } = useAuth();
-  return (
-    <main className="grid min-h-screen place-items-center bg-slate-50 px-4">
-      <section className="grid max-w-lg gap-4 rounded-md border border-slate-200 bg-white p-6 shadow-sm">
-        <div>
-          <p className="text-xs font-semibold uppercase text-slate-500">Signed in as {user?.username}</p>
-          <h1 className="mt-2 text-xl font-semibold text-slate-950">Your workspace is under construction</h1>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            Standard user workflows are coming later. For now, your account can sign in successfully,
-            but admin pipeline tools are not available for this role.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => void logout()}
-          className="w-fit rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-        >
-          Sign out
-        </button>
-      </section>
-    </main>
-  );
-}
-
 function LoadingScreen() {
   return (
     <main className="grid min-h-screen place-items-center bg-slate-50 px-4 text-sm text-slate-500">
@@ -102,11 +77,12 @@ function AuthGateInner({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
+    const userPathAllowed = pathname === "/published-jobs" || pathname === "/my-runs";
     if (status === "unauthenticated" && pathname !== "/login") {
       router.replace("/login");
     }
-    if (status === "authenticated" && user?.role === "user" && pathname !== "/under-construction") {
-      router.replace("/under-construction");
+    if (status === "authenticated" && user?.role === "user" && !userPathAllowed) {
+      router.replace("/published-jobs");
     }
     if (status === "authenticated" && user?.role === "admin" && (pathname === "/login" || pathname === "/under-construction")) {
       router.replace("/");
@@ -118,9 +94,6 @@ function AuthGateInner({ children }: { children: React.ReactNode }) {
   }
   if (status === "unauthenticated") {
     return <LoginScreen />;
-  }
-  if (user?.role === "user") {
-    return <UnderConstructionScreen />;
   }
   return <AppShell>{children}</AppShell>;
 }

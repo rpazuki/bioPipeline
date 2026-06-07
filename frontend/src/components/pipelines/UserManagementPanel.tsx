@@ -5,6 +5,10 @@ import { useCallback, useEffect, useState } from "react";
 import { createUser, disableUser, enableUser, listUsers, resetUserPassword, updateUser } from "@/lib/api";
 import type { User, UserRole } from "@/types";
 
+function roleLabel(role: UserRole) {
+  return role === "admin" ? "Administrator" : "Researcher";
+}
+
 export default function UserManagementPanel() {
   const [users, setUsers] = useState<User[]>([]);
   const [username, setUsername] = useState("");
@@ -76,7 +80,7 @@ export default function UserManagementPanel() {
   return (
     <div className="grid gap-4">
       <section className="grid gap-3 rounded-md border border-slate-200 bg-white p-4">
-        <h2 className="text-sm font-semibold text-slate-900">Create user</h2>
+        <h2 className="text-sm font-semibold text-slate-900">Create researcher</h2>
         <div className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_auto_auto]">
           <input
             aria-label="New username"
@@ -106,8 +110,8 @@ export default function UserManagementPanel() {
             onChange={(event) => setRole(event.target.value as UserRole)}
             className="rounded-md border border-slate-300 px-3 py-2 text-sm"
           >
-            <option value="user">user</option>
-            <option value="admin">admin</option>
+            <option value="user">Researcher</option>
+            <option value="admin">Administrator</option>
           </select>
           <button
             type="button"
@@ -123,7 +127,7 @@ export default function UserManagementPanel() {
 
       <section className="overflow-hidden rounded-md border border-slate-200 bg-white">
         <div className="border-b border-slate-200 px-4 py-3">
-          <h2 className="text-sm font-semibold text-slate-900">Users ({users.length})</h2>
+          <h2 className="text-sm font-semibold text-slate-900">Researchers ({users.length})</h2>
         </div>
         <div className="grid divide-y divide-slate-200">
           {users.map((user) => (
@@ -132,7 +136,7 @@ export default function UserManagementPanel() {
                 <div>
                   <div className="font-mono text-sm font-semibold text-slate-950">{user.username}</div>
                   <div className="text-xs text-slate-500">
-                    {user.display_name || "No display name"} · {user.role} · {user.is_active ? "active" : "disabled"}
+                    {user.display_name || "No display name"} · {roleLabel(user.role)} · {user.is_active ? "active" : "disabled"}
                   </div>
                 </div>
                 <button
@@ -163,8 +167,8 @@ export default function UserManagementPanel() {
                   disabled={busy}
                   className="rounded-md border border-slate-300 px-3 py-2 text-sm"
                 >
-                  <option value="user">user</option>
-                  <option value="admin">admin</option>
+                  <option value="user">Researcher</option>
+                  <option value="admin">Administrator</option>
                 </select>
                 <input
                   type="password"
@@ -185,7 +189,7 @@ export default function UserManagementPanel() {
               </div>
             </div>
           ))}
-          {users.length === 0 ? <p className="p-4 text-sm text-slate-500">No users yet.</p> : null}
+          {users.length === 0 ? <p className="p-4 text-sm text-slate-500">No researchers yet.</p> : null}
         </div>
       </section>
     </div>

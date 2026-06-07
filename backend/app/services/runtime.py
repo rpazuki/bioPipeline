@@ -8,6 +8,7 @@ from bio_pipeline_manager.auth_store import AuthStore
 from bio_pipeline_manager.job_definition_store import JobDefinitionStore
 from bio_pipeline_manager.job_queue import JobQueue
 from bio_pipeline_manager.packages import InstallStore, PackageManager
+from bio_pipeline_manager.published_jobs import PublishedJobStore
 from bio_pipeline_manager.storage import JobStore
 from bio_pipeline_manager.yaml_store import YamlStore
 
@@ -20,6 +21,7 @@ class PipelineRuntime:
     queue: JobQueue
     packages: PackageManager
     definition_store: JobDefinitionStore
+    published_jobs: PublishedJobStore
     auth: AuthService
 
 
@@ -37,5 +39,6 @@ def create_runtime(home: str | Path, *, auth_session_ttl_hours: float = 24.0) ->
             job_guard=job_store.has_active_jobs,
         ),
         definition_store=JobDefinitionStore(root / "job_defs", root / "job_defs_archive"),
+        published_jobs=PublishedJobStore(root / "state.sqlite"),
         auth=AuthService(AuthStore(root / "auth.sqlite"), session_ttl_hours=auth_session_ttl_hours),
     )

@@ -407,7 +407,9 @@ def build_pipeline_from_yaml_string(
     pipeline_name: str,
     output_dir: str | Path | None = None,
     input_sources: dict[str, str] | None = None,
-    process_arg_mapping: dict[str, dict[str, str]] | None = None,
+    input_arg_mapping: dict[str, dict[str, Any]] | None = None,
+    process_arg_mapping: dict[str, dict[str, Any]] | None = None,
+    output_path_mapping: dict[str, Any] | None = None,
 ) -> tuple[DFPipeline, dict]:
     """Build a DFPipeline from a YAML configuration string.
 
@@ -421,8 +423,12 @@ def build_pipeline_from_yaml_string(
         Output directory to prepend to all output file paths from YAML.
     input_sources : dict[str, str], optional
         Overrides the ``src`` field in the YAML for the named inputs.
-    process_arg_mapping : dict[str, dict[str, str]], optional
+    input_arg_mapping : dict[str, dict[str, Any]], optional
+        Per-input parameter overrides, keyed by input name.
+    process_arg_mapping : dict[str, dict[str, Any]], optional
         Per-process parameter overrides, keyed by process name.
+    output_path_mapping : dict[str, Any], optional
+        Per-output path overrides, keyed by output payload name.
     """
     if output_dir is not None:
         output_dir = Path(output_dir)
@@ -462,6 +468,8 @@ def build_pipeline_from_yaml_string(
 
             if input_sources and input_name in input_sources:
                 input_params["src"] = input_sources[input_name]
+            if input_arg_mapping and input_name in input_arg_mapping:
+                input_params.update(input_arg_mapping[input_name])
 
             if "src" not in input_params:
                 raise ValueError(
@@ -526,6 +534,8 @@ def build_pipeline_from_yaml_string(
     outputs_dict = {}
     for output_dict in outputs_config:
         outputs_dict.update(output_dict)
+    if output_path_mapping:
+        outputs_dict.update(output_path_mapping)
 
     if output_dir is not None:
         processed_outputs = {}
@@ -550,7 +560,9 @@ def build_pipeline_from_yaml(
     pipeline_name: str,
     output_dir: str | Path | None = None,
     input_sources: dict[str, str] | None = None,
-    process_arg_mapping: dict[str, dict[str, str]] | None = None,
+    input_arg_mapping: dict[str, dict[str, Any]] | None = None,
+    process_arg_mapping: dict[str, dict[str, Any]] | None = None,
+    output_path_mapping: dict[str, Any] | None = None,
 ) -> tuple[DFPipeline, dict]:
     """Build a DFPipeline from a YAML configuration file.
 
@@ -569,5 +581,7 @@ def build_pipeline_from_yaml(
         pipeline_name=pipeline_name,
         output_dir=output_dir,
         input_sources=input_sources,
+        input_arg_mapping=input_arg_mapping,
         process_arg_mapping=process_arg_mapping,
+        output_path_mapping=output_path_mapping,
     )

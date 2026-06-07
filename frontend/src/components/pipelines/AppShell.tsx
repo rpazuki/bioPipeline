@@ -8,6 +8,7 @@ import { useAuth } from "./AuthContext";
 import { PipelineProvider, usePipeline } from "./PipelineContext";
 
 const NAV = [
+  { href: "/published-jobs-admin", label: "Job Publishing" },
   { href: "/", label: "Job Queue" },
   { href: "/job-definitions", label: "Job Definitions" },
   { href: "/job-storage", label: "Job Storage" },
@@ -15,8 +16,19 @@ const NAV = [
   { href: "/validation", label: "Pipeline Definitions" },
   { href: "/storage", label: "Pipeline Storage" },
   { href: "/environment", label: "Environment" },
-  { href: "/users", label: "Users" },
+  { href: "/users", label: "Researchers" },
 ];
+
+const USER_NAV = [
+  { href: "/published-jobs", label: "Published Jobs" },
+  { href: "/my-runs", label: "My Runs" },
+];
+
+function roleLabel(role?: string) {
+  if (role === "admin") return "Administrator";
+  if (role === "user") return "Researcher";
+  return role ?? "";
+}
 
 function Header() {
   const { status } = usePipeline();
@@ -35,7 +47,7 @@ function Header() {
         <div className="flex flex-wrap items-center justify-end gap-2">
           <div className="text-right text-xs text-slate-500">
             <div className="font-semibold text-slate-700">{user?.username}</div>
-            <div>{user?.role}</div>
+            <div>{roleLabel(user?.role)}</div>
           </div>
           <button
             onClick={() => setOpen((v) => !v)}
@@ -66,7 +78,7 @@ function Header() {
       {/* Collapsible nav */}
       {open && (
         <nav className="border-t border-slate-100 px-5 pb-3 pt-2 flex flex-wrap gap-2">
-          {NAV.map((item) => {
+          {(user?.role === "admin" ? NAV : USER_NAV).map((item) => {
             const active = pathname === item.href;
             return (
               <Link

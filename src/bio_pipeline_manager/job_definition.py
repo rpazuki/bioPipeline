@@ -7,7 +7,7 @@ A *Job Definition* is a declarative YAML that describes a whole experiment:
 - ``defaults``: shared values, templated against each cell.
 - ``stages``: ordered pipeline steps. Each stage applies one pipeline (from its
   own ``pipeline_yaml``) over a *fan-out* of items, with templated
-  ``output_dir`` / ``input_sources`` / ``process_arg_mapping``. ``needs``
+  ``output_dir`` / ``input_sources`` / input/process/output argument mappings. ``needs``
   expresses ordering between stages of the same cell.
 
 Expanding a definition yields a flat list of :class:`MaterializedTask` — each is
@@ -52,7 +52,9 @@ class MaterializedTask:
     pipeline_name: str
     output_dir: str
     input_sources: dict[str, str] = field(default_factory=dict)
-    process_arg_mapping: dict[str, dict[str, str]] = field(default_factory=dict)
+    input_arg_mapping: dict[str, dict[str, Any]] = field(default_factory=dict)
+    process_arg_mapping: dict[str, dict[str, Any]] = field(default_factory=dict)
+    output_path_mapping: dict[str, Any] = field(default_factory=dict)
     item_index: int = 0
     # True when a stage's fan-out source is not yet available (it will be
     # produced by an upstream stage at run time). Used only for preview display;
@@ -331,7 +333,9 @@ def materialize_stage(
                 pipeline_name=_render(stage["pipeline"], context, lenient=True),
                 output_dir=_render(stage["output_dir"], context, lenient=True),
                 input_sources=_render(stage.get("input_sources", {}) or {}, context, lenient=True),
+                input_arg_mapping=_render(stage.get("input_arg_mapping", {}) or {}, context, lenient=True),
                 process_arg_mapping=_render(stage.get("process_arg_mapping", {}) or {}, context, lenient=True),
+                output_path_mapping=_render(stage.get("output_path_mapping", {}) or {}, context, lenient=True),
                 item_index=-1,
                 deferred=True,
             )
@@ -350,7 +354,9 @@ def materialize_stage(
                 pipeline_name=_render(stage["pipeline"], item_context),
                 output_dir=_render(stage["output_dir"], item_context),
                 input_sources=_render(stage.get("input_sources", {}) or {}, item_context),
+                input_arg_mapping=_render(stage.get("input_arg_mapping", {}) or {}, item_context),
                 process_arg_mapping=_render(stage.get("process_arg_mapping", {}) or {}, item_context),
+                output_path_mapping=_render(stage.get("output_path_mapping", {}) or {}, item_context),
                 item_index=index,
             )
         )

@@ -16,7 +16,9 @@ where ``TASK_JSON`` is a file holding a single object::
       "pipeline_name": "...",
       "output_dir": "...",
       "input_sources": {"raw_data": "...", "meta_data": "..."},
-      "process_arg_mapping": {"proc": {"key": "value"}}
+      "input_arg_mapping": {"raw_data": {"value_column_name": "od600"}},
+      "process_arg_mapping": {"proc": {"key": "value"}},
+      "output_path_mapping": {"result": "custom.csv"}
     }
 """
 
@@ -42,7 +44,9 @@ def run_task(task: dict) -> dict:
     pipeline_name = task["pipeline_name"]
     output_dir = Path(task["output_dir"]) if task.get("output_dir") else None
     input_sources = task.get("input_sources") or None
+    input_arg_mapping = task.get("input_arg_mapping") or None
     process_arg_mapping = task.get("process_arg_mapping") or None
+    output_path_mapping = task.get("output_path_mapping") or None
 
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -52,7 +56,9 @@ def run_task(task: dict) -> dict:
         pipeline_name,
         output_dir=output_dir,
         input_sources=input_sources,
+        input_arg_mapping=input_arg_mapping,
         process_arg_mapping=process_arg_mapping,
+        output_path_mapping=output_path_mapping,
     )
     return pipeline()
 

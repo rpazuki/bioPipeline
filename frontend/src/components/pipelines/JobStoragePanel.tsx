@@ -50,7 +50,7 @@ export default function JobStoragePanel() {
   const onOpen = (name: string) =>
     run(async () => {
       const doc = await getSavedDefinition(name);
-      setJobDefinitionDraft(doc.content);
+      setJobDefinitionDraft({ name: doc.name, content: doc.content });
       setStatus(`Opened ${name} in the editor`);
       router.push("/job-definitions");
     });

@@ -28,7 +28,9 @@ class JobStore:
                     pipeline_name TEXT NOT NULL,
                     output_dir TEXT NOT NULL,
                     input_sources TEXT NOT NULL,
+                    input_arg_mapping TEXT NOT NULL DEFAULT '{}',
                     process_arg_mapping TEXT NOT NULL DEFAULT '{}',
+                    output_path_mapping TEXT NOT NULL DEFAULT '{}',
                     backend TEXT NOT NULL,
                     status TEXT NOT NULL,
                     log_path TEXT NOT NULL,
@@ -77,6 +79,10 @@ class JobStore:
                 conn.execute("ALTER TABLE jobs ADD COLUMN pid INTEGER")
             if "process_arg_mapping" not in columns:
                 conn.execute("ALTER TABLE jobs ADD COLUMN process_arg_mapping TEXT NOT NULL DEFAULT '{}'")
+            if "input_arg_mapping" not in columns:
+                conn.execute("ALTER TABLE jobs ADD COLUMN input_arg_mapping TEXT NOT NULL DEFAULT '{}'")
+            if "output_path_mapping" not in columns:
+                conn.execute("ALTER TABLE jobs ADD COLUMN output_path_mapping TEXT NOT NULL DEFAULT '{}'")
             if "updated_at" not in columns:
                 conn.execute("ALTER TABLE jobs ADD COLUMN updated_at TEXT")
                 conn.execute("UPDATE jobs SET updated_at = created_at WHERE updated_at IS NULL")
@@ -108,7 +114,9 @@ class JobStore:
             pipeline_name=spec.pipeline_name,
             output_dir=spec.output_dir,
             input_sources=spec.input_sources,
+            input_arg_mapping=spec.input_arg_mapping,
             process_arg_mapping=spec.process_arg_mapping,
+            output_path_mapping=spec.output_path_mapping,
             backend=spec.backend,
             scheduled_at=as_utc(spec.scheduled_at),
             parent_job_id=spec.parent_job_id,
@@ -129,11 +137,12 @@ class JobStore:
             conn.execute(
                 """
                 INSERT INTO jobs (
-                    id, yaml_path, pipeline_name, output_dir, input_sources, process_arg_mapping,
+                    id, yaml_path, pipeline_name, output_dir, input_sources, input_arg_mapping,
+                    process_arg_mapping, output_path_mapping,
                     backend, status, log_path, created_at, updated_at, scheduled_at,
                     parent_job_id, job_name, stage, matrix_key, depends_on
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.id,
@@ -141,7 +150,9 @@ class JobStore:
                     spec.pipeline_name,
                     str(spec.output_dir),
                     json.dumps(spec.input_sources, sort_keys=True),
+                    json.dumps(spec.input_arg_mapping, sort_keys=True),
                     json.dumps(spec.process_arg_mapping, sort_keys=True),
+                    json.dumps(spec.output_path_mapping, sort_keys=True),
                     spec.backend,
                     record.status.value,
                     str(record.log_path),
@@ -338,12 +349,24 @@ class JobStore:
             if "process_arg_mapping" in row_keys and row["process_arg_mapping"]
             else {}
         )
+        input_arg_mapping = (
+            json.loads(row["input_arg_mapping"])
+            if "input_arg_mapping" in row_keys and row["input_arg_mapping"]
+            else {}
+        )
+        output_path_mapping = (
+            json.loads(row["output_path_mapping"])
+            if "output_path_mapping" in row_keys and row["output_path_mapping"]
+            else {}
+        )
         spec = JobSpec(
             yaml_path=Path(row["yaml_path"]),
             pipeline_name=row["pipeline_name"],
             output_dir=Path(row["output_dir"]),
             input_sources=json.loads(row["input_sources"]),
+            input_arg_mapping=input_arg_mapping,
             process_arg_mapping=process_arg_mapping,
+            output_path_mapping=output_path_mapping,
             backend=row["backend"],
             scheduled_at=scheduled_at,
             parent_job_id=row["parent_job_id"] if "parent_job_id" in row_keys else None,

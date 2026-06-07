@@ -1,0 +1,375 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+
+import {
+  archivePublishedJob,
+  createPublishedJob,
+  deletePublishedJob,
+  getAdminPublishedJob,
+  getSavedDefinition,
+  inspectPublishedJob,
+  listAdminPublishedJobRuns,
+  listAdminPublishedJobs,
+  listAdminPublishedRuns,
+  listSavedDefinitions,
+  publishPublishedJob,
+  updatePublishedJob,
+  validatePublishedJob,
+} from "@/lib/api";
+import type { DefinitionSummary, PublishedField, PublishedJobAdmin, PublishedRunSummary } from "@/types";
+
+function stringifyValue(value: unknown): string {
+  if (value == null) return "";
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+function statusClasses(status: string): string {
+  switch (status) {
+    case "succeeded":
+      return "bg-emerald-100 text-emerald-800";
+    case "running":
+      return "bg-cyan-100 text-cyan-800";
+    case "failed":
+    case "partially_failed":
+      return "bg-rose-100 text-rose-800";
+    case "blocked":
+    case "cancelled":
+      return "bg-amber-100 text-amber-800";
+    default:
+      return "bg-slate-100 text-slate-700";
+  }
+}
+
+function mergeFields(candidates: PublishedField[], existing: PublishedField[]) {
+  const byId = new Map(candidates.map((field) => [field.id, field]));
+  const idByBinding = new Map(candidates.map((field) => [JSON.stringify(field.bindings ?? []), field.id]));
+  for (const field of existing) {
+    const targetId = idByBinding.get(JSON.stringify(field.bindings ?? [])) ?? field.id;
+    byId.set(targetId, { ...byId.get(targetId), ...field, id: targetId });
+  }
+  return Array.from(byId.values());
+}
+
+function selectedFieldIds(existing: PublishedField[], merged: PublishedField[]) {
+  const idByBinding = new Map(merged.map((field) => [JSON.stringify(field.bindings ?? []), field.id]));
+  return new Set(existing.map((field) => idByBinding.get(JSON.stringify(field.bindings ?? [])) ?? field.id));
+}
+
+export default function PublishedJobsAdminPage() {
+  const [definitions, setDefinitions] = useState<DefinitionSummary[]>([]);
+  const [published, setPublished] = useState<PublishedJobAdmin[]>([]);
+  const [allRuns, setAllRuns] = useState<PublishedRunSummary[]>([]);
+  const [selectedRuns, setSelectedRuns] = useState<PublishedRunSummary[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [definitionContent, setDefinitionContent] = useState("");
+  const [definitionName, setDefinitionName] = useState("");
+  const [candidates, setCandidates] = useState<PublishedField[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [fieldEdits, setFieldEdits] = useState<Record<string, PublishedField>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState("Ready");
+
+  const selectedFields = useMemo(
+    () => candidates.filter((field) => selectedIds.has(field.id)).map((field) => fieldEdits[field.id] ?? field),
+    [candidates, fieldEdits, selectedIds],
+  );
+  const runCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const run of allRuns) counts[run.published_job_id] = (counts[run.published_job_id] ?? 0) + 1;
+    return counts;
+  }, [allRuns]);
+
+  async function refresh() {
+    const [defs, jobs, runs] = await Promise.all([listSavedDefinitions(), listAdminPublishedJobs(), listAdminPublishedRuns()]);
+    setDefinitions(defs);
+    setPublished(jobs);
+    setAllRuns(runs);
+  }
+
+  useEffect(() => {
+    refresh().catch((cause: Error) => setError(cause.message));
+  }, []);
+
+  function clearEditor() {
+    setEditingId(null);
+    setName("");
+    setDescription("");
+    setDefinitionName("");
+    setDefinitionContent("");
+    setCandidates([]);
+    setSelectedIds(new Set());
+    setFieldEdits({});
+    setSelectedRuns([]);
+    setStatus("New published job");
+  }
+
+  async function loadSourceDefinition(nameToLoad = definitionName) {
+    if (!nameToLoad) return;
+    setError(null);
+    const document = await getSavedDefinition(nameToLoad);
+    setDefinitionName(document.name);
+    setDefinitionContent(document.content);
+    setName((current) => current || document.job || document.name.replace(/\.(yaml|yml)$/i, ""));
+    setStatus(`Loaded source definition ${document.name}`);
+  }
+
+  async function inspect({ preserveSelection = false } = {}) {
+    setError(null);
+    const result = await inspectPublishedJob(definitionContent);
+    const merged = mergeFields(result.candidates, selectedFields);
+    const nextEdits = Object.fromEntries(merged.map((field) => [field.id, field]));
+    setCandidates(merged);
+    setName((current) => current || result.job_name);
+    setFieldEdits(nextEdits);
+    if (!preserveSelection) {
+      setSelectedIds(new Set(merged.slice(0, 8).map((field) => field.id)));
+    } else {
+      setSelectedIds(new Set(selectedFields.map((field) => field.id)));
+    }
+    setStatus(`Valid definition · ${result.candidates.length} definable fields`);
+  }
+
+  async function loadExisting(jobId: string) {
+    setError(null);
+    const [job, runs] = await Promise.all([getAdminPublishedJob(jobId), listAdminPublishedJobRuns(jobId)]);
+    let merged = job.fields;
+    try {
+      const inspected = await inspectPublishedJob(job.definition_content);
+      merged = mergeFields(inspected.candidates, job.fields);
+    } catch {
+      merged = job.fields;
+    }
+    setEditingId(job.id);
+    setName(job.name);
+    setDescription(job.description);
+    setDefinitionName(job.definition_name);
+    setDefinitionContent(job.definition_content);
+    setCandidates(merged);
+    setSelectedIds(selectedFieldIds(job.fields, merged));
+    setFieldEdits(Object.fromEntries(merged.map((field) => [field.id, field])));
+    setSelectedRuns(runs);
+    setStatus(`Editing ${job.name} · ${job.status} · v${job.version}`);
+  }
+
+  function toggleField(field: PublishedField) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(field.id)) next.delete(field.id);
+      else next.add(field.id);
+      return next;
+    });
+    setFieldEdits((current) => ({ ...current, [field.id]: current[field.id] ?? field }));
+  }
+
+  function patchField(fieldId: string, patch: Partial<PublishedField>) {
+    setFieldEdits((current) => ({ ...current, [fieldId]: { ...current[fieldId], ...patch } }));
+  }
+
+  async function save(publishNow: boolean) {
+    setError(null);
+    const payload = {
+      name,
+      description,
+      definition_name: definitionName,
+      definition_content: definitionContent,
+      fields: selectedFields,
+    };
+    const job = editingId
+      ? await updatePublishedJob(editingId, payload)
+      : await createPublishedJob({ ...payload, status: publishNow ? "published" : "draft" });
+    const finalJob = publishNow ? await publishPublishedJob(job.id) : job;
+    setStatus(`${publishNow ? "Published" : "Saved"} ${finalJob.name}`);
+    await refresh();
+    await loadExisting(finalJob.id);
+  }
+
+  async function validateCurrent() {
+    if (editingId) {
+      const result = await validatePublishedJob(editingId);
+      setStatus(
+        `Saved version is valid · ${result.field_count} public fields · ${result.candidate_count} candidates · ${result.run_count} runs`,
+      );
+      return;
+    }
+    await inspect({ preserveSelection: true });
+  }
+
+  async function archiveCurrent(jobId: string) {
+    const job = await archivePublishedJob(jobId);
+    setStatus(`Archived ${job.name}`);
+    await refresh();
+    if (editingId === jobId) await loadExisting(jobId);
+  }
+
+  async function deleteCurrent(jobId: string) {
+    const count = runCounts[jobId] ?? 0;
+    const force = count > 0;
+    const message = force
+      ? `Delete this published job and ${count} run link${count === 1 ? "" : "s"}? Underlying queued job records remain.`
+      : "Delete this published job?";
+    if (!window.confirm(message)) return;
+    await deletePublishedJob(jobId, force);
+    setStatus("Deleted published job");
+    clearEditor();
+    await refresh();
+  }
+
+  return (
+    <section className="grid gap-4 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-950">Published Jobs Admin</h2>
+          <p className="mt-1 text-sm text-slate-500">Create, edit, validate, publish, archive, and monitor user-facing job forms.</p>
+        </div>
+        <span className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">{status}</span>
+      </div>
+
+      {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.9fr)]">
+        <section className="grid gap-3 rounded-md border border-slate-200 bg-white p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-slate-950">{editingId ? "Edit Published Job" : "New Published Job"}</h3>
+            <button type="button" className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold" onClick={clearEditor}>
+              New
+            </button>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="grid gap-1 text-xs font-semibold text-slate-600">
+              Published name
+              <input className="h-9 rounded-md border border-slate-300 px-3 text-sm" value={name} onChange={(event) => setName(event.target.value)} />
+            </label>
+            <label className="grid gap-1 text-xs font-semibold text-slate-600">
+              Source definition
+              <span className="flex gap-2">
+                <select className="h-9 min-w-0 flex-1 rounded-md border border-slate-300 px-3 text-sm" value={definitionName} onChange={(event) => setDefinitionName(event.target.value)}>
+                  <option value="">Choose saved definition</option>
+                  {definitions.map((definition) => (
+                    <option key={definition.name} value={definition.name}>
+                      {definition.name}
+                    </option>
+                  ))}
+                </select>
+                <button type="button" className="rounded-md border border-slate-300 px-3 text-xs font-semibold" onClick={() => loadSourceDefinition().catch((cause: Error) => setError(cause.message))}>
+                  Load
+                </button>
+              </span>
+            </label>
+            <label className="grid gap-1 text-xs font-semibold text-slate-600 md:col-span-2">
+              Description
+              <input className="h-9 rounded-md border border-slate-300 px-3 text-sm" value={description} onChange={(event) => setDescription(event.target.value)} />
+            </label>
+          </div>
+          <label className="grid gap-1 text-xs font-semibold text-slate-600">
+            Job Definition YAML
+            <textarea className="min-h-80 rounded-md border border-slate-300 p-3 font-mono text-xs" value={definitionContent} onChange={(event) => setDefinitionContent(event.target.value)} spellCheck={false} />
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold" onClick={() => inspect().catch((cause: Error) => setError(cause.message))}>
+              Inspect Fields
+            </button>
+            <button type="button" className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold" disabled={!definitionContent} onClick={() => validateCurrent().catch((cause: Error) => setError(cause.message))}>
+              Validate
+            </button>
+            <button type="button" className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold disabled:opacity-50" disabled={!selectedFields.length || !name} onClick={() => save(false).catch((cause: Error) => setError(cause.message))}>
+              {editingId ? "Update Draft" : "Save Draft"}
+            </button>
+            <button type="button" className="rounded-md bg-cyan-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={!selectedFields.length || !name} onClick={() => save(true).catch((cause: Error) => setError(cause.message))}>
+              Publish
+            </button>
+            {editingId ? (
+              <>
+                <button type="button" className="rounded-md border border-amber-300 px-3 py-2 text-sm font-semibold text-amber-800" onClick={() => archiveCurrent(editingId).catch((cause: Error) => setError(cause.message))}>
+                  Archive
+                </button>
+                <button type="button" className="rounded-md border border-rose-200 px-3 py-2 text-sm font-semibold text-rose-700" onClick={() => deleteCurrent(editingId).catch((cause: Error) => setError(cause.message))}>
+                  Delete
+                </button>
+              </>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="grid content-start gap-3 rounded-md border border-slate-200 bg-white p-4">
+          <h3 className="text-sm font-semibold text-slate-950">Definable Fields</h3>
+          {candidates.length === 0 ? <p className="text-sm text-slate-500">Load or inspect a Job Definition to choose public fields.</p> : null}
+          <div className="grid max-h-[760px] gap-2 overflow-auto pr-1">
+            {candidates.map((field) => {
+              const edit = fieldEdits[field.id] ?? field;
+              const selected = selectedIds.has(field.id);
+              return (
+                <div key={field.id} className="grid gap-2 rounded-md border border-slate-200 p-3">
+                  <label className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                    <input type="checkbox" checked={selected} onChange={() => toggleField(field)} />
+                    {field.label}
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">{field.type}</span>
+                  </label>
+                  {selected ? (
+                    <div className="grid gap-2">
+                      <input className="h-8 rounded-md border border-slate-300 px-2 text-xs" value={edit.label} onChange={(event) => patchField(field.id, { label: event.target.value })} />
+                      <input className="h-8 rounded-md border border-slate-300 px-2 text-xs" value={edit.help} onChange={(event) => patchField(field.id, { help: event.target.value })} />
+                      <input className="h-8 rounded-md border border-slate-300 px-2 text-xs" value={edit.example} onChange={(event) => patchField(field.id, { example: event.target.value })} placeholder={`Example: ${stringifyValue(field.default)}`} />
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-500">{field.help}</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(380px,0.65fr)]">
+        <section className="grid gap-2 rounded-md border border-slate-200 bg-white p-4">
+          <h3 className="text-sm font-semibold text-slate-950">Existing Published Jobs</h3>
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {published.map((job) => (
+              <div key={job.id} className="grid gap-2 rounded-md border border-slate-200 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold text-slate-900">{job.name}</span>
+                  <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusClasses(job.status)}`}>{job.status}</span>
+                </div>
+                <p className="text-xs text-slate-500">
+                  {job.fields.length} fields · v{job.version} · {runCounts[job.id] ?? 0} runs
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold" onClick={() => loadExisting(job.id).catch((cause: Error) => setError(cause.message))}>
+                    Edit
+                  </button>
+                  {job.status !== "published" ? (
+                    <button type="button" className="rounded-md border border-cyan-200 px-2 py-1 text-xs font-semibold text-cyan-800" onClick={() => publishPublishedJob(job.id).then(() => refresh()).catch((cause: Error) => setError(cause.message))}>
+                      Publish
+                    </button>
+                  ) : null}
+                  <button type="button" className="rounded-md border border-rose-200 px-2 py-1 text-xs font-semibold text-rose-700" onClick={() => deleteCurrent(job.id).catch((cause: Error) => setError(cause.message))}>
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="grid content-start gap-2 rounded-md border border-slate-200 bg-white p-4">
+          <h3 className="text-sm font-semibold text-slate-950">Usage Status</h3>
+          {(selectedRuns.length ? selectedRuns : allRuns).slice(0, 12).map((run) => (
+            <div key={run.id} className="rounded-md border border-slate-200 p-2 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold text-slate-900">{run.published_job_name}</span>
+                <span className={`rounded-full px-2 py-0.5 font-semibold ${statusClasses(run.status)}`}>{run.status}</span>
+              </div>
+              <p className="mt-1 text-slate-500">
+                User: {run.user_display_name || run.username || run.user_id} · {run.total} tasks
+              </p>
+            </div>
+          ))}
+          {allRuns.length === 0 ? <p className="text-sm text-slate-500">No published job runs yet.</p> : null}
+        </section>
+      </div>
+    </section>
+  );
+}

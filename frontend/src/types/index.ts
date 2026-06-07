@@ -67,12 +67,14 @@ export interface JobDefinitionTemplate extends JobDefinitionTemplateSummary {
 
 export interface Job {
   id: string;
-  status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "blocked";
   yaml_path: string;
   pipeline_name: string;
   output_dir: string;
   input_sources: Record<string, string>;
-  process_arg_mapping?: Record<string, Record<string, string>>;
+  input_arg_mapping?: Record<string, Record<string, unknown>>;
+  process_arg_mapping?: Record<string, Record<string, unknown>>;
+  output_path_mapping?: Record<string, unknown>;
   backend: string;
   log_path: string;
   parent_job_id?: string | null;
@@ -94,7 +96,9 @@ export interface JobSubmit {
   pipeline_name: string;
   output_dir: string;
   input_sources: Record<string, string>;
-  process_arg_mapping?: Record<string, Record<string, string>>;
+  input_arg_mapping?: Record<string, Record<string, unknown>>;
+  process_arg_mapping?: Record<string, Record<string, unknown>>;
+  output_path_mapping?: Record<string, unknown>;
   backend?: string;
   scheduled_at?: string | null;
 }
@@ -108,7 +112,9 @@ export interface MaterializedTask {
   pipeline_name: string;
   output_dir: string;
   input_sources: Record<string, string>;
-  process_arg_mapping: Record<string, Record<string, string>>;
+  input_arg_mapping?: Record<string, Record<string, unknown>>;
+  process_arg_mapping: Record<string, Record<string, unknown>>;
+  output_path_mapping?: Record<string, unknown>;
   item_index: number;
   deferred?: boolean;
 }
@@ -129,6 +135,99 @@ export interface JobGroupSummary {
 
 export interface JobGroupDetail extends JobGroupSummary {
   tasks: Job[];
+}
+
+export type PublishedFieldType =
+  | "string"
+  | "text"
+  | "integer"
+  | "float"
+  | "boolean"
+  | "enum"
+  | "multi_enum"
+  | "path"
+  | "file"
+  | "directory"
+  | "glob"
+  | "datetime"
+  | "list"
+  | "object"
+  | "json";
+
+export interface PublishedFieldOption {
+  label: string;
+  value: unknown;
+}
+
+export interface PublishedFieldBinding {
+  target: string;
+  path?: unknown[] | null;
+  stage?: string | null;
+  input?: string | null;
+  process?: string | null;
+  parameter?: string | null;
+  output?: string | null;
+}
+
+export interface PublishedField {
+  id: string;
+  label: string;
+  type: PublishedFieldType;
+  required: boolean;
+  default?: unknown;
+  help: string;
+  example: string;
+  placeholder?: string;
+  options: PublishedFieldOption[];
+  bindings?: PublishedFieldBinding[];
+}
+
+export interface PublishedJobAdmin {
+  id: string;
+  name: string;
+  description: string;
+  status: "draft" | "published" | "archived";
+  version: number;
+  definition_name: string;
+  definition_content: string;
+  fields: PublishedField[];
+  created_at: string;
+  updated_at: string;
+  published_at?: string | null;
+  created_by: string;
+  updated_by: string;
+}
+
+export interface PublishedJobPublicSummary {
+  id: string;
+  name: string;
+  description: string;
+  version: number;
+}
+
+export interface PublishedJobPublicDetail extends PublishedJobPublicSummary {
+  fields: PublishedField[];
+}
+
+export interface PublishedRunSummary {
+  id: string;
+  published_job_id: string;
+  published_version: number;
+  published_job_name: string;
+  user_id: string;
+  username: string;
+  user_display_name: string;
+  parent_job_id: string;
+  status: string;
+  total: number;
+  counts: Record<string, number>;
+  values: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface PublishedRunDetail extends PublishedRunSummary {
+  group: JobGroupDetail;
+  logs: Record<string, string>;
 }
 
 export interface PackageInfo {

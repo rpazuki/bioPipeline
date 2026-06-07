@@ -41,7 +41,9 @@ async def preview_job_definition(body: JobDefinitionRequest) -> JobDefinitionPre
                 pipeline_name=task.pipeline_name,
                 output_dir=task.output_dir,
                 input_sources=task.input_sources,
+                input_arg_mapping=task.input_arg_mapping,
                 process_arg_mapping=task.process_arg_mapping,
+                output_path_mapping=task.output_path_mapping,
                 item_index=task.item_index,
                 deferred=task.deferred,
             )

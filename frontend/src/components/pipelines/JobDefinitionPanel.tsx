@@ -1,7 +1,8 @@
 "use client";
 
+import yaml from "js-yaml";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import JobStageGraph from "@/components/pipelines/JobStageGraph";
 import ResizableSplitPane from "@/components/pipelines/ResizableSplitPane";
@@ -11,6 +12,7 @@ import {
   getJobDefinitionTemplate,
   listJobDefinitions,
   listJobDefinitionTemplates,
+  listPipelineYamls,
   previewJobDefinition,
   runDueJobs,
   saveDefinition,
@@ -21,6 +23,7 @@ import type {
   JobDefinitionTemplateSummary,
   JobGroupDetail,
   JobGroupSummary,
+  YamlSummary,
 } from "@/types";
 
 // Previews without touching the filesystem (all fan-out is "none"). For real
@@ -78,25 +81,104 @@ function formatMatrixKey(matrixKey: Record<string, string>): string {
   return entries.map(([k, v]) => `${k}=${v}`).join(", ");
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function sanitizeStageName(value: string): string {
+  return value
+    .trim()
+    .replace(/[^A-Za-z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase();
+}
+
+function stageNamesFromContent(text: string): string[] {
+  try {
+    const data = yaml.load(text);
+    if (!isRecord(data) || !Array.isArray(data.stages)) return [];
+    return data.stages
+      .map((stage) => (isRecord(stage) && typeof stage.name === "string" ? stage.name : ""))
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function appendStageToDefinition(
+  text: string,
+  stage: {
+    name: string;
+    pipeline_yaml: string;
+    pipeline: string;
+    needs: string[];
+    output_dir: string;
+  },
+): string {
+  const data = yaml.load(text);
+  if (!isRecord(data)) {
+    throw new Error("Job Definition YAML must be a mapping before a stage can be added");
+  }
+  const stages = Array.isArray(data.stages) ? data.stages : [];
+  if (stages.some((item) => isRecord(item) && item.name === stage.name)) {
+    throw new Error(`Stage already exists: ${stage.name}`);
+  }
+  data.stages = [
+    ...stages,
+    {
+      name: stage.name,
+      ...(stage.needs.length ? { needs: stage.needs } : {}),
+      pipeline_yaml: stage.pipeline_yaml,
+      pipeline: stage.pipeline,
+      fanout: { type: "none" },
+      output_dir: stage.output_dir,
+    },
+  ];
+  return yaml.dump(data, { indent: 2, lineWidth: -1, sortKeys: false, noRefs: true });
+}
+
 export default function JobDefinitionPanel() {
   const router = useRouter();
-  const { jobDefinitionDraft, setJobDefinitionDraft, setStatus } = usePipeline();
-  const [content, setContent] = useState(EXAMPLE);
+  const {
+    jobDefinitionDraft,
+    jobDefinitionName,
+    jobDefinitionContent,
+    setJobDefinitionDraft,
+    setJobDefinitionName,
+    setJobDefinitionContent,
+    setStatus,
+  } = usePipeline();
+  const content = jobDefinitionContent || EXAMPLE;
+  const editingDefinitionName = jobDefinitionName;
+  const setContent = setJobDefinitionContent;
 
   // Load a definition handed off from the Job Storage page, then clear it.
   useEffect(() => {
     if (jobDefinitionDraft != null) {
-      setContent(jobDefinitionDraft);
+      setContent(jobDefinitionDraft.content);
+      setJobDefinitionName(jobDefinitionDraft.name);
       setJobDefinitionDraft(null);
     }
-  }, [jobDefinitionDraft, setJobDefinitionDraft]);
+  }, [jobDefinitionDraft, setContent, setJobDefinitionDraft, setJobDefinitionName]);
   const [templates, setTemplates] = useState<JobDefinitionTemplateSummary[]>([]);
+  const [pipelineYamls, setPipelineYamls] = useState<YamlSummary[]>([]);
   const [preview, setPreview] = useState<JobDefinitionPreview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [groups, setGroups] = useState<JobGroupSummary[]>([]);
   const [selected, setSelected] = useState<JobGroupDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [stageYamlName, setStageYamlName] = useState("");
+  const [stagePipelineName, setStagePipelineName] = useState("");
+  const [stageName, setStageName] = useState("");
+  const [stageOutputDir, setStageOutputDir] = useState("./outputs/{stage}");
+  const [stageNeeds, setStageNeeds] = useState<string[]>([]);
+
+  const existingStageNames = useMemo(() => stageNamesFromContent(content), [content]);
+  const selectedPipelineYaml = useMemo(
+    () => pipelineYamls.find((item) => item.name === stageYamlName) ?? null,
+    [pipelineYamls, stageYamlName],
+  );
 
   const refreshGroups = useCallback(async () => {
     try {
@@ -117,19 +199,40 @@ export default function JobDefinitionPanel() {
       .catch(() => setTemplates([]));
   }, []);
 
+  useEffect(() => {
+    listPipelineYamls()
+      .then((items) => {
+        const validItems = items.filter((item) => item.is_valid && item.pipelines.length > 0);
+        setPipelineYamls(validItems);
+        if (!stageYamlName && validItems.length) {
+          setStageYamlName(validItems[0].name);
+          setStagePipelineName(validItems[0].pipelines[0] ?? "");
+        }
+      })
+      .catch(() => setPipelineYamls([]));
+  }, [stageYamlName]);
+
+  useEffect(() => {
+    if (!selectedPipelineYaml) return;
+    if (!selectedPipelineYaml.pipelines.includes(stagePipelineName)) {
+      setStagePipelineName(selectedPipelineYaml.pipelines[0] ?? "");
+    }
+  }, [selectedPipelineYaml, stagePipelineName]);
+
   const onSelectTemplate = useCallback(
     async (name: string) => {
       if (!name) return;
       try {
         const template = await getJobDefinitionTemplate(name);
         setContent(template.content);
+        setJobDefinitionName(null);
         setSelected(null);
         setStatus(`Loaded "${name}" job definition template`);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
     },
-    [setStatus],
+    [setContent, setJobDefinitionName, setStatus],
   );
 
   const runPreview = useCallback(async (text: string) => {
@@ -179,12 +282,49 @@ export default function JobDefinitionPanel() {
       router.push("/");
     });
 
-  const onSave = () =>
+  const saveToName = (name: string) =>
     run(async () => {
-      const name = window.prompt("Save definition as (e.g. growth_full.yaml):", "");
-      if (!name) return;
       await saveDefinition(name, content);
+      setJobDefinitionName(name);
       setStatus(`Saved ${name} to Job Storage`);
+    });
+
+  const onSave = () => {
+    if (editingDefinitionName) {
+      void saveToName(editingDefinitionName);
+      return;
+    }
+    const name = window.prompt("Save definition as (e.g. growth_full.yaml):", "");
+    if (!name) return;
+    void saveToName(name);
+  };
+
+  const onSaveAs = () => {
+    const name = window.prompt("Save definition as (e.g. growth_full.yaml):", editingDefinitionName ?? "");
+    if (!name) return;
+    void saveToName(name);
+  };
+
+  const onAddStage = () =>
+    run(async () => {
+      const normalized = sanitizeStageName(stageName || stagePipelineName || "stage");
+      if (!stageYamlName || !stagePipelineName || !normalized) {
+        throw new Error("Choose a pipeline YAML, pipeline, and stage name before adding a stage");
+      }
+      const outputDir = (stageOutputDir || `./outputs/${normalized}`).replaceAll("{stage}", normalized);
+      const next = appendStageToDefinition(content, {
+        name: normalized,
+        pipeline_yaml: stageYamlName,
+        pipeline: stagePipelineName,
+        needs: stageNeeds.filter((need) => existingStageNames.includes(need)),
+        output_dir: outputDir,
+      });
+      setContent(next);
+      setStageName("");
+      setStageOutputDir("./outputs/{stage}");
+      setStageNeeds([]);
+      setSelected(null);
+      setStatus(`Added stage ${normalized}`);
     });
 
   const onRunDue = () =>
@@ -206,7 +346,9 @@ export default function JobDefinitionPanel() {
     <section className="grid gap-3 rounded-md border border-slate-200 bg-white p-4 h-full">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-semibold text-slate-900">Job Definition</h2>
-          <span className="text-xs text-slate-500">YAML — matrix × stages × fan-out</span>
+          <span className="text-xs text-slate-500">
+            {editingDefinitionName ? `Editing ${editingDefinitionName}` : "YAML — matrix × stages × fan-out"}
+          </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <label htmlFor="job-def-template" className="text-xs font-semibold text-slate-600">
@@ -232,6 +374,92 @@ export default function JobDefinitionPanel() {
             ))}
           </select>
         </div>
+        <div className="grid gap-2 rounded-md border border-slate-200 bg-slate-50 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Add Stage From Pipeline</h3>
+            <span className="text-[11px] text-slate-500">{existingStageNames.length} existing stage{existingStageNames.length === 1 ? "" : "s"}</span>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            <label className="grid gap-1 text-xs font-semibold text-slate-600">
+              Pipeline YAML
+              <select
+                className="h-9 rounded-md border border-slate-300 px-2 text-xs text-slate-900"
+                value={stageYamlName}
+                onChange={(event) => setStageYamlName(event.target.value)}
+              >
+                {pipelineYamls.length === 0 ? <option value="">No valid pipeline YAMLs found</option> : null}
+                {pipelineYamls.map((item) => (
+                  <option key={item.name} value={item.name}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-1 text-xs font-semibold text-slate-600">
+              Pipeline
+              <select
+                className="h-9 rounded-md border border-slate-300 px-2 text-xs text-slate-900"
+                value={stagePipelineName}
+                onChange={(event) => {
+                  setStagePipelineName(event.target.value);
+                  setStageName((current) => current || sanitizeStageName(event.target.value));
+                }}
+              >
+                {(selectedPipelineYaml?.pipelines ?? []).map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-1 text-xs font-semibold text-slate-600">
+              Stage name
+              <input
+                className="h-9 rounded-md border border-slate-300 px-2 text-xs text-slate-900"
+                value={stageName}
+                placeholder={sanitizeStageName(stagePipelineName || "stage")}
+                onChange={(event) => setStageName(event.target.value)}
+              />
+            </label>
+            <label className="grid gap-1 text-xs font-semibold text-slate-600">
+              Output directory
+              <input
+                className="h-9 rounded-md border border-slate-300 px-2 text-xs text-slate-900"
+                value={stageOutputDir}
+                onChange={(event) => setStageOutputDir(event.target.value)}
+              />
+            </label>
+          </div>
+          {existingStageNames.length ? (
+            <div className="grid gap-1">
+              <div className="text-xs font-semibold text-slate-600">Depends on</div>
+              <div className="flex flex-wrap gap-2">
+                {existingStageNames.map((name) => (
+                  <label key={name} className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={stageNeeds.includes(name)}
+                      onChange={(event) =>
+                        setStageNeeds((current) =>
+                          event.target.checked ? [...current, name] : current.filter((item) => item !== name),
+                        )
+                      }
+                    />
+                    {name}
+                  </label>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          <button
+            type="button"
+            onClick={onAddStage}
+            disabled={busy || !stageYamlName || !stagePipelineName}
+            className="w-fit rounded-md border border-cyan-200 bg-white px-3 py-2 text-sm font-semibold text-cyan-800 disabled:opacity-50"
+          >
+            Add Stage
+          </button>
+        </div>
         <textarea
           aria-label="Job Definition YAML"
           className="h-96 w-full resize-y rounded-md border border-slate-300 p-3 font-mono text-xs text-slate-900"
@@ -254,8 +482,18 @@ export default function JobDefinitionPanel() {
             disabled={busy}
             className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
           >
-            Save
+            {editingDefinitionName ? "Save Changes" : "Save"}
           </button>
+          {editingDefinitionName ? (
+            <button
+              type="button"
+              onClick={onSaveAs}
+              disabled={busy}
+              className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
+            >
+              Save As
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onSubmit}

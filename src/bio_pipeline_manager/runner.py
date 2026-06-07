@@ -40,7 +40,9 @@ class LocalSubprocessRunner:
             "pipeline_name": job.spec.pipeline_name,
             "output_dir": str(job.spec.output_dir),
             "input_sources": job.spec.input_sources,
+            "input_arg_mapping": job.spec.input_arg_mapping,
             "process_arg_mapping": job.spec.process_arg_mapping,
+            "output_path_mapping": job.spec.output_path_mapping,
         }
         task_path = job.log_path.with_suffix(".task.json")
         task_path.parent.mkdir(parents=True, exist_ok=True)

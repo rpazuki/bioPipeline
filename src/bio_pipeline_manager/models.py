@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 
 class JobStatus(StrEnum):
@@ -25,7 +26,9 @@ class JobSpec:
     pipeline_name: str
     output_dir: Path
     input_sources: dict[str, str] = field(default_factory=dict)
-    process_arg_mapping: dict[str, dict[str, str]] = field(default_factory=dict)
+    input_arg_mapping: dict[str, dict[str, Any]] = field(default_factory=dict)
+    process_arg_mapping: dict[str, dict[str, Any]] = field(default_factory=dict)
+    output_path_mapping: dict[str, Any] = field(default_factory=dict)
     backend: str = "local"
     scheduled_at: datetime | None = None
     # Job Definition grouping (empty for ad-hoc single-task submissions).
