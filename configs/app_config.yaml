@@ -28,6 +28,30 @@ backend:
     auth_session_cookie_name: bio_pipeline_session
     auth_session_ttl_hours: 24
     auth_secure_cookies: false
+    ai:
+      default_provider: claude
+      max_tool_iterations: 8
+      providers:
+        claude:
+          enabled: true
+          api_key: ""
+          model: ""
+          base_url: https://api.anthropic.com
+        openai:
+          enabled: false
+          api_key: ""
+          model: ""
+          base_url: https://api.openai.com/v1
+        gemini:
+          enabled: false
+          api_key: ""
+          model: ""
+          base_url: https://generativelanguage.googleapis.com
+        openai_compatible:
+          enabled: false
+          api_key: ""
+          model: ""
+          base_url: ""
   development:
     app_env: development
   production:

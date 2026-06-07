@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -106,6 +107,7 @@ class Settings(BaseSettings):
     auth_session_cookie_name: str = str(_BACKEND_CONFIG.get("auth_session_cookie_name", "bio_pipeline_session"))
     auth_session_ttl_hours: float = float(_BACKEND_CONFIG.get("auth_session_ttl_hours", 24.0))
     auth_secure_cookies: bool = bool(_BACKEND_CONFIG.get("auth_secure_cookies", False))
+    ai: dict[str, Any] = Field(default_factory=lambda: dict(_BACKEND_CONFIG.get("ai", {})))
 
 
 @lru_cache

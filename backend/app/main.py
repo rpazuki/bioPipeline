@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.deps import get_runtime, require_admin
 from app.api.routes import (
+    ai_chat,
     auth,
     job_definition_store,
     job_definition_templates,
@@ -63,6 +64,7 @@ PREFIX = settings.api_prefix
 ADMIN_ONLY = [Depends(require_admin)]
 
 app.include_router(auth.router, prefix=PREFIX)
+app.include_router(ai_chat.router, prefix=PREFIX, dependencies=ADMIN_ONLY)
 app.include_router(users.router, prefix=PREFIX)
 app.include_router(storage.router, prefix=PREFIX, dependencies=ADMIN_ONLY)
 app.include_router(validation.router, prefix=PREFIX, dependencies=ADMIN_ONLY)
