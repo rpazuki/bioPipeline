@@ -29,6 +29,9 @@ describe("JobDefinitionPanel", () => {
     ]);
     // Default so the debounced auto-preview always has something to resolve.
     mocked.previewJobDefinition.mockResolvedValue({ job_name: "", task_count: 0, tasks: [] });
+    mocked.listJobDefinitionTemplates.mockResolvedValue([
+      { name: "empty", description: "Minimal one-stage shell." },
+    ]);
   });
 
   afterEach(() => {
@@ -90,6 +93,21 @@ describe("JobDefinitionPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Preview" }));
 
     expect(await screen.findByText("bad definition")).toBeInTheDocument();
+  });
+
+  it("loads a selected template into the editor", async () => {
+    mocked.getJobDefinitionTemplate.mockResolvedValue({
+      name: "empty",
+      description: "Minimal one-stage shell.",
+      content: "job: from_template\nstages: []\n",
+    });
+
+    render(<JobDefinitionPanel />);
+    await screen.findByRole("option", { name: "empty" });
+    fireEvent.change(screen.getByLabelText("Job definition template"), { target: { value: "empty" } });
+
+    await waitFor(() => expect(mocked.getJobDefinitionTemplate).toHaveBeenCalledWith("empty"));
+    expect(await screen.findByDisplayValue(/job: from_template/)).toBeInTheDocument();
   });
 
   it("navigates to the Job Queue after a successful submit", async () => {

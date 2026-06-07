@@ -3,6 +3,8 @@ import type {
   DefinitionSummary,
   Job,
   JobDefinitionPreview,
+  JobDefinitionTemplate,
+  JobDefinitionTemplateSummary,
   JobGroupDetail,
   JobGroupSummary,
   JobSubmit,
@@ -115,6 +117,15 @@ export async function listPipelineTemplates() {
 
 export async function getPipelineTemplate(name: string) {
   return apiFetch<PipelineTemplate>(`/templates/${encodeURIComponent(name)}`);
+}
+
+// Job Definition templates (starter scenarios for the Job Definitions page)
+export async function listJobDefinitionTemplates() {
+  return apiFetch<JobDefinitionTemplateSummary[]>("/job-definition-templates");
+}
+
+export async function getJobDefinitionTemplate(name: string) {
+  return apiFetch<JobDefinitionTemplate>(`/job-definition-templates/${encodeURIComponent(name)}`);
 }
 
 // Execution

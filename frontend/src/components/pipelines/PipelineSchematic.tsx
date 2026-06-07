@@ -20,10 +20,10 @@ import { buildPipelineGraph, layoutGraph, type PipelineNodeData } from "@/lib/pi
 function InputNode({ data }: NodeProps) {
   const node = data as PipelineNodeData;
   return (
-    <div className="rounded-md border border-slate-300 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm">
+    <div className="w-[180px] overflow-hidden rounded-md border border-slate-300 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm">
       <Handle type="target" position={Position.Left} className="!bg-slate-400" />
       <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">input</div>
-      <div className="font-mono text-slate-900">{node.label}</div>
+      <div className="truncate font-mono text-slate-900" title={node.label}>{node.label}</div>
       <Handle type="source" position={Position.Right} className="!bg-slate-400" />
     </div>
   );
@@ -33,13 +33,13 @@ function ProcessNode({ data, selected }: NodeProps) {
   const node = data as PipelineNodeData;
   return (
     <div
-      className={`rounded-md border bg-white px-3 py-2 text-xs shadow-sm ${
+      className={`w-[180px] overflow-hidden rounded-md border bg-white px-3 py-2 text-xs shadow-sm ${
         selected ? "border-cyan-700 ring-2 ring-cyan-200" : "border-cyan-600"
       }`}
     >
       <Handle type="target" position={Position.Left} className="!bg-cyan-600" />
-      <div className="font-mono font-semibold text-slate-900">{node.label}</div>
-      {node.method ? <div className="mt-0.5 text-[11px] text-slate-500">{node.method}</div> : null}
+      <div className="truncate font-mono font-semibold text-slate-900" title={node.label}>{node.label}</div>
+      {node.method ? <div className="mt-0.5 truncate text-[11px] text-slate-500" title={node.method}>{node.method}</div> : null}
       <Handle type="source" position={Position.Right} className="!bg-cyan-600" />
     </div>
   );
@@ -48,10 +48,10 @@ function ProcessNode({ data, selected }: NodeProps) {
 function OutputNode({ data }: NodeProps) {
   const node = data as PipelineNodeData;
   return (
-    <div className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 shadow-sm">
+    <div className="w-[180px] overflow-hidden rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 shadow-sm">
       <Handle type="target" position={Position.Left} className="!bg-emerald-400" />
       <div className="text-[10px] font-semibold uppercase tracking-wide text-emerald-500">output</div>
-      <div className="font-mono text-emerald-900">{node.label}</div>
+      <div className="truncate font-mono text-emerald-900" title={node.label}>{node.label}</div>
       <Handle type="source" position={Position.Right} className="!bg-emerald-400" />
     </div>
   );

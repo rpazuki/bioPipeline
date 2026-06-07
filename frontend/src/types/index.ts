@@ -56,6 +56,15 @@ export interface PipelineTemplate extends PipelineTemplateSummary {
   content: string;
 }
 
+export interface JobDefinitionTemplateSummary {
+  name: string;
+  description: string;
+}
+
+export interface JobDefinitionTemplate extends JobDefinitionTemplateSummary {
+  content: string;
+}
+
 export interface Job {
   id: string;
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled";

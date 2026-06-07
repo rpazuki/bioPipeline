@@ -1,0 +1,9 @@
+# Sample raw_data_file -> metadata_file mapping.
+#
+# This dummy file exists ONLY so the Job Definition page can validate / preview a
+# `mapping_file` fan-out without errors while you edit. Replace it with your own
+# mapping (and point the stage's `mapping:` / `data_dir:` at your real data
+# folder) before submitting a real run. The data files themselves need not exist
+# for preview — only this mapping file is read.
+sample_one.csv: sample_one_meta.csv
+sample_two.csv: sample_two_meta.csv

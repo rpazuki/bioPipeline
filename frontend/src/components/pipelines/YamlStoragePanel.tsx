@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import ResizableSplitPane from "@/components/pipelines/ResizableSplitPane";
 import YamlTreeView from "@/components/pipelines/YamlTreeView";
 import {
   createYamlFolder,
@@ -266,17 +267,20 @@ export default function YamlStoragePanel({
         <p className="mt-1 text-xs text-slate-500">Browse folders and YAML files under <span className="font-mono">.bio_pipeline/yamls</span>.</p>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-        <div className="grid self-start gap-3">
-          <YamlTreeView
-            nodes={tree}
-            selectedPath={selectedPath}
-            onSelect={(node) => run("Select", () => selectNode(node))}
-            onNavigatePath={(path) => run("Navigate", () => navigatePath(path))}
-          />
-        </div>
-
-        <div className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+      <ResizableSplitPane
+        defaultSplit={55}
+        left={
+          <div className="grid self-start gap-3 pr-2">
+            <YamlTreeView
+              nodes={tree}
+              selectedPath={selectedPath}
+              onSelect={(node) => run("Select", () => selectNode(node))}
+              onNavigatePath={(path) => run("Navigate", () => navigatePath(path))}
+            />
+          </div>
+        }
+        right={
+        <div className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 pl-2">
           <div className="grid gap-1">
             <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Selection</div>
             <div className="rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-800">
@@ -451,7 +455,8 @@ export default function YamlStoragePanel({
 
           {fileError ? <div className="rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700">{fileError}</div> : null}
         </div>
-      </div>
+        }
+      />
     </section>
   );
 }

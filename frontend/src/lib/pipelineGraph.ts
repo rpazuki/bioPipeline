@@ -38,7 +38,7 @@ export interface PipelineNodeData extends Record<string, unknown> {
 export type PipelineNode = Node<PipelineNodeData>;
 
 const NODE_WIDTH = 180;
-const NODE_HEIGHT = 52;
+const NODE_HEIGHT = 70; // used only for dagre vertical spacing estimate
 
 function keySuggestsPayload(key: string): boolean {
   return REFERENCE_PARAMETER_NAMES.has(key) || key.endsWith("_df");
@@ -89,6 +89,7 @@ export function buildPipelineGraph(pipeline: PipelineSummary): {
       id: `input:${name}`,
       type: "input",
       position: { x: 0, y: 0 },
+      width: NODE_WIDTH,
       data: { kind: "input", label: name },
     });
   }
@@ -98,6 +99,7 @@ export function buildPipelineGraph(pipeline: PipelineSummary): {
       id: `proc:${process.name}`,
       type: "process",
       position: { x: 0, y: 0 },
+      width: NODE_WIDTH,
       data: {
         kind: "process",
         label: process.name,
@@ -112,6 +114,7 @@ export function buildPipelineGraph(pipeline: PipelineSummary): {
       id: `output:${name}`,
       type: "output",
       position: { x: 0, y: 0 },
+      width: NODE_WIDTH,
       data: { kind: "output", label: name },
     });
   }

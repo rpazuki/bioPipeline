@@ -73,7 +73,7 @@ job: growth_rates_full
 description: Preprocess + collate across replicate variants
 
 variables:                          # the matrix (replaces the .bat loops)
-  run_tag: [Anthony-Three-Replicates, Anthony-Five-Replicates]
+  run_tag: [run-three-replicates, run-five-replicates]
   variant:
     - {name: no_replicates,   pipeline: growth_rate_fit_pipeline}
     - {name: replicates,      pipeline: growth_rate_replicates_fit_pipeline}
@@ -84,11 +84,11 @@ defaults:
 
 stages:
   - name: preprocess
-    pipeline_yaml: Anthony_growth_rates_pipeline.yaml
+    pipeline_yaml: growth_rates_pipeline.yaml
     pipeline: "{variant.pipeline}"
     fanout:                         # the .py loop
       type: mapping_file            # mapping_file | patterns | folders | none
-      mapping: Anthony_mapping.yaml # raw -> meta pairs (load_file_mapping)
+      mapping: mapping.yaml # raw -> meta pairs (load_file_mapping)
       data_dir: "{data_root}/data"
     output_dir: "{data_root}/processed/{variant.name}/{item.stem}"
     input_sources:
@@ -97,7 +97,7 @@ stages:
 
   - name: collate
     needs: [preprocess]             # stage dependency / ordering
-    pipeline_yaml: Anthony_collateing_pipeline.yaml
+    pipeline_yaml: collateing_pipeline.yaml
     pipeline: collate_per_strain_pipeline
     fanout: {type: none}            # single invocation
     input_sources:
@@ -131,7 +131,7 @@ each collate Task gated on the matching preprocess Tasks of the same `(run_tag, 
 ### Multi-YAML chaining ("one finishes, the next starts")
 A Job can sequence pipelines from **different pipeline YAML files** — each stage names its own
 `pipeline_yaml` + `pipeline`, and `needs:` enforces ordering. The two-stage example above already
-spans `Anthony_growth_rates_pipeline.yaml` → `Anthony_collateing_pipeline.yaml`.
+spans `growth_rates_pipeline.yaml` → `collateing_pipeline.yaml`.
 
 A *pure* linear chain (no matrix, no fan-out) is just the degenerate case — stages with
 `fanout: {type: none}` and linear `needs:`:

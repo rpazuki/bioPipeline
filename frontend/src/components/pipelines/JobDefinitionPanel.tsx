@@ -4,16 +4,24 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import JobStageGraph from "@/components/pipelines/JobStageGraph";
+import ResizableSplitPane from "@/components/pipelines/ResizableSplitPane";
 import { usePipeline } from "@/components/pipelines/PipelineContext";
 import {
   getJobDefinition,
+  getJobDefinitionTemplate,
   listJobDefinitions,
+  listJobDefinitionTemplates,
   previewJobDefinition,
   runDueJobs,
   saveDefinition,
   submitJobDefinition,
 } from "@/lib/api";
-import type { JobDefinitionPreview, JobGroupDetail, JobGroupSummary } from "@/types";
+import type {
+  JobDefinitionPreview,
+  JobDefinitionTemplateSummary,
+  JobGroupDetail,
+  JobGroupSummary,
+} from "@/types";
 
 // Previews without touching the filesystem (all fan-out is "none"). For real
 // fan-out over data files, set a stage's fanout to mapping_file / patterns /
@@ -82,6 +90,7 @@ export default function JobDefinitionPanel() {
       setJobDefinitionDraft(null);
     }
   }, [jobDefinitionDraft, setJobDefinitionDraft]);
+  const [templates, setTemplates] = useState<JobDefinitionTemplateSummary[]>([]);
   const [preview, setPreview] = useState<JobDefinitionPreview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [groups, setGroups] = useState<JobGroupSummary[]>([]);
@@ -100,6 +109,28 @@ export default function JobDefinitionPanel() {
   useEffect(() => {
     void refreshGroups();
   }, [refreshGroups]);
+
+  // Load the list of starter templates once.
+  useEffect(() => {
+    listJobDefinitionTemplates()
+      .then(setTemplates)
+      .catch(() => setTemplates([]));
+  }, []);
+
+  const onSelectTemplate = useCallback(
+    async (name: string) => {
+      if (!name) return;
+      try {
+        const template = await getJobDefinitionTemplate(name);
+        setContent(template.content);
+        setSelected(null);
+        setStatus(`Loaded "${name}" job definition template`);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [setStatus],
+  );
 
   const runPreview = useCallback(async (text: string) => {
     try {
@@ -171,12 +202,35 @@ export default function JobDefinitionPanel() {
       setSelected(await getJobDefinition(parentJobId));
     });
 
-  return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <section className="grid gap-3 rounded-md border border-slate-200 bg-white p-4">
-        <div className="flex items-center justify-between">
+  const leftPane = (
+    <section className="grid gap-3 rounded-md border border-slate-200 bg-white p-4 h-full">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-semibold text-slate-900">Job Definition</h2>
           <span className="text-xs text-slate-500">YAML — matrix × stages × fan-out</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <label htmlFor="job-def-template" className="text-xs font-semibold text-slate-600">
+            Start from template
+          </label>
+          <select
+            id="job-def-template"
+            aria-label="Job definition template"
+            defaultValue=""
+            onChange={(event) => {
+              void onSelectTemplate(event.target.value);
+              event.target.value = "";
+            }}
+            className="rounded-md border border-slate-300 px-2 py-1.5 text-xs text-slate-700"
+          >
+            <option value="" disabled>
+              Choose a scenario…
+            </option>
+            {templates.map((template) => (
+              <option key={template.name} value={template.name} title={template.description}>
+                {template.name}
+              </option>
+            ))}
+          </select>
         </div>
         <textarea
           aria-label="Job Definition YAML"
@@ -227,49 +281,52 @@ export default function JobDefinitionPanel() {
           </p>
         )}
         {error ? <p className="text-xs text-rose-700">{error}</p> : null}
-      </section>
-
-      <section className="grid content-start gap-3 rounded-md border border-slate-200 bg-white p-4">
-        {selected ? (
-          <GroupView group={selected} />
-        ) : preview ? (
-          <div className="grid gap-3">
-            <JobStageGraph tasks={preview.tasks} />
-            <PreviewView preview={preview} />
-          </div>
-        ) : (
-          <p className="text-xs text-slate-500">Edit the definition to see its plan, or open a submitted job below.</p>
-        )}
-
-        <div className="mt-2 grid gap-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Submitted jobs</h3>
-          {groups.length === 0 ? (
-            <p className="text-xs text-slate-500">No job definitions submitted yet.</p>
-          ) : (
-            <ul className="grid gap-1.5">
-              {groups.map((group) => (
-                <li key={group.parent_job_id}>
-                  <button
-                    type="button"
-                    onClick={() => onOpenGroup(group.parent_job_id)}
-                    className="flex w-full items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-2 text-left hover:bg-slate-50"
-                  >
-                    <span className="font-mono text-xs text-slate-900">{group.job_name || group.parent_job_id}</span>
-                    <span className="flex items-center gap-2">
-                      <span className="text-xs text-slate-500">{group.total} tasks</span>
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusClasses(group.status)}`}>
-                        {group.status}
-                      </span>
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </section>
-    </div>
+    </section>
   );
+
+  const rightPane = (
+    <section className="grid content-start gap-3 rounded-md border border-slate-200 bg-white p-4 h-full">
+      {selected ? (
+        <GroupView group={selected} />
+      ) : preview ? (
+        <div className="grid gap-3">
+          <JobStageGraph tasks={preview.tasks} />
+          <PreviewView preview={preview} />
+        </div>
+      ) : (
+        <p className="text-xs text-slate-500">Edit the definition to see its plan, or open a submitted job below.</p>
+      )}
+
+      <div className="mt-2 grid gap-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Submitted jobs</h3>
+        {groups.length === 0 ? (
+          <p className="text-xs text-slate-500">No job definitions submitted yet.</p>
+        ) : (
+          <ul className="grid gap-1.5">
+            {groups.map((group) => (
+              <li key={group.parent_job_id}>
+                <button
+                  type="button"
+                  onClick={() => onOpenGroup(group.parent_job_id)}
+                  className="flex w-full items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-2 text-left hover:bg-slate-50"
+                >
+                  <span className="font-mono text-xs text-slate-900">{group.job_name || group.parent_job_id}</span>
+                  <span className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500">{group.total} tasks</span>
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusClasses(group.status)}`}>
+                      {group.status}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+
+  return <ResizableSplitPane left={leftPane} right={rightPane} defaultSplit={50} className="gap-0" />;
 }
 
 function PreviewView({ preview }: { preview: JobDefinitionPreview }) {

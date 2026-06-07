@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.deps import get_runtime
 from app.api.routes import (
     job_definition_store,
+    job_definition_templates,
     job_definitions,
     jobs,
     packages,
@@ -62,6 +63,7 @@ app.include_router(templates.router, prefix=PREFIX)
 app.include_router(jobs.router, prefix=PREFIX)
 app.include_router(job_definitions.router, prefix=PREFIX)
 app.include_router(job_definition_store.router, prefix=PREFIX)
+app.include_router(job_definition_templates.router, prefix=PREFIX)
 app.include_router(packages.router, prefix=PREFIX)
 app.include_router(runtime.router, prefix=PREFIX)
 

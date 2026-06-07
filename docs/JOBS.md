@@ -42,7 +42,7 @@ job: growth_rates_full              # required: the job's name
 description: Preprocess + collate   # optional
 
 variables:                          # optional: the matrix (see §3)
-  run_tag: [Anthony-Three-Replicates, Anthony-Five-Replicates]
+  run_tag: [run-three-replicates, run-five-replicates]
   variant:
     - {name: no_replicates,   pipeline: growth_rate_fit_pipeline}
     - {name: replicates,      pipeline: growth_rate_replicates_fit_pipeline}
@@ -53,11 +53,11 @@ defaults:                           # optional: shared, templated values (see §
 
 stages:                             # required: one or more ordered steps
   - name: preprocess                # required: unique stage name
-    pipeline_yaml: Anthony_growth_rates_pipeline.yaml   # required: stored YAML name
+    pipeline_yaml: growth_rates_pipeline.yaml   # required: stored YAML name
     pipeline: "{variant.pipeline}"  # required: pipeline name inside that YAML
     fanout:                         # optional (default {type: none}); see §4
       type: mapping_file
-      mapping: Anthony_mapping.yaml
+      mapping: mapping.yaml
       data_dir: "{data_root}/data"
     output_dir: "{data_root}/processed/{variant.name}/{item.stem}"  # required
     input_sources:                  # optional: override pipeline inputs
@@ -66,7 +66,7 @@ stages:                             # required: one or more ordered steps
 
   - name: collate
     needs: [preprocess]             # optional: run after these stages (same cell)
-    pipeline_yaml: Anthony_collateing_pipeline.yaml
+    pipeline_yaml: collateing_pipeline.yaml
     pipeline: collate_per_strain_pipeline
     fanout: {type: none}
     input_sources:
@@ -180,14 +180,14 @@ An unknown token (e.g. `{typo}`) is a validation error. There is no code
 execution — substitution is pure string replacement that produces concrete
 paths and values.
 
-Example resolution for cell `(run_tag=Anthony-Three-Replicates, variant=no_replicates)`,
+Example resolution for cell `(run_tag=run-three-replicates, variant=no_replicates)`,
 item `mediabotJLF1.csv`:
 
 ```
 output_dir   "{data_root}/processed/{variant.name}/{item.stem}"
-          →  "H:/.../Anthony-Three-Replicates/processed/no_replicates/mediabotJLF1"
+          →  "H:/.../run-three-replicates/processed/no_replicates/mediabotJLF1"
 input.raw    "{data_dir}/{item.raw}"
-          →  "H:/.../Anthony-Three-Replicates/data/mediabotJLF1.csv"
+          →  "H:/.../run-three-replicates/data/mediabotJLF1.csv"
 ```
 
 ---
