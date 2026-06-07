@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { archiveDefinition, createUser, createYamlFolder, deletePipelineYaml, deleteSavedDefinition, deleteYamlFolder, disableUser, getCurrentUser, getJobDefinition, getPipelineYaml, installPackage, listJobDefinitions, listPackages, listSavedDefinitions, listUsers, login, logout, movePipelineYaml, previewJobDefinition, resetUserPassword, restoreDefinition, saveDefinition, savePipelineYaml, submitJob, submitJobDefinition, uninstallPackage, updateUser, validateYamlContent } from "./api";
+import { archiveDefinition, createUser, createYamlFolder, deletePipelineYaml, deleteSavedDefinition, deleteYamlFolder, disableUser, executeAITool, getAIContext, getCurrentUser, getJobDefinition, getPipelineYaml, installPackage, listJobDefinitions, listPackages, listSavedDefinitions, listUsers, login, logout, movePipelineYaml, previewJobDefinition, resetUserPassword, restoreDefinition, saveDefinition, savePipelineYaml, sendAIChatMessage, submitJob, submitJobDefinition, testAIProvider, uninstallPackage, updateUser, validateYamlContent } from "./api";
 
 function mockFetch(payload: unknown) {
   const fetchMock = vi.fn().mockResolvedValue({
@@ -120,5 +120,26 @@ describe("pipeline API client", () => {
     expect(fetchMock.mock.calls[2][0]).toBe("/api/v1/job-definition-store/designs/growth.yaml/archive");
     expect(fetchMock.mock.calls[3][0]).toBe("/api/v1/job-definition-store/designs/growth.yaml/restore");
     expect(fetchMock.mock.calls[4][0]).toBe("/api/v1/job-definition-store/designs/growth.yaml?archived=true");
+  });
+
+  it("targets the AI designer endpoints without leaking keys", async () => {
+    const fetchMock = mockFetch({ providers: [], tools: [], message: { role: "assistant", content: "" }, tool_calls: [], drafts: [] });
+
+    await getAIContext();
+    await testAIProvider({ provider: "claude" });
+    await sendAIChatMessage({ messages: [{ role: "user", content: "hello" }], confirmations: {} });
+    await executeAITool("validate_pipeline_yaml", { content: "pipelines: []" }, true);
+
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/ai-chat/context");
+    expect(fetchMock.mock.calls[1][0]).toBe("/api/v1/ai-chat/test-provider");
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ provider: "claude" });
+    expect(fetchMock.mock.calls[2][0]).toBe("/api/v1/ai-chat/messages");
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body).messages[0].content).toBe("hello");
+    expect(fetchMock.mock.calls[3][0]).toBe("/api/v1/ai-chat/tools/execute");
+    expect(JSON.parse(fetchMock.mock.calls[3][1].body)).toEqual({
+      name: "validate_pipeline_yaml",
+      arguments: { content: "pipelines: []" },
+      confirmed: true,
+    });
   });
 });

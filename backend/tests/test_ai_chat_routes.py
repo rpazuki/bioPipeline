@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -231,5 +232,60 @@ def test_ai_tools_create_draft_and_publish_requires_confirmation(tmp_path: Path,
     )
     assert published.status_code == 200
     assert published.json()["result"]["status"] == "published"
+
+    _reset()
+
+
+def test_ai_messages_text_only(tmp_path: Path, monkeypatch):
+    _set_fake_ai_config(monkeypatch)
+    client = _client(tmp_path)
+
+    response = client.post(
+        "/api/v1/ai-chat/messages",
+        json={"messages": [{"role": "user", "content": "hello"}]},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert "Fake provider received: hello" in body["message"]["content"]
+    assert body["tool_calls"] == []
+    assert body["needs_confirmation"] is None
+
+    _reset()
+
+
+def test_ai_messages_runs_read_only_tool(tmp_path: Path, monkeypatch):
+    _set_fake_ai_config(monkeypatch)
+    client = _client(tmp_path)
+
+    response = client.post(
+        "/api/v1/ai-chat/messages",
+        json={"messages": [{"role": "user", "content": "@tool list_pipeline_yamls {}"}]},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["tool_calls"]) == 1
+    call = body["tool_calls"][0]
+    assert call["name"] == "list_pipeline_yamls"
+    assert call["status"] == "succeeded"
+    assert "list_pipeline_yamls" in body["message"]["content"]
+    assert body["needs_confirmation"] is None
+
+    _reset()
+
+
+def test_ai_messages_high_impact_tool_needs_confirmation(tmp_path: Path, monkeypatch):
+    _set_fake_ai_config(monkeypatch)
+    client = _client(tmp_path)
+
+    directive = "@tool submit_job_definition " + json.dumps({"content": JOB_DEF})
+    response = client.post(
+        "/api/v1/ai-chat/messages",
+        json={"messages": [{"role": "user", "content": directive}]},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["needs_confirmation"] is not None
+    assert body["needs_confirmation"]["name"] == "submit_job_definition"
+    assert body["needs_confirmation"]["status"] == "pending_confirmation"
 
     _reset()

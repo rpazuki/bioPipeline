@@ -1,4 +1,10 @@
 import type {
+  AIChatRequest,
+  AIChatResponse,
+  AIContextResponse,
+  AIProviderSelection,
+  AIProviderTestResponse,
+  AIToolCallRecord,
   DefinitionDocument,
   DefinitionSummary,
   Job,
@@ -406,5 +412,31 @@ export async function uninstallPackage(name: string) {
   return apiFetch<PackageOpResult>("/packages/uninstall", {
     method: "POST",
     body: JSON.stringify({ name }),
+  });
+}
+
+// AI Designer
+export async function getAIContext() {
+  return apiFetch<AIContextResponse>("/ai-chat/context");
+}
+
+export async function testAIProvider(payload: AIProviderSelection) {
+  return apiFetch<AIProviderTestResponse>("/ai-chat/test-provider", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function sendAIChatMessage(payload: AIChatRequest) {
+  return apiFetch<AIChatResponse>("/ai-chat/messages", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function executeAITool(name: string, args: Record<string, unknown>, confirmed = false) {
+  return apiFetch<AIToolCallRecord>("/ai-chat/tools/execute", {
+    method: "POST",
+    body: JSON.stringify({ name, arguments: args, confirmed }),
   });
 }

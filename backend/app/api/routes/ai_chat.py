@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.api.deps import get_runtime, require_admin
 from app.core.config import settings
 from app.schemas.ai_chat import (
+    AIArtifactDraft,
     AIChatRequest,
     AIChatResponse,
     AIContextResponse,
@@ -19,7 +20,9 @@ from app.schemas.ai_chat import (
     AIToolExecuteRequest,
 )
 from app.services.runtime import PipelineRuntime
+from bio_pipeline_manager.ai_agent import AIChatAgent
 from bio_pipeline_manager.ai_providers import (
+    AIProviderError,
     provider_statuses,
     provider_test_result,
     redact_provider_error,
@@ -116,27 +119,31 @@ async def send_ai_chat_message(
     runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
     admin: Annotated[UserRecord, Depends(require_admin)],
 ) -> AIChatResponse:
-    registry = _tool_registry(runtime, admin)
-    tool_calls = [
-        AIToolCallRecord(
-            **asdict(registry.execute(tool.name, tool.arguments, confirmed=tool.confirmed))
-        )
-        for tool in body.requested_tools
-    ]
-    needs_confirmation = next(
-        (tool for tool in tool_calls if tool.status == "pending_confirmation"),
-        None,
+    agent = AIChatAgent(
+        registry=_tool_registry(runtime, admin),
+        schema_provider=_schema_provider(runtime, admin),
+        context_markdown=_load_context_markdown(),
+        ai_config=settings.ai,
+        api_prefix=settings.api_prefix,
     )
-    content = (
-        "Executed requested tools."
-        if tool_calls
-        else (
-            "AI chat backend skeleton is ready. Provider model-call orchestration "
-            "is planned for Phase 4."
+    try:
+        outcome = agent.run(
+            messages=body.messages,
+            selection=body.provider,
+            confirmations=body.confirmations,
         )
-    )
+    except (AIProviderError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=redact_provider_error(str(exc), settings.ai),
+        ) from exc
     return AIChatResponse(
-        message={"role": "assistant", "content": content},
-        tool_calls=tool_calls,
-        needs_confirmation=needs_confirmation,
+        message={"role": "assistant", "content": outcome.text},
+        tool_calls=[AIToolCallRecord(**asdict(call)) for call in outcome.tool_calls],
+        drafts=[AIArtifactDraft(**draft) for draft in outcome.drafts],
+        needs_confirmation=(
+            AIToolCallRecord(**asdict(outcome.needs_confirmation))
+            if outcome.needs_confirmation
+            else None
+        ),
     )

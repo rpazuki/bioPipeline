@@ -321,3 +321,91 @@ export interface RuntimeInfo {
   cwd: string;
   env_pipeline_home?: string | null;
 }
+
+// AI Designer
+export type AIProvider = "claude" | "openai" | "gemini" | "openai_compatible" | "fake";
+
+export interface AIProviderStatus {
+  provider: string;
+  enabled: boolean;
+  configured: boolean;
+  model: string;
+  base_url: string;
+  is_default: boolean;
+}
+
+export interface AIProviderSelection {
+  provider?: AIProvider | null;
+  model?: string | null;
+  temperature?: number | null;
+  max_tokens?: number | null;
+}
+
+export interface AIProviderTestResponse {
+  ok: boolean;
+  provider: string;
+  model: string;
+  message: string;
+}
+
+export interface AIToolDefinition {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+  read_only: boolean;
+  requires_confirmation: boolean;
+}
+
+export interface AIContextResponse {
+  context: string;
+  default_provider: string;
+  providers: AIProviderStatus[];
+  max_tool_iterations: number;
+  schema_digest: string;
+  tools: AIToolDefinition[];
+}
+
+export interface AIChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export type AIToolCallStatus =
+  | "pending_confirmation"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "skipped";
+
+export interface AIToolCallRecord {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+  status: AIToolCallStatus;
+  result?: Record<string, unknown> | null;
+  error?: string | null;
+  requires_confirmation: boolean;
+}
+
+export interface AIArtifactDraft {
+  kind: "pipeline_yaml" | "job_definition" | "published_fields";
+  name: string;
+  content: string | Record<string, unknown> | unknown[];
+  source: "model" | "tool";
+}
+
+export interface AIChatRequest {
+  provider?: AIProviderSelection;
+  messages: AIChatMessage[];
+  active_pipeline_yaml?: string;
+  active_job_definition?: string;
+  active_published_fields?: PublishedField[];
+  confirmations?: Record<string, boolean>;
+}
+
+export interface AIChatResponse {
+  message: AIChatMessage;
+  tool_calls: AIToolCallRecord[];
+  drafts: AIArtifactDraft[];
+  needs_confirmation?: AIToolCallRecord | null;
+}

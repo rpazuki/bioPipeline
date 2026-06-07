@@ -8,6 +8,7 @@ import { useAuth } from "./AuthContext";
 import { PipelineProvider, usePipeline } from "./PipelineContext";
 
 const NAV = [
+  { href: "/ai-chat", label: "AI Designer" },
   { href: "/published-jobs-admin", label: "Job Publishing" },
   { href: "/", label: "Job Queue" },
   { href: "/job-definitions", label: "Job Definitions" },
