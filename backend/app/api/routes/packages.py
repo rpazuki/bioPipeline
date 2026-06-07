@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.api.deps import get_runtime, require_package_admin
+from app.api.deps import get_runtime, require_admin
 from app.schemas.pipelines import (
     InstallRequest,
     PackageListResponse,
@@ -14,8 +14,8 @@ from app.schemas.pipelines import (
 from app.services.runtime import PipelineRuntime
 from bio_pipeline_manager.packages import PackageBusyError, PackageError, result_dict
 
-# Every endpoint here requires the admin token (auth + audit surface).
-router = APIRouter(prefix="/packages", tags=["packages"], dependencies=[Depends(require_package_admin)])
+# Every endpoint here requires an authenticated admin session.
+router = APIRouter(prefix="/packages", tags=["packages"], dependencies=[Depends(require_admin)])
 
 
 @router.get("", response_model=PackageListResponse)

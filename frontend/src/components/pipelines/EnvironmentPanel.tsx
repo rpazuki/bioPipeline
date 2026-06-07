@@ -13,7 +13,6 @@ const SOURCE_TYPES: { value: PackageSourceType; label: string; placeholder: stri
 ];
 
 export default function EnvironmentPanel() {
-  const [token, setToken] = useState("");
   const [installed, setInstalled] = useState<PackageInfo[]>([]);
   const [history, setHistory] = useState<PackageOpResult[]>([]);
   const [spec, setSpec] = useState("");
@@ -23,11 +22,11 @@ export default function EnvironmentPanel() {
   const [loaded, setLoaded] = useState(false);
 
   const refresh = useCallback(async () => {
-    const data = await listPackages(token);
+    const data = await listPackages();
     setInstalled(data.installed);
     setHistory(data.history);
     setLoaded(true);
-  }, [token]);
+  }, []);
 
   const run = useCallback(async (action: () => Promise<void>) => {
     setBusy(true);
@@ -45,7 +44,7 @@ export default function EnvironmentPanel() {
 
   const onInstall = () =>
     run(async () => {
-      const result = await installPackage(token, spec, sourceType);
+      const result = await installPackage(spec, sourceType);
       if (!result.ok) {
         setError(`pip exited ${result.exit_code}: ${result.stderr.trim() || result.stdout.trim()}`);
       } else {
@@ -56,7 +55,7 @@ export default function EnvironmentPanel() {
 
   const onUninstall = (name: string) =>
     run(async () => {
-      await uninstallPackage(token, name);
+      await uninstallPackage(name);
       await refresh();
     });
 
@@ -65,28 +64,19 @@ export default function EnvironmentPanel() {
   return (
     <div className="grid gap-4">
       <section className="grid gap-3 rounded-md border border-slate-200 bg-white p-4">
-        <h2 className="text-sm font-semibold text-slate-900">Admin token</h2>
+        <h2 className="text-sm font-semibold text-slate-900">Environment access</h2>
         <p className="text-xs text-slate-500">
-          Installing packages runs <code>pip</code> in the backend interpreter, so it requires the
-          admin token (set via <code>PACKAGE_ADMIN_TOKEN</code> on the backend). The token is kept
-          only in this browser tab.
+          Installing packages runs <code>pip</code> in the backend interpreter. This page is
+          available to signed-in admins only, and installs are refused while jobs are running.
         </p>
         <div className="flex flex-wrap gap-2">
-          <input
-            type="password"
-            aria-label="Admin token"
-            value={token}
-            onChange={(event) => setToken(event.target.value)}
-            placeholder="admin token"
-            className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
-          />
           <button
             type="button"
             onClick={onConnect}
-            disabled={busy || !token}
+            disabled={busy}
             className="rounded-md bg-cyan-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
           >
-            Connect
+            Load packages
           </button>
         </div>
         {error ? <p className="text-xs text-rose-700">{error}</p> : null}

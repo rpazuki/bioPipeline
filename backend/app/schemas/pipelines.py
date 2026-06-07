@@ -234,3 +234,42 @@ class DefinitionSaveRequest(BaseModel):
     name: str
     content: str
     overwrite: bool = False
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class UserResponse(BaseModel):
+    id: str
+    username: str
+    display_name: str = ""
+    role: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    last_login_at: datetime | None = None
+
+
+class AuthResponse(BaseModel):
+    user: UserResponse
+
+
+class UserCreateRequest(BaseModel):
+    username: str
+    password: str
+    role: str = "user"
+    display_name: str = ""
+    is_active: bool = True
+
+
+class UserUpdateRequest(BaseModel):
+    username: str | None = None
+    display_name: str | None = None
+    role: str | None = None
+    is_active: bool | None = None
+
+
+class PasswordResetRequest(BaseModel):
+    password: str

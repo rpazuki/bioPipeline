@@ -114,6 +114,12 @@ Initialize local state folders:
 bio-pipeline init
 ```
 
+Create the first admin account:
+
+```bash
+bio-pipeline auth bootstrap-admin --username admin
+```
+
 Store a YAML file:
 
 ```bash

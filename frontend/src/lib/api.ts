@@ -14,6 +14,10 @@ import type {
   PipelineTemplate,
   PipelineTemplateSummary,
   RuntimeInfo,
+  AuthResponse,
+  User,
+  UserCreate,
+  UserUpdate,
   ValidationReport,
   YamlDocument,
   YamlSummary,
@@ -35,7 +39,7 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string> | undefined),
   };
-  const response = await fetch(`${API_PREFIX}${path}`, { ...options, headers });
+  const response = await fetch(`${API_PREFIX}${path}`, { credentials: "include", ...options, headers });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new Error(body?.detail ?? `API error ${response.status}`);
@@ -49,6 +53,55 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
 // Storage
 export async function getRuntimeInfo() {
   return apiFetch<RuntimeInfo>("/runtime");
+}
+
+// Auth
+export async function login(username: string, password: string) {
+  return apiFetch<AuthResponse>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ username, password }),
+  });
+}
+
+export async function logout() {
+  return apiFetch<void>("/auth/logout", { method: "POST" });
+}
+
+export async function getCurrentUser() {
+  return apiFetch<AuthResponse>("/auth/me");
+}
+
+export async function listUsers() {
+  return apiFetch<User[]>("/users");
+}
+
+export async function createUser(payload: UserCreate) {
+  return apiFetch<User>("/users", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateUser(userId: string, payload: UserUpdate) {
+  return apiFetch<User>(`/users/${encodeURIComponent(userId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function resetUserPassword(userId: string, password: string) {
+  return apiFetch<User>(`/users/${encodeURIComponent(userId)}/reset-password`, {
+    method: "POST",
+    body: JSON.stringify({ password }),
+  });
+}
+
+export async function enableUser(userId: string) {
+  return apiFetch<User>(`/users/${encodeURIComponent(userId)}/enable`, { method: "POST" });
+}
+
+export async function disableUser(userId: string) {
+  return apiFetch<User>(`/users/${encodeURIComponent(userId)}/disable`, { method: "POST" });
 }
 
 export async function listPipelineYamls() {
@@ -225,27 +278,21 @@ export async function restoreDefinition(name: string) {
   return apiFetch<DefinitionDocument>(`/job-definition-store/${encodePath(name)}/restore`, { method: "POST" });
 }
 
-// Package management — every call carries the admin bearer token.
-function authHeaders(token: string): Record<string, string> {
-  return token ? { Authorization: `Bearer ${token}` } : {};
+// Package management
+export async function listPackages() {
+  return apiFetch<PackageList>("/packages");
 }
 
-export async function listPackages(token: string) {
-  return apiFetch<PackageList>("/packages", { headers: authHeaders(token) });
-}
-
-export async function installPackage(token: string, spec: string, sourceType: PackageSourceType = "pypi") {
+export async function installPackage(spec: string, sourceType: PackageSourceType = "pypi") {
   return apiFetch<PackageOpResult>("/packages/install", {
     method: "POST",
-    headers: authHeaders(token),
     body: JSON.stringify({ spec, source_type: sourceType }),
   });
 }
 
-export async function uninstallPackage(token: string, name: string) {
+export async function uninstallPackage(name: string) {
   return apiFetch<PackageOpResult>("/packages/uninstall", {
     method: "POST",
-    headers: authHeaders(token),
     body: JSON.stringify({ name }),
   });
 }

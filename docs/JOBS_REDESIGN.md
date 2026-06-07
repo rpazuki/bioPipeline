@@ -220,7 +220,8 @@ Package Management page.
 Lets the user install/upgrade the pipeline + science packages (`labUtils` and anything providing
 process functions) into the backend's Python environment, from the UI, without shell access.
 
-**Decisions:** single environment (the backend's `sys.executable`); **auth + audit** required.
+**Decisions:** single environment (the backend's `sys.executable`); **admin auth + install audit**
+required.
 
 ### Environment
 - Exactly one managed environment: the backend interpreter. Installs run
@@ -238,9 +239,9 @@ process functions) into the backend's Python environment, from the UI, without s
 - `requirements.txt` upload (batch).
 
 ### Security (auth + audit)
-- The page and its API endpoints require authentication (login/token); anonymous callers are
-  rejected. `pip install` is arbitrary code execution, so this gate is mandatory before the
-  feature is exposed beyond localhost.
+- The page and its API endpoints require an authenticated admin session; anonymous callers and
+  ordinary users are rejected. `pip install` is arbitrary code execution, so this gate is
+  mandatory before the feature is exposed beyond localhost.
 - Every install is **audited**: who, timestamp, exact pip args, requested spec, resolved
   version, exit code, and captured pip stdout/stderr — persisted (new `installs` table) and
   shown as history on the page.
@@ -357,10 +358,9 @@ stages materialize and flow into the existing claim/run machinery.
    `InstallStore`) installs/uninstalls/lists via `sys.executable -m pip`, with an **audit log**
    (`installs.sqlite`), refusal while jobs are running (`JobStore.has_active_jobs`), and
    `importlib.invalidate_caches()` after each change. Backend `/api/v1/packages` (list/install/
-   uninstall) gated by a bearer **admin token** (`PACKAGE_ADMIN_TOKEN`; 503 when unset, 401 on bad
-   token). `bio-pipeline env list|install|uninstall` CLI and a frontend **Environment** page
-   (token entry, install form, installed list, audit history, restart hint). Sources: pypi / git /
-   editable / requirements.
+   uninstall) gated by the authenticated **admin** role. `bio-pipeline env
+   list|install|uninstall` CLI and a frontend **Environment** page (install form, installed list,
+   audit history, restart hint). Sources: pypi / git / editable / requirements.
 3. **[DONE]** **Fan-out + matrix + stages + dependencies.** `job_definition.py` expands a Job
    Definition (`variables` matrix × ordered `stages` with `needs:` × `mapping_file`/`patterns`/
    `folders`/`none` fan-out) into materialized Tasks with `{token}` templating. `JobSpec` carries

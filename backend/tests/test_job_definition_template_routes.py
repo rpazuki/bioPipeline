@@ -5,12 +5,14 @@ from fastapi.testclient import TestClient
 from app.api.deps import get_runtime
 from app.main import app
 from app.services.runtime import create_runtime
+from auth_helpers import install_admin_override
 
 
 def _client(tmp_path: Path) -> TestClient:
     app.dependency_overrides.clear()
     get_runtime.cache_clear()
     app.dependency_overrides[get_runtime] = lambda: create_runtime(tmp_path)
+    install_admin_override(app)
     return TestClient(app)
 
 

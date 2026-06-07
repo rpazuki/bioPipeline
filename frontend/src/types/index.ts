@@ -157,6 +157,38 @@ export interface PackageList {
 
 export type PackageSourceType = "pypi" | "git" | "editable" | "requirements";
 
+export type UserRole = "admin" | "user";
+
+export interface User {
+  id: string;
+  username: string;
+  display_name: string;
+  role: UserRole;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  last_login_at?: string | null;
+}
+
+export interface AuthResponse {
+  user: User;
+}
+
+export interface UserCreate {
+  username: string;
+  password: string;
+  role: UserRole;
+  display_name?: string;
+  is_active?: boolean;
+}
+
+export interface UserUpdate {
+  username?: string;
+  display_name?: string;
+  role?: UserRole;
+  is_active?: boolean;
+}
+
 export interface DefinitionSummary {
   name: string;
   job: string;

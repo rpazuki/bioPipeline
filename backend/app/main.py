@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.deps import get_runtime
+from app.api.deps import get_runtime, require_admin
 from app.api.routes import (
+    auth,
     job_definition_store,
     job_definition_templates,
     job_definitions,
@@ -15,6 +16,7 @@ from app.api.routes import (
     runtime,
     storage,
     templates,
+    users,
     validation,
 )
 from app.core.config import settings
@@ -57,15 +59,19 @@ app.add_middleware(
 
 PREFIX = settings.api_prefix
 
-app.include_router(storage.router, prefix=PREFIX)
-app.include_router(validation.router, prefix=PREFIX)
-app.include_router(templates.router, prefix=PREFIX)
-app.include_router(jobs.router, prefix=PREFIX)
-app.include_router(job_definitions.router, prefix=PREFIX)
-app.include_router(job_definition_store.router, prefix=PREFIX)
-app.include_router(job_definition_templates.router, prefix=PREFIX)
-app.include_router(packages.router, prefix=PREFIX)
-app.include_router(runtime.router, prefix=PREFIX)
+ADMIN_ONLY = [Depends(require_admin)]
+
+app.include_router(auth.router, prefix=PREFIX)
+app.include_router(users.router, prefix=PREFIX)
+app.include_router(storage.router, prefix=PREFIX, dependencies=ADMIN_ONLY)
+app.include_router(validation.router, prefix=PREFIX, dependencies=ADMIN_ONLY)
+app.include_router(templates.router, prefix=PREFIX, dependencies=ADMIN_ONLY)
+app.include_router(jobs.router, prefix=PREFIX, dependencies=ADMIN_ONLY)
+app.include_router(job_definitions.router, prefix=PREFIX, dependencies=ADMIN_ONLY)
+app.include_router(job_definition_store.router, prefix=PREFIX, dependencies=ADMIN_ONLY)
+app.include_router(job_definition_templates.router, prefix=PREFIX, dependencies=ADMIN_ONLY)
+app.include_router(packages.router, prefix=PREFIX, dependencies=ADMIN_ONLY)
+app.include_router(runtime.router, prefix=PREFIX, dependencies=ADMIN_ONLY)
 
 
 @app.get("/health")

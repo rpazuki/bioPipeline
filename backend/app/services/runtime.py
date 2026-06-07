@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from bio_pipeline_manager.auth_service import AuthService
+from bio_pipeline_manager.auth_store import AuthStore
 from bio_pipeline_manager.job_definition_store import JobDefinitionStore
 from bio_pipeline_manager.job_queue import JobQueue
 from bio_pipeline_manager.packages import InstallStore, PackageManager
@@ -18,9 +20,10 @@ class PipelineRuntime:
     queue: JobQueue
     packages: PackageManager
     definition_store: JobDefinitionStore
+    auth: AuthService
 
 
-def create_runtime(home: str | Path) -> PipelineRuntime:
+def create_runtime(home: str | Path, *, auth_session_ttl_hours: float = 24.0) -> PipelineRuntime:
     root = Path(home)
     job_store = JobStore(root / "state.sqlite")
     yaml_store = YamlStore(root / "yamls")
@@ -34,4 +37,5 @@ def create_runtime(home: str | Path) -> PipelineRuntime:
             job_guard=job_store.has_active_jobs,
         ),
         definition_store=JobDefinitionStore(root / "job_defs", root / "job_defs_archive"),
+        auth=AuthService(AuthStore(root / "auth.sqlite"), session_ttl_hours=auth_session_ttl_hours),
     )

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 from datetime import datetime
 from pathlib import Path
 
+from bio_pipeline_manager.auth_service import AuthError, AuthService
+from bio_pipeline_manager.auth_store import AuthStore
 from bio_pipeline_manager.job_queue import JobQueue
 from bio_pipeline_manager.models import JobSpec, as_utc
 from bio_pipeline_manager.storage import JobStore
@@ -83,6 +86,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     env_uninstall = env_sub.add_parser("uninstall", help="Uninstall a package")
     env_uninstall.add_argument("name")
+
+    auth_parser = subparsers.add_parser("auth", help="Manage application users and sessions")
+    auth_sub = auth_parser.add_subparsers(dest="auth_command", required=True)
+    bootstrap = auth_sub.add_parser("bootstrap-admin", help="Create the first admin user")
+    bootstrap.add_argument("--username", required=True)
+    bootstrap.add_argument("--display-name", default="")
 
     args = parser.parse_args(argv)
     home = args.home
@@ -167,7 +176,32 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "env":
         return _handle_env_command(args, home, store)
 
+    if args.command == "auth":
+        return _handle_auth_command(args, home)
+
     raise AssertionError(f"Unhandled command: {args.command}")
+
+
+def _handle_auth_command(args, home: Path) -> int:
+    auth = AuthService(AuthStore(home / "auth.sqlite"))
+    if args.auth_command == "bootstrap-admin":
+        password = getpass.getpass("Password: ")
+        confirm = getpass.getpass("Confirm password: ")
+        if password != confirm:
+            print("error: passwords do not match")
+            return 2
+        try:
+            user = auth.bootstrap_admin(
+                username=args.username,
+                password=password,
+                display_name=args.display_name,
+            )
+        except AuthError as exc:
+            print(f"error: {exc}")
+            return 2
+        print(f"created admin {user.username}")
+        return 0
+    raise AssertionError(f"Unhandled auth command: {args.auth_command}")
 
 
 def _handle_env_command(args, home: Path, store: JobStore) -> int:

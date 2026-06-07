@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { archiveDefinition, createYamlFolder, deletePipelineYaml, deleteSavedDefinition, deleteYamlFolder, getJobDefinition, getPipelineYaml, installPackage, listJobDefinitions, listPackages, listSavedDefinitions, movePipelineYaml, previewJobDefinition, restoreDefinition, saveDefinition, savePipelineYaml, submitJob, submitJobDefinition, uninstallPackage, validateYamlContent } from "./api";
+import { archiveDefinition, createUser, createYamlFolder, deletePipelineYaml, deleteSavedDefinition, deleteYamlFolder, disableUser, getCurrentUser, getJobDefinition, getPipelineYaml, installPackage, listJobDefinitions, listPackages, listSavedDefinitions, listUsers, login, logout, movePipelineYaml, previewJobDefinition, resetUserPassword, restoreDefinition, saveDefinition, savePipelineYaml, submitJob, submitJobDefinition, uninstallPackage, updateUser, validateYamlContent } from "./api";
 
 function mockFetch(payload: unknown) {
   const fetchMock = vi.fn().mockResolvedValue({
@@ -28,6 +28,7 @@ describe("pipeline API client", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/pipeline-yamls");
     expect(fetchMock.mock.calls[1][0]).toBe("/api/v1/validation/yaml");
     expect(fetchMock.mock.calls[2][0]).toBe("/api/v1/jobs");
+    expect(fetchMock.mock.calls[0][1].credentials).toBe("include");
   });
 
   it("encodes nested YAML and folder paths by segment", async () => {
@@ -61,23 +62,43 @@ describe("pipeline API client", () => {
     expect(fetchMock.mock.calls[3][0]).toBe("/api/v1/job-definitions/grp-1");
   });
 
-  it("sends the admin bearer token on package endpoints", async () => {
+  it("uses session-backed package endpoints", async () => {
     const fetchMock = mockFetch({ installed: [], history: [] });
 
-    await listPackages("tok-1");
-    await installPackage("tok-1", "labUtils", "git");
-    await uninstallPackage("tok-1", "labUtils");
+    await listPackages();
+    await installPackage("labUtils", "git");
+    await uninstallPackage("labUtils");
 
     expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/packages");
-    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe("Bearer tok-1");
 
     expect(fetchMock.mock.calls[1][0]).toBe("/api/v1/packages/install");
     const installBody = JSON.parse(fetchMock.mock.calls[1][1].body);
     expect(installBody).toEqual({ spec: "labUtils", source_type: "git" });
-    expect(fetchMock.mock.calls[1][1].headers.Authorization).toBe("Bearer tok-1");
 
     expect(fetchMock.mock.calls[2][0]).toBe("/api/v1/packages/uninstall");
     expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ name: "labUtils" });
+  });
+
+  it("targets auth and user-management endpoints", async () => {
+    const fetchMock = mockFetch({ user: { id: "u1", username: "admin", role: "admin" } });
+
+    await login("admin", "password123");
+    await getCurrentUser();
+    await logout();
+    await listUsers();
+    await createUser({ username: "worker", password: "password123", role: "user" });
+    await updateUser("u1", { display_name: "Admin" });
+    await resetUserPassword("u1", "newpass123");
+    await disableUser("u1");
+
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/auth/login");
+    expect(fetchMock.mock.calls[1][0]).toBe("/api/v1/auth/me");
+    expect(fetchMock.mock.calls[2][0]).toBe("/api/v1/auth/logout");
+    expect(fetchMock.mock.calls[3][0]).toBe("/api/v1/users");
+    expect(fetchMock.mock.calls[4][0]).toBe("/api/v1/users");
+    expect(fetchMock.mock.calls[5][0]).toBe("/api/v1/users/u1");
+    expect(fetchMock.mock.calls[6][0]).toBe("/api/v1/users/u1/reset-password");
+    expect(fetchMock.mock.calls[7][0]).toBe("/api/v1/users/u1/disable");
   });
 
   it("targets the job-definition store endpoints", async () => {
@@ -101,4 +122,3 @@ describe("pipeline API client", () => {
     expect(fetchMock.mock.calls[4][0]).toBe("/api/v1/job-definition-store/designs/growth.yaml?archived=true");
   });
 });
-

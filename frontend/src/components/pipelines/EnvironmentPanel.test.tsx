@@ -14,17 +14,16 @@ describe("EnvironmentPanel", () => {
     vi.clearAllMocks();
   });
 
-  it("loads installed packages after connecting with a token", async () => {
+  it("loads installed packages for the signed-in admin", async () => {
     mocked.listPackages.mockResolvedValue({
       installed: [{ name: "labUtils", version: "1.0.0" }],
       history: [],
     });
 
     render(<EnvironmentPanel />);
-    fireEvent.change(screen.getByLabelText("Admin token"), { target: { value: "secret" } });
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    fireEvent.click(screen.getByRole("button", { name: "Load packages" }));
 
-    await waitFor(() => expect(mocked.listPackages).toHaveBeenCalledWith("secret"));
+    await waitFor(() => expect(mocked.listPackages).toHaveBeenCalledWith());
     expect(await screen.findByText("labUtils")).toBeInTheDocument();
   });
 
@@ -45,24 +44,22 @@ describe("EnvironmentPanel", () => {
     });
 
     render(<EnvironmentPanel />);
-    fireEvent.change(screen.getByLabelText("Admin token"), { target: { value: "secret" } });
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    fireEvent.click(screen.getByRole("button", { name: "Load packages" }));
     await screen.findByText("Install a package");
 
     fireEvent.change(screen.getByLabelText("Package spec"), { target: { value: "labUtils" } });
     fireEvent.click(screen.getByRole("button", { name: "Install" }));
 
-    await waitFor(() => expect(mocked.installPackage).toHaveBeenCalledWith("secret", "labUtils", "pypi"));
-    expect(mocked.listPackages).toHaveBeenCalledTimes(2); // connect + refresh after install
+    await waitFor(() => expect(mocked.installPackage).toHaveBeenCalledWith("labUtils", "pypi"));
+    expect(mocked.listPackages).toHaveBeenCalledTimes(2); // initial load + refresh after install
   });
 
-  it("surfaces an auth error from the server", async () => {
-    mocked.listPackages.mockRejectedValue(new Error("Invalid or missing admin token"));
+  it("surfaces an authorization error from the server", async () => {
+    mocked.listPackages.mockRejectedValue(new Error("Admin role required"));
 
     render(<EnvironmentPanel />);
-    fireEvent.change(screen.getByLabelText("Admin token"), { target: { value: "bad" } });
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    fireEvent.click(screen.getByRole("button", { name: "Load packages" }));
 
-    expect(await screen.findByText("Invalid or missing admin token")).toBeInTheDocument();
+    expect(await screen.findByText("Admin role required")).toBeInTheDocument();
   });
 });

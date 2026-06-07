@@ -103,10 +103,9 @@ class Settings(BaseSettings):
     worker_interval: float = float(_BACKEND_CONFIG.get("worker_interval", 2.0))
     worker_parallel: int = int(_BACKEND_CONFIG.get("worker_parallel", 1))
 
-    # Package management. The /packages endpoints require this bearer token;
-    # when empty the feature is disabled (returns 503). Override via the
-    # PACKAGE_ADMIN_TOKEN environment variable.
-    package_admin_token: str = str(_BACKEND_CONFIG.get("package_admin_token", ""))
+    auth_session_cookie_name: str = str(_BACKEND_CONFIG.get("auth_session_cookie_name", "bio_pipeline_session"))
+    auth_session_ttl_hours: float = float(_BACKEND_CONFIG.get("auth_session_ttl_hours", 24.0))
+    auth_secure_cookies: bool = bool(_BACKEND_CONFIG.get("auth_secure_cookies", False))
 
 
 @lru_cache

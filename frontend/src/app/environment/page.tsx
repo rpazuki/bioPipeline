@@ -9,8 +9,8 @@ export default function EnvironmentPage() {
         <h2 className="text-sm font-semibold text-slate-900">Environment</h2>
         <p className="mt-1 text-xs text-slate-500">
           Install the science and pipeline packages your YAMLs import (e.g. <code>labUtils</code>)
-          into the backend&apos;s Python environment. Every change is audited and requires the admin
-          token. Installs are refused while jobs are running.
+          into the backend&apos;s Python environment. This page is admin-only, and installs are refused
+          while jobs are running.
         </p>
       </section>
       <EnvironmentPanel />

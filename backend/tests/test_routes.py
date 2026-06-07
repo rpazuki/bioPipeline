@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from app.api.deps import get_runtime
 from app.main import app
 from app.services.runtime import create_runtime
+from auth_helpers import install_admin_override
 
 
 VALID_YAML = """
@@ -20,6 +21,7 @@ def test_split_routes_storage_validation_templates_and_jobs(tmp_path: Path):
     app.dependency_overrides.clear()
     get_runtime.cache_clear()
     app.dependency_overrides[get_runtime] = lambda: create_runtime(tmp_path)
+    install_admin_override(app)
     client = TestClient(app)
 
     assert client.get("/health").json()["status"] == "ok"
@@ -101,6 +103,7 @@ def test_job_submit_round_trips_process_arg_mapping(tmp_path: Path):
     app.dependency_overrides.clear()
     get_runtime.cache_clear()
     app.dependency_overrides[get_runtime] = lambda: create_runtime(tmp_path)
+    install_admin_override(app)
     client = TestClient(app)
 
     client.post(
@@ -133,6 +136,7 @@ def test_yaml_list_includes_invalid_yaml_files(tmp_path: Path):
     get_runtime.cache_clear()
     runtime = create_runtime(tmp_path)
     app.dependency_overrides[get_runtime] = lambda: runtime
+    install_admin_override(app)
     client = TestClient(app)
 
     nested = tmp_path / "yamls" / "drafts"
