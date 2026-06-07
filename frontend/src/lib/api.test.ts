@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createYamlFolder, deletePipelineYaml, deleteYamlFolder, getJobDefinition, getPipelineYaml, installPackage, listJobDefinitions, listPackages, movePipelineYaml, previewJobDefinition, savePipelineYaml, submitJob, submitJobDefinition, uninstallPackage, validateYamlContent } from "./api";
+import { archiveDefinition, createYamlFolder, deletePipelineYaml, deleteSavedDefinition, deleteYamlFolder, getJobDefinition, getPipelineYaml, installPackage, listJobDefinitions, listPackages, listSavedDefinitions, movePipelineYaml, previewJobDefinition, restoreDefinition, saveDefinition, savePipelineYaml, submitJob, submitJobDefinition, uninstallPackage, validateYamlContent } from "./api";
 
 function mockFetch(payload: unknown) {
   const fetchMock = vi.fn().mockResolvedValue({
@@ -78,6 +78,27 @@ describe("pipeline API client", () => {
 
     expect(fetchMock.mock.calls[2][0]).toBe("/api/v1/packages/uninstall");
     expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ name: "labUtils" });
+  });
+
+  it("targets the job-definition store endpoints", async () => {
+    const fetchMock = mockFetch([]);
+
+    await listSavedDefinitions();
+    await saveDefinition("designs/growth.yaml", "job: x");
+    await archiveDefinition("designs/growth.yaml");
+    await restoreDefinition("designs/growth.yaml");
+    await deleteSavedDefinition("designs/growth.yaml", true);
+
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/job-definition-store");
+    expect(fetchMock.mock.calls[1][0]).toBe("/api/v1/job-definition-store");
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
+      name: "designs/growth.yaml",
+      content: "job: x",
+      overwrite: true,
+    });
+    expect(fetchMock.mock.calls[2][0]).toBe("/api/v1/job-definition-store/designs/growth.yaml/archive");
+    expect(fetchMock.mock.calls[3][0]).toBe("/api/v1/job-definition-store/designs/growth.yaml/restore");
+    expect(fetchMock.mock.calls[4][0]).toBe("/api/v1/job-definition-store/designs/growth.yaml?archived=true");
   });
 });
 

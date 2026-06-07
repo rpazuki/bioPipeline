@@ -2,47 +2,76 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 
 import { PipelineProvider, usePipeline } from "./PipelineContext";
 
 const NAV = [
   { href: "/", label: "Job Queue" },
   { href: "/job-definitions", label: "Job Definitions" },
-  { href: "/submit", label: "Submit" },
-  { href: "/validation", label: "Validation" },
-  { href: "/storage", label: "Storage" },
+  { href: "/job-storage", label: "Job Storage" },
+  { href: "/submit", label: "Pipeline Submit" },
+  { href: "/validation", label: "Pipeline Definitions" },
+  { href: "/storage", label: "Pipeline Storage" },
   { href: "/environment", label: "Environment" },
 ];
 
 function Header() {
   const { status } = usePipeline();
   const pathname = usePathname();
+  const [open, setOpen] = useState(true);
 
   return (
-    <header className="border-b border-slate-200 bg-white px-5 py-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <header className="border-b border-slate-200 bg-white">
+      {/* Top bar */}
+      <div className="flex items-center justify-between gap-3 px-5 py-3">
         <div>
           <h1 className="text-lg font-semibold text-slate-950">Bio Pipeline Manager</h1>
-          <p className="mt-1 text-sm text-slate-500">Design, validate, queue, and run labUtils YAML pipelines.</p>
+          <p className="text-xs text-slate-500">Design, validate, queue, and run labUtils YAML pipelines.</p>
         </div>
-        <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">{status}</div>
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className="flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          aria-expanded={open}
+          aria-label="Toggle navigation"
+        >
+          <svg
+            className={`h-4 w-4 transition-transform ${open ? "rotate-90" : ""}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+          Menu
+        </button>
       </div>
-      <nav className="mt-3 flex flex-wrap gap-2">
-        {NAV.map((item) => {
-          const active = pathname === item.href;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`rounded-md px-3 py-1.5 text-sm font-semibold ${
-                active ? "bg-cyan-700 text-white" : "border border-slate-300 text-slate-700"
-              }`}
-            >
-              {item.label}
-            </Link>
-          );
-        })}
-      </nav>
+
+      {/* Collapsible nav */}
+      {open && (
+        <nav className="border-t border-slate-100 px-5 pb-3 pt-2 flex flex-wrap gap-2">
+          {NAV.map((item) => {
+            const active = pathname === item.href;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+className={`rounded-md px-3 py-1.5 text-sm font-semibold ${
+                  active ? "bg-cyan-700 text-white" : "border border-slate-300 text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+      )}
+
+      {/* Status bar — always visible, full width */}
+      <div className="border-t border-slate-100 bg-slate-50 px-5 py-1.5 text-xs text-slate-600">
+        <span className="font-semibold text-slate-400 uppercase tracking-wide mr-2">Last action:</span>
+        {status}
+      </div>
     </header>
   );
 }

@@ -203,3 +203,34 @@ class InstallRequest(BaseModel):
 
 class UninstallRequest(BaseModel):
     name: str
+
+
+class DefinitionSummary(BaseModel):
+    name: str
+    job: str = ""
+    is_valid: bool = True
+    error: str | None = None
+
+
+class DefinitionTreeNode(BaseModel):
+    name: str
+    path: str
+    node_type: str
+    job: str = ""
+    is_valid: bool = True
+    error: str | None = None
+    children: list["DefinitionTreeNode"] = Field(default_factory=list)
+
+
+class DefinitionDocument(BaseModel):
+    name: str
+    content: str
+    job: str = ""
+    is_valid: bool = True
+    error: str | None = None
+
+
+class DefinitionSaveRequest(BaseModel):
+    name: str
+    content: str
+    overwrite: bool = False

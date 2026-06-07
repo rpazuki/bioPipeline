@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from bio_pipeline_manager.job_definition_store import JobDefinitionStore
 from bio_pipeline_manager.job_queue import JobQueue
 from bio_pipeline_manager.packages import InstallStore, PackageManager
 from bio_pipeline_manager.storage import JobStore
@@ -16,6 +17,7 @@ class PipelineRuntime:
     job_store: JobStore
     queue: JobQueue
     packages: PackageManager
+    definition_store: JobDefinitionStore
 
 
 def create_runtime(home: str | Path) -> PipelineRuntime:
@@ -31,4 +33,5 @@ def create_runtime(home: str | Path) -> PipelineRuntime:
             InstallStore(root / "installs.sqlite"),
             job_guard=job_store.has_active_jobs,
         ),
+        definition_store=JobDefinitionStore(root / "job_defs", root / "job_defs_archive"),
     )

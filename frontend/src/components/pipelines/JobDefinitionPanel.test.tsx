@@ -10,6 +10,11 @@ vi.mock("@/lib/api");
 // stub it so the panel's other behaviour can be tested.
 vi.mock("@/components/pipelines/JobStageGraph", () => ({ default: () => null }));
 
+// Avoid needing a PipelineProvider in the test.
+vi.mock("@/components/pipelines/PipelineContext", () => ({
+  usePipeline: () => ({ jobDefinitionDraft: null, setJobDefinitionDraft: () => {}, setStatus: () => {} }),
+}));
+
 const { push } = vi.hoisted(() => ({ push: vi.fn() }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),

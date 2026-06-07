@@ -9,12 +9,15 @@ interface PipelineState {
   yamlIsValid: boolean;
   yamlError: string | null;
   status: string;
+  /** Pending Job Definition content handed off from Job Storage to the editor. */
+  jobDefinitionDraft: string | null;
   setYamlName: (name: string) => void;
   setYamlContent: (content: string) => void;
   setPipelineNames: (pipelines: string[]) => void;
   setYamlIsValid: (isValid: boolean) => void;
   setYamlError: (message: string | null) => void;
   setStatus: (message: string) => void;
+  setJobDefinitionDraft: (content: string | null) => void;
 }
 
 const PipelineContext = createContext<PipelineState | null>(null);
@@ -26,6 +29,7 @@ export function PipelineProvider({ children }: { children: React.ReactNode }) {
   const [yamlIsValid, setYamlIsValid] = useState(true);
   const [yamlError, setYamlError] = useState<string | null>(null);
   const [status, setStatus] = useState("Ready");
+  const [jobDefinitionDraft, setJobDefinitionDraft] = useState<string | null>(null);
 
   return (
     <PipelineContext.Provider
@@ -36,12 +40,14 @@ export function PipelineProvider({ children }: { children: React.ReactNode }) {
         yamlIsValid,
         yamlError,
         status,
+        jobDefinitionDraft,
         setYamlName,
         setYamlContent,
         setPipelineNames,
         setYamlIsValid,
         setYamlError,
         setStatus,
+        setJobDefinitionDraft,
       }}
     >
       {children}

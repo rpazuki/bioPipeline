@@ -148,6 +148,31 @@ export interface PackageList {
 
 export type PackageSourceType = "pypi" | "git" | "editable" | "requirements";
 
+export interface DefinitionSummary {
+  name: string;
+  job: string;
+  is_valid: boolean;
+  error?: string | null;
+}
+
+export interface DefinitionTreeNode {
+  name: string;
+  path: string;
+  node_type: "folder" | "file";
+  job: string;
+  is_valid: boolean;
+  error?: string | null;
+  children: DefinitionTreeNode[];
+}
+
+export interface DefinitionDocument {
+  name: string;
+  content: string;
+  job: string;
+  is_valid: boolean;
+  error?: string | null;
+}
+
 export interface RuntimeInfo {
   pipeline_home: string;
   yaml_root: string;

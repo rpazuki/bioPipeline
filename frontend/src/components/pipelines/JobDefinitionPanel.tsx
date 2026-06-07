@@ -4,11 +4,13 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import JobStageGraph from "@/components/pipelines/JobStageGraph";
+import { usePipeline } from "@/components/pipelines/PipelineContext";
 import {
   getJobDefinition,
   listJobDefinitions,
   previewJobDefinition,
   runDueJobs,
+  saveDefinition,
   submitJobDefinition,
 } from "@/lib/api";
 import type { JobDefinitionPreview, JobGroupDetail, JobGroupSummary } from "@/types";
@@ -70,7 +72,16 @@ function formatMatrixKey(matrixKey: Record<string, string>): string {
 
 export default function JobDefinitionPanel() {
   const router = useRouter();
+  const { jobDefinitionDraft, setJobDefinitionDraft, setStatus } = usePipeline();
   const [content, setContent] = useState(EXAMPLE);
+
+  // Load a definition handed off from the Job Storage page, then clear it.
+  useEffect(() => {
+    if (jobDefinitionDraft != null) {
+      setContent(jobDefinitionDraft);
+      setJobDefinitionDraft(null);
+    }
+  }, [jobDefinitionDraft, setJobDefinitionDraft]);
   const [preview, setPreview] = useState<JobDefinitionPreview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [groups, setGroups] = useState<JobGroupSummary[]>([]);
@@ -137,6 +148,14 @@ export default function JobDefinitionPanel() {
       router.push("/");
     });
 
+  const onSave = () =>
+    run(async () => {
+      const name = window.prompt("Save definition as (e.g. growth_full.yaml):", "");
+      if (!name) return;
+      await saveDefinition(name, content);
+      setStatus(`Saved ${name} to Job Storage`);
+    });
+
   const onRunDue = () =>
     run(async () => {
       await runDueJobs(2);
@@ -174,6 +193,14 @@ export default function JobDefinitionPanel() {
             className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
           >
             Preview
+          </button>
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={busy}
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
+          >
+            Save
           </button>
           <button
             type="button"

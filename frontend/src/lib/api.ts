@@ -1,4 +1,6 @@
 import type {
+  DefinitionDocument,
+  DefinitionSummary,
   Job,
   JobDefinitionPreview,
   JobGroupDetail,
@@ -176,6 +178,40 @@ export async function listJobDefinitions() {
 
 export async function getJobDefinition(parentJobId: string) {
   return apiFetch<JobGroupDetail>(`/job-definitions/${encodeURIComponent(parentJobId)}`);
+}
+
+// Job Definition store (saved/archived reusable definitions)
+export async function listSavedDefinitions() {
+  return apiFetch<DefinitionSummary[]>("/job-definition-store");
+}
+
+export async function listArchivedDefinitions() {
+  return apiFetch<DefinitionSummary[]>("/job-definition-store/archived");
+}
+
+export async function getSavedDefinition(name: string) {
+  return apiFetch<DefinitionDocument>(`/job-definition-store/${encodePath(name)}`);
+}
+
+export async function saveDefinition(name: string, content: string, overwrite = true) {
+  return apiFetch<DefinitionDocument>("/job-definition-store", {
+    method: "POST",
+    body: JSON.stringify({ name, content, overwrite }),
+  });
+}
+
+export async function deleteSavedDefinition(name: string, archived = false) {
+  return apiFetch<void>(`/job-definition-store/${encodePath(name)}?archived=${archived ? "true" : "false"}`, {
+    method: "DELETE",
+  });
+}
+
+export async function archiveDefinition(name: string) {
+  return apiFetch<void>(`/job-definition-store/${encodePath(name)}/archive`, { method: "POST" });
+}
+
+export async function restoreDefinition(name: string) {
+  return apiFetch<DefinitionDocument>(`/job-definition-store/${encodePath(name)}/restore`, { method: "POST" });
 }
 
 // Package management — every call carries the admin bearer token.
