@@ -29,6 +29,15 @@ backend:
     auth_session_cookie_name: bio_pipeline_session
     auth_session_ttl_hours: 24
     auth_secure_cookies: false
+    # Allowlisted shared-storage roots a researcher may browse for published-job
+    # inputs (instead of uploading). Each root is a server-mounted path; only
+    # these directories are ever exposed, and every browsed sub-path is
+    # containment-checked. Reference a root's `id` in a published field's
+    # `shared_roots`. Empty by default.
+    shared_roots: []
+    #   - id: robot_scientist_ecoli
+    #     label: "E. coli growth data"
+    #     path: "H:/ROBOT_SCIENTIST/E_coli"
     ai:
       default_provider: claude
       # Bounds provider calls per chat turn (caps latency and token usage).

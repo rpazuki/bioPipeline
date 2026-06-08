@@ -218,12 +218,18 @@ class JobQueue:
     def cancel(self, job_id: str) -> JobRecord:
         """Cancel a job, killing its subprocess if it is already running."""
         job = self.store.get_job(job_id)
+        # Persist CANCELLED *before* signalling the process. On Windows SIGTERM
+        # terminates it immediately, so the runner's process.wait() can return
+        # and re-read the status the instant the signal lands. Committing the
+        # cancel first guarantees that read sees CANCELLED rather than RUNNING,
+        # so the runner never clobbers it with FAILED.
+        record = self.store.cancel_job(job_id)
         if job.status == JobStatus.RUNNING and job.pid:
             try:
                 os.kill(job.pid, signal.SIGTERM)
             except (ProcessLookupError, PermissionError):
                 pass
-        return self.store.cancel_job(job_id)
+        return record
 
     def delete(self, job_id: str) -> None:
         self.store.delete_job(job_id)

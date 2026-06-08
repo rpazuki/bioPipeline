@@ -26,6 +26,8 @@ import type {
   PipelineTemplate,
   PipelineTemplateSummary,
   RuntimeInfo,
+  SharedEntry,
+  SharedRootInfo,
   AuthResponse,
   User,
   UserCreate,
@@ -349,10 +351,84 @@ export async function getPublishedJob(id: string) {
   return apiFetch<PublishedJobPublicDetail>(`/published-jobs/catalog/${encodeURIComponent(id)}`);
 }
 
-export async function submitPublishedJobRun(id: string, values: Record<string, unknown>, scheduledAt: string | null = null) {
+export interface RunFileBinding {
+  kind: "upload" | "shared";
+  path: string;
+  root?: string | null;
+}
+
+export async function listJobSharedRoots(id: string) {
+  return apiFetch<SharedRootInfo[]>(`/published-jobs/catalog/${encodeURIComponent(id)}/shared-roots`);
+}
+
+export async function listAdminSharedRoots() {
+  return apiFetch<SharedRootInfo[]>("/published-jobs/admin/shared-roots");
+}
+
+export async function browseSharedRoot(id: string, field: string, root: string, subpath: string) {
+  const query = new URLSearchParams({ field, root, subpath });
+  return apiFetch<{ root_id: string; subpath: string; entries: SharedEntry[] }>(
+    `/published-jobs/catalog/${encodeURIComponent(id)}/browse?${query.toString()}`,
+  );
+}
+
+export async function createDraftRun(id: string) {
+  return apiFetch<{ workspace_id: string }>(
+    `/published-jobs/catalog/${encodeURIComponent(id)}/runs/draft`,
+    { method: "POST" },
+  );
+}
+
+const UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
+
+type UploadResult = { field_id: string; handle: string; filename: string; size: number };
+
+// Streams a file to the server in chunks (resumable-friendly). `relpath`
+// preserves a file's position within an uploaded folder.
+export async function uploadRunInput(id: string, workspaceId: string, fieldId: string, file: File, relpath = "") {
+  const baseUrl =
+    `${API_PREFIX}/published-jobs/catalog/${encodeURIComponent(id)}/runs/` +
+    `${encodeURIComponent(workspaceId)}/uploads/${encodeURIComponent(fieldId)}`;
+  let offset = 0;
+  let last: UploadResult | null = null;
+  do {
+    const slice = file.slice(offset, offset + UPLOAD_CHUNK_BYTES);
+    const params = new URLSearchParams({ filename: file.name, offset: String(offset) });
+    if (relpath) params.set("relpath", relpath);
+    const response = await fetch(`${baseUrl}?${params.toString()}`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: slice,
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body?.detail ?? `Upload failed (${response.status})`);
+    }
+    last = (await response.json()) as UploadResult;
+    offset += UPLOAD_CHUNK_BYTES;
+  } while (offset < file.size);
+  return last as UploadResult;
+}
+
+export function runArtifactUrl(runId: string) {
+  return `${API_PREFIX}/published-jobs/my-runs/${encodeURIComponent(runId)}/artifact`;
+}
+
+export async function submitPublishedJobRun(
+  id: string,
+  values: Record<string, unknown>,
+  scheduledAt: string | null = null,
+  extra: { workspaceId?: string | null; fileBindings?: Record<string, RunFileBinding> } = {},
+) {
   return apiFetch<PublishedRunDetail>(`/published-jobs/catalog/${encodeURIComponent(id)}/runs`, {
     method: "POST",
-    body: JSON.stringify({ values, scheduled_at: scheduledAt }),
+    body: JSON.stringify({
+      values,
+      scheduled_at: scheduledAt,
+      workspace_id: extra.workspaceId ?? null,
+      file_bindings: extra.fileBindings ?? {},
+    }),
   });
 }
 
@@ -366,6 +442,10 @@ export async function getMyPublishedRun(id: string) {
 
 export async function cancelMyPublishedRun(id: string) {
   return apiFetch<PublishedRunDetail>(`/published-jobs/my-runs/${encodeURIComponent(id)}/cancel`, { method: "POST" });
+}
+
+export async function deleteMyPublishedRun(id: string) {
+  return apiFetch<void>(`/published-jobs/my-runs/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 export async function rewindMyPublishedRun(id: string) {

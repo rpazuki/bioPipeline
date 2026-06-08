@@ -4,7 +4,7 @@ import json
 import sqlite3
 import uuid
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -13,6 +13,8 @@ import yaml
 
 from bio_pipeline_manager.job_definition import JobDefinitionError, parse_job_definition
 from bio_pipeline_manager.models import utc_now
+from bio_pipeline_manager.run_workspace import RunWorkspaceError, RunWorkspaceStore
+from bio_pipeline_manager.shared_storage import SharedStorage, SharedStorageError
 
 FIELD_TYPES = {
     "string",
@@ -60,6 +62,8 @@ class PublishedRunRecord:
     rendered_definition: str
     parent_job_id: str
     created_at: datetime
+    workspace_id: str = ""
+    file_bindings: dict[str, Any] = field(default_factory=dict)
 
 
 class PublishedJobError(ValueError):
@@ -110,10 +114,18 @@ class PublishedJobStore:
                     field_values TEXT NOT NULL DEFAULT '{}',
                     rendered_definition TEXT NOT NULL,
                     parent_job_id TEXT NOT NULL,
-                    created_at TEXT NOT NULL
+                    created_at TEXT NOT NULL,
+                    workspace_id TEXT NOT NULL DEFAULT '',
+                    file_bindings TEXT NOT NULL DEFAULT '{}'
                 )
                 """
             )
+            # Additive migration for databases created before the workspace columns.
+            existing = {row["name"] for row in conn.execute("PRAGMA table_info(published_runs)")}
+            if "workspace_id" not in existing:
+                conn.execute("ALTER TABLE published_runs ADD COLUMN workspace_id TEXT NOT NULL DEFAULT ''")
+            if "file_bindings" not in existing:
+                conn.execute("ALTER TABLE published_runs ADD COLUMN file_bindings TEXT NOT NULL DEFAULT '{}'")
 
     def create(
         self,
@@ -261,6 +273,8 @@ class PublishedJobStore:
         values: dict[str, Any],
         rendered_definition: str,
         parent_job_id: str,
+        workspace_id: str = "",
+        file_bindings: dict[str, Any] | None = None,
     ) -> PublishedRunRecord:
         run_id = uuid.uuid4().hex
         now = utc_now()
@@ -269,9 +283,9 @@ class PublishedJobStore:
                 """
                 INSERT INTO published_runs (
                     id, published_job_id, published_version, user_id, field_values,
-                    rendered_definition, parent_job_id, created_at
+                    rendered_definition, parent_job_id, created_at, workspace_id, file_bindings
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
@@ -282,6 +296,8 @@ class PublishedJobStore:
                     rendered_definition,
                     parent_job_id,
                     now.isoformat(),
+                    workspace_id,
+                    json.dumps(file_bindings or {}, sort_keys=True),
                 ),
             )
         return self.get_run(run_id)
@@ -292,6 +308,10 @@ class PublishedJobStore:
         if row is None:
             raise KeyError(f"Published run not found: {run_id}")
         return _published_run_from_row(row)
+
+    def delete_run(self, run_id: str) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM published_runs WHERE id = ?", (run_id,))
 
     def get_run_by_parent(self, parent_job_id: str) -> PublishedRunRecord:
         with self.connect() as conn:
@@ -367,7 +387,90 @@ def inspect_definition(
         if yaml_loader and "{" not in str(stage.get("pipeline_yaml", "")) and "{" not in str(stage.get("pipeline", "")):
             candidates.extend(_pipeline_candidates(stage_name, stage, yaml_loader))
 
-    return _dedupe_candidates(candidates)
+    deduped = _dedupe_candidates(candidates)
+    for candidate in deduped:
+        role, accept = _io_defaults(candidate["type"], candidate.get("bindings", []))
+        candidate["io_role"] = role
+        candidate["accept"] = accept
+        candidate["sources"] = ["upload"] if role == "input" else []
+        candidate["delivery"] = ["download"] if role == "output" else []
+        candidate["shared_roots"] = []
+    return deduped
+
+
+def resolve_io(
+    record: PublishedJobRecord,
+    values: dict[str, Any],
+    *,
+    file_bindings: dict[str, Any] | None = None,
+    workspaces: RunWorkspaceStore | None = None,
+    workspace_id: str | None = None,
+    shared: SharedStorage | None = None,
+) -> dict[str, Any]:
+    """Rewrite researcher input/output field values to concrete paths.
+
+    Returns a new values dict where each ``io_role: input`` field points at its
+    uploaded (or, later, shared) source and each ``io_role: output`` field
+    points at a per-run workspace output directory. Fields with
+    ``io_role: none`` pass through unchanged (today's behavior). The result is
+    fed to :func:`render_definition`, so substitution happens before matrix/
+    stage expansion and every fan-out Task of the run shares one workspace root.
+    """
+    file_bindings = file_bindings or {}
+    resolved = dict(values)
+    for field_def in record.fields:
+        role = field_def.get("io_role", "none")
+        if role not in {"input", "output"}:
+            continue
+        field_id = field_def["id"]
+        label = field_def.get("label", field_id)
+        if role == "input":
+            binding = file_bindings.get(field_id)
+            if not binding:
+                if field_def.get("required", True):
+                    raise PublishedJobError(f"Field '{label}' requires a file or folder")
+                continue
+            resolved[field_id] = _resolve_input_binding(field_def, binding, workspaces, workspace_id, shared)
+        else:  # output
+            if workspaces is None or workspace_id is None:
+                raise PublishedJobError(f"Field '{label}' is an output and requires a run workspace")
+            resolved[field_id] = str(workspaces.output_dir(workspace_id, field_id))
+    return resolved
+
+
+def _resolve_input_binding(
+    field_def: dict[str, Any],
+    binding: dict[str, Any],
+    workspaces: RunWorkspaceStore | None,
+    workspace_id: str | None,
+    shared: SharedStorage | None,
+) -> str:
+    label = field_def.get("label", field_def.get("id"))
+    kind = binding.get("kind", "upload")
+    path = str(binding.get("path", ""))
+    if kind == "upload":
+        if workspaces is None or workspace_id is None:
+            raise PublishedJobError(f"Field '{label}' uses an upload but no run workspace was provided")
+        try:
+            if field_def.get("accept") == "directory":
+                return str(workspaces.input_dir(workspace_id, field_def["id"]))
+            return str(workspaces.input_abspath(workspace_id, path))
+        except RunWorkspaceError as exc:
+            raise PublishedJobError(f"Field '{label}': {exc}") from exc
+    if kind == "shared":
+        if shared is None:
+            raise PublishedJobError(f"Field '{label}': shared storage is not configured")
+        root_id = str(binding.get("root") or "")
+        allowed = field_def.get("shared_roots") or []
+        if not allowed:
+            raise PublishedJobError(f"Field '{label}': no shared roots are permitted for this field")
+        if root_id not in allowed:
+            raise PublishedJobError(f"Field '{label}': shared root '{root_id}' is not allowed for this field")
+        try:
+            return str(shared.resolve(root_id, path))
+        except SharedStorageError as exc:
+            raise PublishedJobError(f"Field '{label}': {exc}") from exc
+    raise PublishedJobError(f"Field '{label}': unknown input source '{kind}'")
 
 
 def render_definition(record: PublishedJobRecord, values: dict[str, Any]) -> str:
@@ -684,6 +787,35 @@ def _dedupe_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]
     return deduped
 
 
+def _io_defaults(field_type: str, bindings: list[dict[str, Any]]) -> tuple[str, str]:
+    """Propose a default I/O role + picker kind for a candidate field.
+
+    Direction is inferred only where the binding target makes it unambiguous —
+    an output payload/dir, or an input ``src`` — and from the obvious ``file`` /
+    ``directory`` types. A genuinely ambiguous ``path`` (e.g. a "merges-later"
+    root fragment) stays ``none`` so the admin classifies it at publish time.
+    Returns ``(io_role, accept)``.
+    """
+    binding = bindings[0] if bindings else {}
+    target = binding.get("target")
+    path = binding.get("path")
+    is_output_dir = (
+        target == "definition_path"
+        and isinstance(path, list)
+        and bool(path)
+        and path[-1] == "output_dir"
+    )
+    if target == "stage_output_path" or is_output_dir:
+        return "output", "directory" if (is_output_dir or field_type == "directory") else "file"
+    if target == "stage_input_source":
+        return "input", "directory" if field_type == "directory" else "file"
+    if field_type == "file":
+        return "input", "file"
+    if field_type == "directory":
+        return "input", "directory"
+    return "none", "file"
+
+
 def _option_for_value(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         label = str(value.get("label") or value.get("name") or json.dumps(value, sort_keys=True))
@@ -750,4 +882,6 @@ def _published_run_from_row(row: sqlite3.Row) -> PublishedRunRecord:
         rendered_definition=row["rendered_definition"],
         parent_job_id=row["parent_job_id"],
         created_at=datetime.fromisoformat(row["created_at"]),
+        workspace_id=row["workspace_id"],
+        file_bindings=json.loads(row["file_bindings"] or "{}"),
     )

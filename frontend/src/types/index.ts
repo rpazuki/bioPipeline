@@ -159,6 +159,17 @@ export interface PublishedFieldOption {
   value: unknown;
 }
 
+export interface SharedRootInfo {
+  id: string;
+  label: string;
+}
+
+export interface SharedEntry {
+  name: string;
+  path: string;
+  kind: "file" | "directory";
+}
+
 export interface PublishedFieldBinding {
   target: string;
   path?: unknown[] | null;
@@ -168,6 +179,8 @@ export interface PublishedFieldBinding {
   parameter?: string | null;
   output?: string | null;
 }
+
+export type PublishedFieldIoRole = "none" | "input" | "output";
 
 export interface PublishedField {
   id: string;
@@ -179,6 +192,11 @@ export interface PublishedField {
   help: string;
   example: string;
   placeholder?: string;
+  io_role?: PublishedFieldIoRole;
+  accept?: "file" | "directory";
+  sources?: string[];
+  delivery?: string[];
+  shared_roots?: string[];
   options: PublishedFieldOption[];
   bindings?: PublishedFieldBinding[];
 }
@@ -223,6 +241,8 @@ export interface PublishedRunSummary {
   total: number;
   counts: Record<string, number>;
   values: Record<string, unknown>;
+  workspace_id?: string;
+  artifact_available?: boolean;
   created_at: string;
 }
 

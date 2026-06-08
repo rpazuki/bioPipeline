@@ -419,4 +419,147 @@ one file replaces:
 | 400 *"stage '…' needs unknown stage '…'"* / *"dependency cycle"* | Fix the `needs:` references. |
 | 400 *"YAML name must be relative and stay inside the YAML store"* | `pipeline_yaml` must name a stored YAML, not an absolute/escaping path. |
 | Task `blocked` | An upstream Task in the same cell did not succeed — inspect that Task's log. |
+
+---
+
+## 12. Published jobs — researcher-supplied inputs & outputs
+
+A **published job** wraps a Job Definition in a small form so a researcher can run
+it without seeing (or editing) any YAML. An admin curates a list of **fields**;
+each field's value is spliced into the definition before it expands. Path-like
+fields (`file`, `directory`, `path`) can be marked as **researcher inputs or
+outputs**, so a remote researcher supplies her own data and gets results back —
+without the server filesystem ever being exposed.
+
+### Field I/O classification (admin, at publish time)
+
+Each field carries an `io_role` and related attributes (set in the *Published
+Jobs Admin* page):
+
+| Attribute | Meaning |
+|-----------|---------|
+| `io_role` | `none` (a plain value / server-managed — default), `input` (researcher provides), or `output` (returned to the researcher). |
+| `accept` | `file` or `directory` — what the input/output is. |
+| `sources` | For inputs: any of `upload` (from her machine) and `shared` (pick from a server-mounted share). |
+| `delivery` | For outputs: any of `download` (zipped artifact) and `shared` (written to a share). |
+| `shared_roots` | The allowlisted shared-root `id`s this field may browse / write to. |
+
+The inspector proposes sensible defaults (an input `src` → input/file; a stage
+`output_dir` → output/directory), but an ambiguous `path` stays `none` until the
+admin classifies it. **A "merges-later" path fragment (e.g. a `data_root`) should
+stay `none`** — it is server-managed, never shown as a browsable path.
+
+### What the researcher does
+
+On the *Published Jobs* page each input field offers, per its `sources`:
+
+- **Upload from computer** — a file, or a folder (`accept: directory`). Uploads
+  stream in chunks (resumable-friendly); folders preserve their structure.
+- **Choose from shared storage** — a modal that browses **only within** the
+  allowlisted roots the field declares. Nothing else on the server is visible.
+
+Output fields just show how results will come back. The researcher clicks
+*Execute Job*.
+
+### How it runs
+
+1. A per-run **workspace** is reserved under `<pipeline_home>/runs/<id>/{inputs,outputs}`.
+2. Uploaded files land in `inputs/`; shared picks are referenced in place (no copy).
+3. At submit, each field value is resolved to a concrete path **before** the
+   definition renders — so every fan-out Task of the run shares one workspace
+   root. Inputs → the uploaded file/folder or the shared path; outputs → a
+   workspace `outputs/<field>` directory.
+
+### Getting results back
+
+When the run's task group reaches a terminal state, a background **reaper**:
+
+- zips the outputs into a results archive — the *My Runs* page shows a
+  **Download results** link (retained for `artifact_ttl_hours`);
+- copies any `delivery: shared` output onto its allowlisted root at
+  `<root>/bio_pipeline_outputs/<run_id>/<field>/`;
+- deletes the run's inputs, and removes the whole workspace after the TTL.
+
+> A server cannot silently write to a remote machine's disk, so "download" is a
+> browser download (or the retained link); the optional shared-write is the
+> second delivery channel.
+
+### Where files live & when they're deleted
+
+Every run's uploads, outputs and downloadable archive live in an isolated
+workspace **on the backend host**, under the pipeline home:
+
+```
+<pipeline_home>/runs/<workspace_id>/
+  manifest.json      # owner + metadata (bookkeeping; not counted against quota)
+  inputs/            # uploaded files / folders for this run
+  outputs/<field>/   # what the job writes for each output field
+  artifact.zip       # outputs packaged for download (created after completion)
+  .reaped            # timestamp marker written once the run is delivered
+```
+
+`pipeline_home` defaults to `<repo>/.bio_pipeline` (configurable via
+`backend.pipeline_home`), so a typical archive path is
+`.bio_pipeline/runs/<workspace_id>/artifact.zip`. The download endpoint streams
+that file — it is never exposed by path, and only the run's owner can fetch it.
+
+A background **reaper** (`run_reaper.py`, polling every `reaper_interval`, default
+5s) drives retention:
+
+| Item | Removed when |
+|------|--------------|
+| `inputs/` (uploaded files) | As soon as the run reaches a terminal state — they are no longer needed. |
+| `artifact.zip`, `outputs/`, the whole `runs/<id>/` workspace | `artifact_ttl_hours` after completion (default **24h**). |
+| The whole workspace, early | Immediately when the researcher deletes the run (My Runs → Delete). |
+| Shared-write copy at `<root>/bio_pipeline_outputs/<run_id>/<field>/` | **Never** — it is permanent, owned by the lab on the share. |
+
+Two nuances:
+
+- The TTL is measured from **completion**, not from download. Downloading does
+  not extend it, and the archive is removed ~`artifact_ttl_hours` after the run
+  finishes whether or not it was fetched (the "retained link with a TTL" model).
+- A genuinely shared *input* (picked from a share, not uploaded) is referenced in
+  place and never copied into the workspace, so nothing is deleted for it.
+
+These are tuned by `artifact_ttl_hours`, `reaper_interval` and `reaper_enabled`
+(see *Configuration* below); set `reaper_enabled: false` to retain everything
+(e.g. for debugging) at the cost of unbounded disk growth.
+
+### Tracking a run (My Runs)
+
+The *My Runs* page lists the researcher's runs. Each row has a leftmost
+checkbox (for multi-select **Delete selected**) and an actions column; clicking a
+run expands a panel **below the row** showing the run's **Download results** link
+(when ready) and its individual tasks. Each task carries a circular show/hide
+toggle that reveals that task's log inline. Deleting a run cancels any active
+tasks and removes its task records, logs and workspace files.
+
+### Security
+
+- Every caller-supplied path (workspace id, upload filename/relpath, shared
+  sub-path) is containment-checked; `..`, absolute paths and zip-style escapes
+  are rejected.
+- Shared browsing/writing is limited to admin-declared roots, and further to the
+  roots a given field lists. A workspace is owned by the submitting user.
+- A per-run upload **quota** (`upload_max_bytes`) is enforced while streaming.
+
+### Configuration (`configs/app_config.yaml`, `backend`)
+
+```yaml
+shared_roots:
+  - id: robot_scientist_ecoli
+    label: "E. coli growth data"
+    path: "H:/ROBOT_SCIENTIST/E_coli"
+upload_max_bytes: 2147483648   # per-run upload budget (default 2 GiB)
+artifact_ttl_hours: 24         # how long a results archive / workspace is kept
+reaper_enabled: true
+reaper_interval: 5.0
+```
+
+### Limitation
+
+**Rewind** is disabled for runs that used a workspace (uploaded inputs or
+returned outputs): the original paths are cleaned up after completion, so a
+replay would reference files that no longer exist. Start a fresh run from the
+published job to provide inputs again.
 ```

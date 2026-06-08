@@ -22,12 +22,14 @@ from app.api.routes import (
     validation,
 )
 from app.core.config import settings
+from bio_pipeline_manager.run_reaper import RunReaper
 from bio_pipeline_manager.worker import JobWorker
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     worker: JobWorker | None = None
+    reaper: RunReaper | None = None
     if settings.worker_enabled:
         worker = JobWorker(
             get_runtime().queue,
@@ -35,11 +37,24 @@ async def lifespan(app: FastAPI):
             parallel=settings.worker_parallel,
         )
         worker.start()
+    if settings.reaper_enabled:
+        rt = get_runtime()
+        reaper = RunReaper(
+            published_jobs=rt.published_jobs,
+            run_workspaces=rt.run_workspaces,
+            shared_storage=rt.shared_storage,
+            group_status=rt.queue.group_status,
+            ttl_hours=settings.artifact_ttl_hours,
+            interval=settings.reaper_interval,
+        )
+        reaper.start()
     try:
         yield
     finally:
         if worker:
             worker.stop()
+        if reaper:
+            reaper.stop()
 
 
 app = FastAPI(

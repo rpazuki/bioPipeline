@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -204,6 +204,14 @@ class PublishedField(BaseModel):
     help: str = ""
     example: str = ""
     placeholder: str = ""
+    # Researcher-supplied I/O. ``io_role`` defaults to ``none`` so existing
+    # fields keep their current (plain-value) behavior; an admin classifies a
+    # path field as a researcher input or output at publish time.
+    io_role: Literal["none", "input", "output"] = "none"
+    accept: Literal["file", "directory"] = "file"
+    sources: list[str] = Field(default_factory=list)
+    delivery: list[str] = Field(default_factory=list)
+    shared_roots: list[str] = Field(default_factory=list)
     options: list[PublishedFieldOption] = Field(default_factory=list)
     bindings: list[PublishedFieldBinding] = Field(default_factory=list)
 
@@ -218,6 +226,11 @@ class PublicPublishedField(BaseModel):
     help: str = ""
     example: str = ""
     placeholder: str = ""
+    io_role: Literal["none", "input", "output"] = "none"
+    accept: Literal["file", "directory"] = "file"
+    sources: list[str] = Field(default_factory=list)
+    delivery: list[str] = Field(default_factory=list)
+    shared_roots: list[str] = Field(default_factory=list)
     options: list[PublishedFieldOption] = Field(default_factory=list)
 
 
@@ -274,9 +287,51 @@ class PublishedJobPublicDetail(PublishedJobPublicSummary):
     fields: list[PublicPublishedField]
 
 
+class FileBinding(BaseModel):
+    """How a researcher input field is satisfied at run time.
+
+    ``upload`` → ``path`` is a workspace-relative handle from an upload;
+    ``shared`` → ``path`` is a sub-path of allowlisted shared ``root`` (Phase 3).
+    """
+
+    kind: Literal["upload", "shared"] = "upload"
+    path: str
+    root: str | None = None
+
+
+class DraftRunResponse(BaseModel):
+    workspace_id: str
+
+
+class SharedRootInfo(BaseModel):
+    id: str
+    label: str
+
+
+class SharedEntryResponse(BaseModel):
+    name: str
+    path: str
+    kind: Literal["file", "directory"]
+
+
+class SharedBrowseResponse(BaseModel):
+    root_id: str
+    subpath: str
+    entries: list[SharedEntryResponse]
+
+
+class RunUploadResponse(BaseModel):
+    field_id: str
+    handle: str
+    filename: str
+    size: int
+
+
 class PublishedJobRunRequest(BaseModel):
     values: dict[str, Any] = Field(default_factory=dict)
     scheduled_at: datetime | None = None
+    workspace_id: str | None = None
+    file_bindings: dict[str, FileBinding] = Field(default_factory=dict)
 
 
 class PublishedRunSummary(BaseModel):
@@ -292,6 +347,8 @@ class PublishedRunSummary(BaseModel):
     total: int
     counts: dict[str, int]
     values: dict[str, Any]
+    workspace_id: str = ""
+    artifact_available: bool = False
     created_at: datetime
 
 

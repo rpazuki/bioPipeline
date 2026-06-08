@@ -2,9 +2,20 @@
 
 import { useEffect, useState } from "react";
 
-import { getPublishedJob, listPublishedJobs, submitPublishedJobRun } from "@/lib/api";
+import {
+  browseSharedRoot,
+  createDraftRun,
+  getPublishedJob,
+  listJobSharedRoots,
+  listPublishedJobs,
+  submitPublishedJobRun,
+  uploadRunInput,
+  type RunFileBinding,
+} from "@/lib/api";
 import ResizableSplitPane from "@/components/pipelines/ResizableSplitPane";
-import type { PublishedField, PublishedJobPublicDetail, PublishedJobPublicSummary } from "@/types";
+import type { PublishedField, PublishedJobPublicDetail, PublishedJobPublicSummary, SharedEntry, SharedRootInfo } from "@/types";
+
+type SharedSelection = { root: string; path: string; name: string };
 
 function defaultValue(field: PublishedField) {
   if (field.default !== undefined && field.default !== null) return field.default;
@@ -120,10 +131,184 @@ function FieldInput({
   return <input type={inputType} className={base} value={asInputValue(value)} placeholder={field.placeholder || field.example} onChange={(event) => onChange(event.target.value)} />;
 }
 
+function InputFieldControl({
+  field,
+  files,
+  sharedSel,
+  onPickFiles,
+  onOpenBrowser,
+  onClearShared,
+}: {
+  field: PublishedField;
+  files: File[];
+  sharedSel: SharedSelection | null;
+  onPickFiles: (files: File[]) => void;
+  onOpenBrowser: () => void;
+  onClearShared: () => void;
+}) {
+  const sources = field.sources ?? [];
+  const canUpload = sources.includes("upload");
+  const canShared = sources.includes("shared");
+  const isDirectory = field.accept === "directory";
+  return (
+    <span className="grid gap-1.5">
+      {canUpload ? (
+        <span className="flex flex-wrap items-center gap-2">
+          {isDirectory ? (
+            <input
+              type="file"
+              multiple
+              {...({ webkitdirectory: "" } as Record<string, string>)}
+              className="text-xs font-normal"
+              onChange={(event) => onPickFiles(Array.from(event.target.files ?? []))}
+            />
+          ) : (
+            <input
+              type="file"
+              className="text-xs font-normal"
+              onChange={(event) => onPickFiles(event.target.files?.[0] ? [event.target.files[0]] : [])}
+            />
+          )}
+          {files.length ? (
+            <span className="text-xs font-normal text-emerald-700">{isDirectory ? `${files.length} files` : files[0].name}</span>
+          ) : null}
+        </span>
+      ) : null}
+      {canShared ? (
+        <span className="flex flex-wrap items-center gap-2">
+          <button type="button" className="w-fit rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold" onClick={onOpenBrowser}>
+            Choose from shared storage
+          </button>
+          {sharedSel ? (
+            <span className="text-xs font-normal text-emerald-700">
+              {sharedSel.name}{" "}
+              <button type="button" className="text-slate-400 underline" onClick={onClearShared}>
+                clear
+              </button>
+            </span>
+          ) : null}
+        </span>
+      ) : null}
+      {!canUpload && !canShared ? <span className="text-xs font-normal text-amber-700">No input source is enabled for this field.</span> : null}
+    </span>
+  );
+}
+
+function SharedBrowser({
+  jobId,
+  field,
+  roots,
+  onSelect,
+  onClose,
+}: {
+  jobId: string;
+  field: PublishedField;
+  roots: SharedRootInfo[];
+  onSelect: (selection: SharedSelection) => void;
+  onClose: () => void;
+}) {
+  const fieldRoots = roots.filter((root) => (field.shared_roots ?? []).includes(root.id));
+  const [rootId, setRootId] = useState(fieldRoots[0]?.id ?? "");
+  const [subpath, setSubpath] = useState("");
+  const [entries, setEntries] = useState<SharedEntry[]>([]);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!rootId) return;
+    browseSharedRoot(jobId, field.id, rootId, subpath)
+      .then((result) => {
+        setEntries(result.entries);
+        setErr(null);
+      })
+      .catch((cause: Error) => setErr(cause.message));
+  }, [jobId, field.id, rootId, subpath]);
+
+  const parent = subpath.includes("/") ? subpath.slice(0, subpath.lastIndexOf("/")) : "";
+  const rootLabel = fieldRoots.find((root) => root.id === rootId)?.label ?? rootId;
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4" onClick={onClose}>
+      <div className="grid max-h-[80vh] w-full max-w-lg gap-3 overflow-hidden rounded-md border border-slate-200 bg-white p-4" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h4 className="text-sm font-semibold text-slate-900">Choose from shared storage</h4>
+          <button type="button" onClick={onClose} className="text-slate-400">
+            ✕
+          </button>
+        </div>
+        {fieldRoots.length > 1 ? (
+          <select className="h-8 rounded-md border border-slate-300 px-2 text-xs" value={rootId} onChange={(event) => { setRootId(event.target.value); setSubpath(""); }}>
+            {fieldRoots.map((root) => (
+              <option key={root.id} value={root.id}>
+                {root.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <p className="text-xs text-slate-500">{rootLabel}</p>
+        )}
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          <span className="font-mono">/{subpath}</span>
+          {subpath ? (
+            <button type="button" className="underline" onClick={() => setSubpath(parent)}>
+              up
+            </button>
+          ) : null}
+          {field.accept === "directory" ? (
+            <button type="button" className="ml-auto rounded bg-cyan-700 px-2 py-1 text-white" onClick={() => onSelect({ root: rootId, path: subpath, name: subpath || rootLabel })}>
+              Select this folder
+            </button>
+          ) : null}
+        </div>
+        {err ? <p className="text-xs text-rose-700">{err}</p> : null}
+        <ul className="grid gap-1 overflow-auto">
+          {entries.map((entry) => {
+            const selectable = (entry.kind === "file" && field.accept === "file") || (entry.kind === "directory" && field.accept === "directory");
+            return (
+              <li key={entry.path} className="flex items-center justify-between gap-2 rounded border border-slate-100 px-2 py-1 text-xs">
+                <span className="flex items-center gap-2">
+                  <span>{entry.kind === "directory" ? "📁" : "📄"}</span>
+                  {entry.kind === "directory" ? (
+                    <button type="button" className="font-semibold text-slate-800 underline" onClick={() => setSubpath(entry.path)}>
+                      {entry.name}
+                    </button>
+                  ) : (
+                    <span>{entry.name}</span>
+                  )}
+                </span>
+                {selectable ? (
+                  <button type="button" className="rounded bg-cyan-700 px-2 py-0.5 text-white" onClick={() => onSelect({ root: rootId, path: entry.path, name: entry.name })}>
+                    Select
+                  </button>
+                ) : null}
+              </li>
+            );
+          })}
+          {entries.length === 0 && !err ? <li className="text-xs text-slate-400">Empty folder</li> : null}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+function OutputFieldHint({ field }: { field: PublishedField }) {
+  const channels = field.delivery ?? [];
+  const label = channels.includes("download") ? "Result returned to you (download)" : "Result returned to you";
+  return (
+    <span className="flex h-9 items-center">
+      <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-normal text-slate-600">{label}</span>
+    </span>
+  );
+}
+
 export default function PublishedJobsPage() {
   const [jobs, setJobs] = useState<PublishedJobPublicSummary[]>([]);
   const [selected, setSelected] = useState<PublishedJobPublicDetail | null>(null);
   const [values, setValues] = useState<Record<string, unknown>>({});
+  const [files, setFiles] = useState<Record<string, File[]>>({});
+  const [shared, setShared] = useState<Record<string, SharedSelection>>({});
+  const [sharedRoots, setSharedRoots] = useState<SharedRootInfo[]>([]);
+  const [browseField, setBrowseField] = useState<PublishedField | null>(null);
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [scheduledAt, setScheduledAt] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("Choose a published job");
@@ -140,13 +325,57 @@ export default function PublishedJobsPage() {
     const job = await getPublishedJob(id);
     setSelected(job);
     setValues(Object.fromEntries(job.fields.map((field) => [field.id, defaultValue(field)])));
+    setFiles({});
+    setShared({});
+    setBrowseField(null);
+    setWorkspaceId(null);
+    const hasShared = job.fields.some((field) => (field.sources ?? []).includes("shared"));
+    setSharedRoots(hasShared ? await listJobSharedRoots(id) : []);
     setStatus(`Selected ${job.name}`);
   }
 
   async function submit() {
     if (!selected) return;
-    const run = await submitPublishedJobRun(selected.id, values, scheduledAt || null);
+    setError(null);
+    const fields = selected.fields;
+    const willUpload = fields.some((field) => field.io_role === "input" && !shared[field.id] && (files[field.id]?.length ?? 0) > 0);
+    const needsWorkspace = fields.some((field) => field.io_role === "output") || willUpload;
+    let wsId = workspaceId;
+    if (needsWorkspace && !wsId) {
+      wsId = (await createDraftRun(selected.id)).workspace_id;
+      setWorkspaceId(wsId);
+    }
+    const fileBindings: Record<string, RunFileBinding> = {};
+    for (const field of fields) {
+      if (field.io_role !== "input") continue;
+      const sharedSel = shared[field.id];
+      if (sharedSel) {
+        fileBindings[field.id] = { kind: "shared", root: sharedSel.root, path: sharedSel.path };
+        continue;
+      }
+      const picked = files[field.id] ?? [];
+      if (!picked.length || !(field.sources ?? []).includes("upload") || !wsId) continue;
+      if (field.accept === "directory") {
+        for (const member of picked) {
+          const relpath = member.webkitRelativePath ? member.webkitRelativePath.split("/").slice(1).join("/") || member.name : member.name;
+          setStatus(`Uploading ${relpath}…`);
+          await uploadRunInput(selected.id, wsId, field.id, member, relpath);
+        }
+        fileBindings[field.id] = { kind: "upload", path: "" };
+      } else {
+        const file = picked[0];
+        setStatus(`Uploading ${file.name}…`);
+        const uploaded = await uploadRunInput(selected.id, wsId, field.id, file);
+        fileBindings[field.id] = { kind: "upload", path: uploaded.handle };
+      }
+    }
+    setStatus("Submitting…");
+    const run = await submitPublishedJobRun(selected.id, values, scheduledAt || null, { workspaceId: wsId, fileBindings });
     setStatus(`Submitted run ${run.id}`);
+    // Each execution gets a fresh workspace/selection set.
+    setWorkspaceId(null);
+    setFiles({});
+    setShared({});
   }
 
   return (
@@ -194,7 +423,24 @@ export default function PublishedJobsPage() {
                     {field.label}
                     <FieldHelp field={field} />
                   </span>
-                  <FieldInput field={field} value={values[field.id]} onChange={(value) => setValues((current) => ({ ...current, [field.id]: value }))} />
+                  {field.io_role === "output" ? (
+                    <OutputFieldHint field={field} />
+                  ) : field.io_role === "input" ? (
+                    <InputFieldControl
+                      field={field}
+                      files={files[field.id] ?? []}
+                      sharedSel={shared[field.id] ?? null}
+                      onPickFiles={(picked) => setFiles((current) => ({ ...current, [field.id]: picked }))}
+                      onOpenBrowser={() => setBrowseField(field)}
+                      onClearShared={() => setShared((current) => {
+                        const next = { ...current };
+                        delete next[field.id];
+                        return next;
+                      })}
+                    />
+                  ) : (
+                    <FieldInput field={field} value={values[field.id]} onChange={(value) => setValues((current) => ({ ...current, [field.id]: value }))} />
+                  )}
                 </label>
               ))}
               <label className="grid gap-1 text-xs font-semibold text-slate-600">
@@ -215,6 +461,18 @@ export default function PublishedJobsPage() {
       </main>
         }
       />
+      {browseField && selected ? (
+        <SharedBrowser
+          jobId={selected.id}
+          field={browseField}
+          roots={sharedRoots}
+          onSelect={(selection) => {
+            setShared((current) => ({ ...current, [browseField.id]: selection }));
+            setBrowseField(null);
+          }}
+          onClose={() => setBrowseField(null)}
+        />
+      ) : null}
     </section>
   );
 }

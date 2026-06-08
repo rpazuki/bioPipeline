@@ -12,17 +12,25 @@ import {
   listAdminPublishedJobRuns,
   listAdminPublishedJobs,
   listAdminPublishedRuns,
+  listAdminSharedRoots,
   listSavedDefinitions,
   publishPublishedJob,
   updatePublishedJob,
   validatePublishedJob,
 } from "@/lib/api";
 import ResizableSplitPane from "@/components/pipelines/ResizableSplitPane";
-import type { DefinitionSummary, PublishedField, PublishedJobAdmin, PublishedRunSummary } from "@/types";
+import type { DefinitionSummary, PublishedField, PublishedFieldIoRole, PublishedJobAdmin, PublishedRunSummary, SharedRootInfo } from "@/types";
 
 function stringifyValue(value: unknown): string {
   if (value == null) return "";
   return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+function toggleChannel(list: string[] | undefined, value: string, on: boolean): string[] {
+  const set = new Set(list ?? []);
+  if (on) set.add(value);
+  else set.delete(value);
+  return Array.from(set);
 }
 
 function statusClasses(status: string): string {
@@ -61,6 +69,7 @@ export default function PublishedJobsAdminPage() {
   const [definitions, setDefinitions] = useState<DefinitionSummary[]>([]);
   const [published, setPublished] = useState<PublishedJobAdmin[]>([]);
   const [allRuns, setAllRuns] = useState<PublishedRunSummary[]>([]);
+  const [availableRoots, setAvailableRoots] = useState<SharedRootInfo[]>([]);
   const [selectedRuns, setSelectedRuns] = useState<PublishedRunSummary[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -84,10 +93,16 @@ export default function PublishedJobsAdminPage() {
   }, [allRuns]);
 
   async function refresh() {
-    const [defs, jobs, runs] = await Promise.all([listSavedDefinitions(), listAdminPublishedJobs(), listAdminPublishedRuns()]);
+    const [defs, jobs, runs, roots] = await Promise.all([
+      listSavedDefinitions(),
+      listAdminPublishedJobs(),
+      listAdminPublishedRuns(),
+      listAdminSharedRoots().catch(() => [] as SharedRootInfo[]),
+    ]);
     setDefinitions(defs);
     setPublished(jobs);
     setAllRuns(runs);
+    setAvailableRoots(roots);
   }
 
   useEffect(() => {
@@ -320,6 +335,76 @@ export default function PublishedJobsAdminPage() {
                         <input type="checkbox" checked={edit.readonly ?? false} onChange={(event) => patchField(field.id, { readonly: event.target.checked })} />
                         Readonly (shown as text to researchers)
                       </label>
+                      <label className="grid gap-1 text-xs text-slate-600">
+                        Researcher handling
+                        <select
+                          className="h-8 rounded-md border border-slate-300 px-2 text-xs"
+                          value={edit.io_role ?? "none"}
+                          onChange={(event) => patchField(field.id, { io_role: event.target.value as PublishedFieldIoRole })}
+                        >
+                          <option value="none">Server-managed (plain value)</option>
+                          <option value="input">Input — researcher provides a file/folder</option>
+                          <option value="output">Output — returned to the researcher</option>
+                        </select>
+                      </label>
+                      {edit.io_role && edit.io_role !== "none" ? (
+                        <div className="grid gap-2 rounded-md bg-slate-50 p-2">
+                          <label className="grid gap-1 text-xs text-slate-600">
+                            Accepts
+                            <select
+                              className="h-8 rounded-md border border-slate-300 px-2 text-xs"
+                              value={edit.accept ?? "file"}
+                              onChange={(event) => patchField(field.id, { accept: event.target.value as "file" | "directory" })}
+                            >
+                              <option value="file">A single file</option>
+                              <option value="directory">A folder</option>
+                            </select>
+                          </label>
+                          {edit.io_role === "input" ? (
+                            <div className="flex flex-wrap gap-3 text-xs text-slate-600">
+                              {(["upload", "shared"] as const).map((channel) => (
+                                <label key={channel} className="flex items-center gap-1.5">
+                                  <input
+                                    type="checkbox"
+                                    checked={(edit.sources ?? []).includes(channel)}
+                                    onChange={(event) => patchField(field.id, { sources: toggleChannel(edit.sources, channel, event.target.checked) })}
+                                  />
+                                  {channel === "upload" ? "Upload from computer" : "Choose from shared storage"}
+                                </label>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="flex flex-wrap gap-3 text-xs text-slate-600">
+                              {(["download", "shared"] as const).map((channel) => (
+                                <label key={channel} className="flex items-center gap-1.5">
+                                  <input
+                                    type="checkbox"
+                                    checked={(edit.delivery ?? []).includes(channel)}
+                                    onChange={(event) => patchField(field.id, { delivery: toggleChannel(edit.delivery, channel, event.target.checked) })}
+                                  />
+                                  {channel === "download" ? "Download archive" : "Write to shared storage"}
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                          {(edit.io_role === "input" && (edit.sources ?? []).includes("shared")) ||
+                          (edit.io_role === "output" && (edit.delivery ?? []).includes("shared")) ? (
+                            <div className="grid gap-1">
+                              <input
+                                className="h-8 rounded-md border border-slate-300 px-2 text-xs"
+                                placeholder="Allowed shared roots (comma-separated ids)"
+                                value={(edit.shared_roots ?? []).join(", ")}
+                                onChange={(event) => patchField(field.id, { shared_roots: event.target.value.split(",").map((item) => item.trim()).filter(Boolean) })}
+                              />
+                              <span className="text-[11px] text-slate-400">
+                                {availableRoots.length
+                                  ? `Configured roots: ${availableRoots.map((root) => root.id).join(", ")}`
+                                  : "No shared roots configured (set backend.shared_roots in app_config.yaml)."}
+                              </span>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
                   ) : (
                     <p className="text-xs text-slate-500">{field.help}</p>

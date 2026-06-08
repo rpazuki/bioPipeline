@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import FileResponse
 
 from app.api.deps import get_runtime, require_admin, require_authenticated_user
 from app.api.routes.job_definitions import _group_detail
 from app.schemas.pipelines import (
+    DraftRunResponse,
     PublishedJobAdminResponse,
     PublishedJobInspectRequest,
     PublishedJobInspectResponse,
@@ -17,6 +19,10 @@ from app.schemas.pipelines import (
     PublishedJobUpdateRequest,
     PublishedRunDetail,
     PublishedRunSummary,
+    RunUploadResponse,
+    SharedBrowseResponse,
+    SharedEntryResponse,
+    SharedRootInfo,
 )
 from app.services.runtime import PipelineRuntime
 from bio_pipeline_manager.auth_models import UserRecord
@@ -28,7 +34,10 @@ from bio_pipeline_manager.published_jobs import (
     inspect_definition,
     public_fields,
     render_definition,
+    resolve_io,
 )
+from bio_pipeline_manager.run_workspace import RunWorkspaceError
+from bio_pipeline_manager.shared_storage import SharedStorageError
 
 router = APIRouter(prefix="/published-jobs", tags=["published-jobs"])
 
@@ -61,6 +70,15 @@ async def list_admin_published_runs(
     _admin: Annotated[UserRecord, Depends(require_admin)],
 ) -> list[PublishedRunSummary]:
     return [_run_summary(runtime, run) for run in runtime.published_jobs.list_runs()]
+
+
+@router.get("/admin/shared-roots", response_model=list[SharedRootInfo])
+async def list_admin_shared_roots(
+    runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
+    _admin: Annotated[UserRecord, Depends(require_admin)],
+) -> list[SharedRootInfo]:
+    """All configured shared roots, so an admin can reference their ids on a field."""
+    return [SharedRootInfo(id=root.id, label=root.label) for root in runtime.shared_storage.list_roots()]
 
 
 @router.post("/admin", response_model=PublishedJobAdminResponse, status_code=status.HTTP_201_CREATED)
@@ -219,6 +237,126 @@ async def get_published_job(
     return _public_detail(record)
 
 
+@router.get("/catalog/{published_job_id}/shared-roots", response_model=list[SharedRootInfo])
+async def list_published_job_shared_roots(
+    published_job_id: str,
+    runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
+    _user: Annotated[UserRecord, Depends(require_authenticated_user)],
+) -> list[SharedRootInfo]:
+    """Roots an admin exposed via this job's shared-input fields (labels only, no server paths)."""
+    record = _get_published_job(runtime, published_job_id)
+    if record.status != "published":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Published job not found")
+    referenced = _job_shared_root_ids(record)
+    return [
+        SharedRootInfo(id=root.id, label=root.label)
+        for root in runtime.shared_storage.list_roots()
+        if root.id in referenced
+    ]
+
+
+@router.get("/catalog/{published_job_id}/browse", response_model=SharedBrowseResponse)
+async def browse_published_job_shared_root(
+    published_job_id: str,
+    field: str,
+    root: str,
+    runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
+    _user: Annotated[UserRecord, Depends(require_authenticated_user)],
+    subpath: str = "",
+) -> SharedBrowseResponse:
+    """List entries within an allowlisted shared root for a job's shared-input field.
+
+    Only roots the field declares are browsable, and every sub-path is
+    containment-checked — the server filesystem is never exposed.
+    """
+    record = _get_published_job(runtime, published_job_id)
+    if record.status != "published":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Published job not found")
+    try:
+        field_def = _shared_field(record, field)
+        if root not in (field_def.get("shared_roots") or []):
+            raise PublishedJobError(f"Shared root '{root}' is not allowed for this field")
+        entries = runtime.shared_storage.browse(root, subpath)
+    except (PublishedJobError, SharedStorageError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return SharedBrowseResponse(
+        root_id=root,
+        subpath=subpath,
+        entries=[SharedEntryResponse(name=entry.name, path=entry.path, kind=entry.kind) for entry in entries],
+    )
+
+
+@router.post(
+    "/catalog/{published_job_id}/runs/draft",
+    response_model=DraftRunResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_published_job_draft_run(
+    published_job_id: str,
+    runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
+    user: Annotated[UserRecord, Depends(require_authenticated_user)],
+) -> DraftRunResponse:
+    """Reserve a per-run workspace the researcher uploads inputs into before executing."""
+    record = _get_published_job(runtime, published_job_id)
+    if record.status != "published":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Published job not found")
+    manifest = runtime.run_workspaces.create(owner_user_id=user.id, published_job_id=record.id)
+    return DraftRunResponse(workspace_id=manifest.workspace_id)
+
+
+@router.post(
+    "/catalog/{published_job_id}/runs/{workspace_id}/uploads/{field_id}",
+    response_model=RunUploadResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_published_job_run_input(
+    published_job_id: str,
+    workspace_id: str,
+    field_id: str,
+    filename: str,
+    request: Request,
+    runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
+    user: Annotated[UserRecord, Depends(require_authenticated_user)],
+    offset: int = 0,
+    relpath: str = "",
+) -> RunUploadResponse:
+    """Stream one uploaded file (or folder member) into the run workspace.
+
+    The body is the raw file bytes (no multipart). ``offset`` enables
+    chunked/resumable uploads (each chunk is appended at its offset); ``relpath``
+    preserves a file's position within an uploaded folder. The per-run quota is
+    enforced while streaming, so an over-large upload is never fully buffered.
+    """
+    record = _get_published_job(runtime, published_job_id)
+    if record.status != "published":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Published job not found")
+    workspaces = runtime.run_workspaces
+    try:
+        runtime.run_workspaces.require_owner(workspace_id, user.id)
+        _require_upload_field(record, field_id)
+        dest, handle = workspaces.prepare_input(workspace_id, field_id, filename, relpath=relpath)
+        existing = dest.stat().st_size if dest.exists() else 0
+        # Bytes already counted for this file should not be double-charged: an
+        # append keeps them, a fresh (offset 0) upload replaces them.
+        base = workspaces.total_size(workspace_id) - (existing if offset == 0 else 0)
+        written = 0
+        mode = "r+b" if offset and dest.exists() else "wb"
+        with dest.open(mode) as out:
+            if offset:
+                out.seek(offset)
+            async for chunk in request.stream():
+                written += len(chunk)
+                if base + written > workspaces.max_bytes:
+                    out.close()
+                    if offset == 0:
+                        dest.unlink(missing_ok=True)
+                    raise PublishedJobError("Upload exceeds the per-run size limit")
+                out.write(chunk)
+    except (RunWorkspaceError, PublishedJobError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return RunUploadResponse(field_id=field_id, handle=handle, filename=dest.name, size=dest.stat().st_size)
+
+
 @router.post("/catalog/{published_job_id}/runs", response_model=PublishedRunDetail, status_code=status.HTTP_201_CREATED)
 async def submit_published_job_run(
     published_job_id: str,
@@ -229,8 +367,19 @@ async def submit_published_job_run(
     record = _get_published_job(runtime, published_job_id)
     if record.status != "published":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Published job not found")
+    file_bindings = {field_id: binding.model_dump() for field_id, binding in body.file_bindings.items()}
     try:
-        rendered = render_definition(record, body.values)
+        if body.workspace_id:
+            runtime.run_workspaces.require_owner(body.workspace_id, user.id)
+        resolved_values = resolve_io(
+            record,
+            body.values,
+            file_bindings=file_bindings,
+            workspaces=runtime.run_workspaces,
+            workspace_id=body.workspace_id,
+            shared=runtime.shared_storage,
+        )
+        rendered = render_definition(record, resolved_values)
         parent_id, _records = runtime.queue.submit_definition(
             rendered,
             yaml_resolver=runtime.yaml_store.resolve_name,
@@ -243,8 +392,10 @@ async def submit_published_job_run(
             values=body.values,
             rendered_definition=rendered,
             parent_job_id=parent_id,
+            workspace_id=body.workspace_id or "",
+            file_bindings=file_bindings,
         )
-    except (PublishedJobError, JobDefinitionError, ValueError) as exc:
+    except (RunWorkspaceError, PublishedJobError, JobDefinitionError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return _run_detail(runtime, run)
 
@@ -265,6 +416,50 @@ async def get_my_published_run(
 ) -> PublishedRunDetail:
     run = _get_owned_run(runtime, run_id, user.id)
     return _run_detail(runtime, run)
+
+
+@router.get("/my-runs/{run_id}/artifact")
+async def download_my_published_run_artifact(
+    run_id: str,
+    runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
+    user: Annotated[UserRecord, Depends(require_authenticated_user)],
+) -> FileResponse:
+    """Download a finished run's packaged outputs (the retained results archive)."""
+    run = _get_owned_run(runtime, run_id, user.id)
+    if not run.workspace_id or not runtime.run_workspaces.has_artifact(run.workspace_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No results are available for this run")
+    return FileResponse(
+        runtime.run_workspaces.artifact_path(run.workspace_id),
+        media_type="application/zip",
+        filename=f"{run.id}-results.zip",
+    )
+
+
+@router.delete("/my-runs/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_my_published_run(
+    run_id: str,
+    runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
+    user: Annotated[UserRecord, Depends(require_authenticated_user)],
+) -> None:
+    """Remove one of the researcher's runs: cancel active tasks, drop the task
+    records and the run's workspace, then delete the run link."""
+    run = _get_owned_run(runtime, run_id, user.id)
+    for task in runtime.job_store.list_jobs_by_parent(run.parent_job_id):
+        if task.status.value in {"queued", "running"}:
+            try:
+                runtime.queue.cancel(task.id)
+            except ValueError:
+                pass
+        try:
+            runtime.queue.delete(task.id)
+        except Exception:  # noqa: BLE001 - best-effort cleanup of task records
+            pass
+    if run.workspace_id:
+        try:
+            runtime.run_workspaces.delete(run.workspace_id)
+        except RunWorkspaceError:
+            pass
+    runtime.published_jobs.delete_run(run_id)
 
 
 @router.post("/my-runs/{run_id}/cancel", response_model=PublishedRunDetail)
@@ -290,6 +485,14 @@ async def rewind_my_published_run(
     user: Annotated[UserRecord, Depends(require_authenticated_user)],
 ) -> PublishedRunDetail:
     run = _get_owned_run(runtime, run_id, user.id)
+    if run.workspace_id:
+        # The rendered definition points at this run's workspace (uploaded inputs
+        # and/or output dirs), which is cleaned up after completion — replaying it
+        # would reference files that no longer exist. Start a fresh run instead.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This run used uploaded or downloaded files. Start a new run from the published job to provide them again.",
+        )
     try:
         parent_id, _records = runtime.queue.submit_definition(
             run.rendered_definition,
@@ -313,6 +516,34 @@ def _get_published_job(runtime: PipelineRuntime, published_job_id: str) -> Publi
         return runtime.published_jobs.get(published_job_id)
     except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+def _require_upload_field(record: PublishedJobRecord, field_id: str) -> dict:
+    for field in record.fields:
+        if field.get("id") == field_id:
+            if field.get("io_role") != "input":
+                raise PublishedJobError(f"Field '{field_id}' is not a researcher input")
+            if "upload" not in (field.get("sources") or []):
+                raise PublishedJobError(f"Field '{field_id}' does not accept uploads")
+            return field
+    raise PublishedJobError(f"Unknown field: {field_id}")
+
+
+def _shared_field(record: PublishedJobRecord, field_id: str) -> dict:
+    for field in record.fields:
+        if field.get("id") == field_id:
+            if field.get("io_role") != "input" or "shared" not in (field.get("sources") or []):
+                raise PublishedJobError(f"Field '{field_id}' does not browse shared storage")
+            return field
+    raise PublishedJobError(f"Unknown field: {field_id}")
+
+
+def _job_shared_root_ids(record: PublishedJobRecord) -> set[str]:
+    ids: set[str] = set()
+    for field in record.fields:
+        if field.get("io_role") == "input" and "shared" in (field.get("sources") or []):
+            ids.update(field.get("shared_roots") or [])
+    return ids
 
 
 def _get_owned_run(runtime: PipelineRuntime, run_id: str, user_id: str) -> PublishedRunRecord:
@@ -390,6 +621,7 @@ def _run_summary(runtime: PipelineRuntime, run: PublishedRunRecord) -> Published
         username = run.user_id
         user_display_name = ""
     summary = runtime.queue.group_status(run.parent_job_id)
+    artifact_available = bool(run.workspace_id) and runtime.run_workspaces.has_artifact(run.workspace_id)
     return PublishedRunSummary(
         id=run.id,
         published_job_id=run.published_job_id,
@@ -403,6 +635,8 @@ def _run_summary(runtime: PipelineRuntime, run: PublishedRunRecord) -> Published
         total=summary["total"],
         counts=summary["counts"],
         values=run.values,
+        workspace_id=run.workspace_id,
+        artifact_available=artifact_available,
         created_at=run.created_at,
     )
 

@@ -157,10 +157,23 @@ class Settings(BaseSettings):
     worker_interval: float = float(_BACKEND_CONFIG.get("worker_interval", 2.0))
     worker_parallel: int = int(_BACKEND_CONFIG.get("worker_parallel", 1))
 
+    # Published-run delivery: output archiving + workspace retention/cleanup.
+    reaper_enabled: bool = bool(_BACKEND_CONFIG.get("reaper_enabled", True))
+    reaper_interval: float = float(_BACKEND_CONFIG.get("reaper_interval", 5.0))
+    artifact_ttl_hours: float = float(_BACKEND_CONFIG.get("artifact_ttl_hours", 24.0))
+    # Per-run upload budget (bytes); default 2 GiB.
+    upload_max_bytes: int = int(_BACKEND_CONFIG.get("upload_max_bytes", 2 * 1024 * 1024 * 1024))
+
     auth_session_cookie_name: str = str(_BACKEND_CONFIG.get("auth_session_cookie_name", "bio_pipeline_session"))
     auth_session_ttl_hours: float = float(_BACKEND_CONFIG.get("auth_session_ttl_hours", 24.0))
     auth_secure_cookies: bool = bool(_BACKEND_CONFIG.get("auth_secure_cookies", False))
     ai: dict[str, Any] = Field(default_factory=lambda: dict(_BACKEND_CONFIG.get("ai", {})))
+
+    # Allowlisted shared-storage roots researchers may browse (no FS exposure
+    # beyond these). Each entry: {id, label, path}. Empty by default.
+    shared_roots: list[dict[str, Any]] = Field(
+        default_factory=lambda: list(_BACKEND_CONFIG.get("shared_roots", []))
+    )
 
 
 @lru_cache
