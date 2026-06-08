@@ -44,6 +44,22 @@ function FieldHelp({ field }: { field: PublishedField }) {
   );
 }
 
+function readonlyText(field: PublishedField, value: unknown): string {
+  if (field.type === "boolean") return value ? "Yes" : "No";
+  if (field.type === "enum") {
+    const option = field.options.find((item) => item.value === value || String(item.value) === String(value));
+    return option ? option.label : asInputValue(value);
+  }
+  if (field.type === "multi_enum" && Array.isArray(value)) {
+    const labels = value.map((v) => {
+      const option = field.options.find((item) => item.value === v || String(item.value) === String(v));
+      return option ? option.label : String(v);
+    });
+    return labels.join(", ") || "—";
+  }
+  return asInputValue(value) || "—";
+}
+
 function FieldInput({
   field,
   value,
@@ -54,6 +70,9 @@ function FieldInput({
   onChange: (value: unknown) => void;
 }) {
   const base = "h-9 rounded-md border border-slate-300 px-3 text-sm text-slate-950";
+  if (field.readonly) {
+    return <span className="flex h-9 items-center text-sm text-slate-800">{readonlyText(field, value)}</span>;
+  }
   if (field.type === "boolean") {
     return <input type="checkbox" checked={Boolean(value)} onChange={(event) => onChange(event.target.checked)} className="h-5 w-5" />;
   }

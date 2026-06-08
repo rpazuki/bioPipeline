@@ -199,6 +199,7 @@ class PublishedField(BaseModel):
     label: str
     type: str = "string"
     required: bool = True
+    readonly: bool = False
     default: Any = None
     help: str = ""
     example: str = ""
@@ -212,6 +213,7 @@ class PublicPublishedField(BaseModel):
     label: str
     type: str = "string"
     required: bool = True
+    readonly: bool = False
     default: Any = None
     help: str = ""
     example: str = ""

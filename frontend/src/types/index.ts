@@ -174,6 +174,7 @@ export interface PublishedField {
   label: string;
   type: PublishedFieldType;
   required: boolean;
+  readonly?: boolean;
   default?: unknown;
   help: string;
   example: string;

@@ -316,6 +316,10 @@ export default function PublishedJobsAdminPage() {
                       <input className="h-8 rounded-md border border-slate-300 px-2 text-xs" value={edit.label} onChange={(event) => patchField(field.id, { label: event.target.value })} />
                       <input className="h-8 rounded-md border border-slate-300 px-2 text-xs" value={edit.help} onChange={(event) => patchField(field.id, { help: event.target.value })} />
                       <input className="h-8 rounded-md border border-slate-300 px-2 text-xs" value={edit.example} onChange={(event) => patchField(field.id, { example: event.target.value })} placeholder={`Example: ${stringifyValue(field.default)}`} />
+                      <label className="flex items-center gap-2 text-xs text-slate-600">
+                        <input type="checkbox" checked={edit.readonly ?? false} onChange={(event) => patchField(field.id, { readonly: event.target.checked })} />
+                        Readonly (shown as text to researchers)
+                      </label>
                     </div>
                   ) : (
                     <p className="text-xs text-slate-500">{field.help}</p>
