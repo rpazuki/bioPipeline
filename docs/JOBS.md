@@ -196,12 +196,57 @@ input.raw    "{data_dir}/{item.raw}"
 
 A Task feeds two things into the pipeline build:
 
-- **`input_sources`** — overrides the `src` of named pipeline `Inputs`. Equivalent
-  to `-i NAME=PATH`. Use it to point the pipeline at this Task's specific files.
-- **`process_arg_mapping`** — overrides parameters of named *processes*. Shape is
-  `{process_name: {param: value}}`. This is how per-strain / per-column settings
-  are passed (the collate workflow), and it is the capability the old
-  `run_a_pipeline` CLI could not express.
+### `input_sources` — point each input at a concrete file
+
+Every pipeline YAML has an `Inputs` section. Each named input carries, among
+other fields, a `src` that tells the engine which file to read:
+
+```yaml
+# growth_rates_pipeline.yaml
+pipelines:
+  - growth_rate_fit_pipeline:
+      Inputs:
+        - raw_data:
+            - src: EMPTY          # no default path — must be supplied at run time
+            - package: labUtils.media_bot
+            - method: parse_raw_CLARIOstar_export
+        - meta_data:
+            - src: EMPTY
+            - package: labUtils.media_bot
+            - method: parse_protocol_metadata
+```
+
+`src: EMPTY` is the convention for inputs that have no meaningful default —
+the pipeline cannot run until a real path is provided. `input_sources` is how
+the Job Definition supplies those paths:
+
+```yaml
+# in the stage definition
+input_sources:
+  raw_data:  "{data_dir}/{item.raw}"
+  meta_data: "{data_dir}/{item.meta}"
+```
+
+At build time the engine replaces each named input's `src` with the value from
+`input_sources`. Keys that are absent from `input_sources` keep whatever `src`
+the pipeline YAML declares (useful when only *some* inputs need overriding).
+Supplying a key that doesn't match any `Inputs` name has no effect and is
+silently ignored.
+
+**When you must provide `input_sources`:** any input with `src: EMPTY` (or
+with no `src` at all) will cause the engine to raise a validation error if no
+override is given. For a fan-out stage, `input_sources` is almost always
+required because each Task's file path is different and comes from
+`{item.raw}` / `{item.meta}` / `{item.path}`.
+
+`input_sources` is equivalent to passing `-i NAME=PATH` on the ad-hoc CLI.
+
+### `process_arg_mapping` — override process parameters
+
+Overrides parameters of named *processes*. Shape is
+`{process_name: {param: value}}`. This is how per-strain / per-column settings
+are passed (the collate workflow), and it is the capability the old
+`run_a_pipeline` CLI could not express.
 
 Both are templated, so they can reference matrix and item fields.
 

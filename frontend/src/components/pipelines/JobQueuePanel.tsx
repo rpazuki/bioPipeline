@@ -57,6 +57,7 @@ export default function JobQueuePanel({ onStatus }: Props) {
   const [loadingLogJobId, setLoadingLogJobId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const rowsPerPage = 20;
 
@@ -156,6 +157,61 @@ export default function JobQueuePanel({ onStatus }: Props) {
     return jobs.slice(start, start + rowsPerPage);
   }, [jobs, currentPage]);
 
+  const pagedJobIds = useMemo(() => pagedJobs.map((j) => j.id), [pagedJobs]);
+  const allPageSelected = pagedJobIds.length > 0 && pagedJobIds.every((id) => selectedIds.has(id));
+  const someSelected = selectedIds.size > 0;
+
+  function toggleSelectAll() {
+    if (allPageSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        pagedJobIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => new Set([...prev, ...pagedJobIds]));
+    }
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function removeSelected() {
+    if (selectedIds.size === 0) return;
+    if (!window.confirm(`Delete ${selectedIds.size} job(s)? This removes the job records and their logs.`)) return;
+    for (const id of selectedIds) {
+      await deleteJob(id);
+      setExpandedLogJobId((cur) => (cur === id ? null : cur));
+      setJobLogs((cur) => {
+        const next = { ...cur };
+        delete next[id];
+        return next;
+      });
+    }
+    onStatus(`Deleted ${selectedIds.size} job(s)`);
+    setSelectedIds(new Set());
+    await refreshJobs();
+  }
+
+  async function rewindSelected() {
+    if (selectedIds.size === 0) return;
+    let count = 0;
+    for (const id of selectedIds) {
+      await rewindJob(id);
+      count++;
+    }
+    onStatus(`Rewound ${count} job(s)`);
+    setSelectedIds(new Set());
+    setCurrentPage(1);
+    await refreshJobs();
+  }
+
   function previousPage() {
     setCurrentPage((page) => Math.max(1, page - 1));
   }
@@ -167,12 +223,28 @@ export default function JobQueuePanel({ onStatus }: Props) {
   return (
     <section className="grid gap-3 rounded-md border border-slate-200 bg-white p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
+        <div className="flex flex-col gap-2">
           <h2 className="text-sm font-semibold text-slate-950">Job Queue</h2>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="text-xs text-slate-500">
             Showing {jobs.length === 0 ? 0 : (currentPage - 1) * rowsPerPage + 1}-
             {Math.min(currentPage * rowsPerPage, jobs.length)} of {jobs.length}
           </p>
+          <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+            <button
+              className="rounded-md border border-red-200 px-3 py-1.5 text-red-700 disabled:opacity-40"
+              disabled={!someSelected}
+              onClick={() => removeSelected().catch((cause: Error) => setError(cause.message))}
+            >
+              Delete{someSelected ? ` (${selectedIds.size})` : ""}
+            </button>
+            <button
+              className="rounded-md border border-slate-300 px-3 py-1.5 disabled:opacity-40"
+              disabled={!someSelected}
+              onClick={() => rewindSelected().catch((cause: Error) => setError(cause.message))}
+            >
+              Rewind{someSelected ? ` (${selectedIds.size})` : ""}
+            </button>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-600">
           <button
@@ -206,10 +278,19 @@ export default function JobQueuePanel({ onStatus }: Props) {
           <table className="min-w-full table-fixed border-collapse text-left text-sm">
             <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="w-[12%] px-3 py-2">Actions</th>
-                <th className="w-[22%] px-3 py-2">YAML Path</th>
-                <th className="w-[18%] px-3 py-2">Pipeline</th>
-                <th className="w-[11%] px-3 py-2">Status</th>
+                <th className="w-[4%] px-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={allPageSelected}
+                    onChange={toggleSelectAll}
+                    title="Select all on this page"
+                    className="cursor-pointer"
+                  />
+                </th>
+                <th className="w-[11%] px-3 py-2">Actions</th>
+                <th className="w-[21%] px-3 py-2">YAML Path</th>
+                <th className="w-[17%] px-3 py-2">Pipeline</th>
+                <th className="w-[10%] px-3 py-2">Status</th>
                 <th className="w-[17%] px-3 py-2">Created</th>
                 <th className="w-[20%] px-3 py-2">Last Refreshed</th>
               </tr>
@@ -217,7 +298,7 @@ export default function JobQueuePanel({ onStatus }: Props) {
             <tbody>
               {pagedJobs.length === 0 ? (
                 <tr>
-                  <td className="px-3 py-4 text-sm text-slate-500" colSpan={6}>
+                  <td className="px-3 py-4 text-sm text-slate-500" colSpan={7}>
                     No jobs yet.
                   </td>
                 </tr>
@@ -228,6 +309,14 @@ export default function JobQueuePanel({ onStatus }: Props) {
                 return (
                   <Fragment key={job.id}>
                     <tr key={job.id} className="border-t border-slate-200 align-top">
+                      <td className="px-3 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(job.id)}
+                          onChange={() => toggleSelect(job.id)}
+                          className="cursor-pointer"
+                        />
+                      </td>
                       <td className="px-3 py-3">
                         <div className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap">
                           <button
@@ -275,7 +364,7 @@ export default function JobQueuePanel({ onStatus }: Props) {
                     </tr>
                     {expanded ? (
                       <tr key={`${job.id}-log`} className="border-b border-slate-200">
-                        <td className="px-3 pb-3 text-left" colSpan={6}>
+                        <td className="px-3 pb-3 text-left" colSpan={7}>
                           <div className="w-full max-w-4xl rounded-md bg-black p-3 text-xs leading-6 text-emerald-300">
                             <div className="grid gap-1 text-slate-100">
                               <div className="font-semibold">Log for {job.id}</div>

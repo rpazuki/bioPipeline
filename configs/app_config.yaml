@@ -5,7 +5,7 @@ frontend:
   shared:
     api_prefix: /api/v1
   development:
-    api_url: http://localhost:8005
+    api_url: http://localhost:8006
   production:
     api_url: https://api.example.com
 
@@ -18,6 +18,7 @@ backend:
       - http://127.0.0.1:3005
       - http://localhost:3005
       - http://127.0.0.1:3005
+      - http://0.0.0.0:3005
     pipeline_home: .bio_pipeline
     worker_enabled: true
     worker_interval: 2.0
