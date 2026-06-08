@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { getPublishedJob, listPublishedJobs, submitPublishedJobRun } from "@/lib/api";
+import ResizableSplitPane from "@/components/pipelines/ResizableSplitPane";
 import type { PublishedField, PublishedJobPublicDetail, PublishedJobPublicSummary } from "@/types";
 
 function defaultValue(field: PublishedField) {
@@ -130,8 +131,13 @@ export default function PublishedJobsPage() {
   }
 
   return (
-    <section className="grid gap-4 p-5 lg:grid-cols-[360px_minmax(0,1fr)]">
-      <aside className="grid content-start gap-3 rounded-md border border-slate-200 bg-white p-4">
+    <section className="p-5">
+      <ResizableSplitPane
+        defaultSplit={30}
+        minLeft={20}
+        minRight={30}
+        left={
+        <aside className="grid content-start gap-3 rounded-md border border-slate-200 bg-white p-4 h-full">
         <div>
           <h2 className="text-lg font-semibold text-slate-950">Published Jobs</h2>
           <p className="mt-1 text-sm text-slate-500">Run admin-published workflows without seeing job or pipeline YAML.</p>
@@ -149,8 +155,9 @@ export default function PublishedJobsPage() {
           </button>
         ))}
       </aside>
-
-      <main className="grid content-start gap-3 rounded-md border border-slate-200 bg-white p-4">
+        }
+        right={
+        <main className="grid content-start gap-3 rounded-md border border-slate-200 bg-white p-4 h-full">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-sm font-semibold text-slate-950">{selected?.name ?? "Job Form"}</h3>
@@ -187,6 +194,8 @@ export default function PublishedJobsPage() {
           <p className="text-sm text-slate-500">Select a published job to fill its fields and execute it.</p>
         )}
       </main>
+        }
+      />
     </section>
   );
 }

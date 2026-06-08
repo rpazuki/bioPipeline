@@ -6,6 +6,7 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { executeAITool, getAIContext, sendAIChatMessage, testAIProvider } from "@/lib/api";
+import ResizableSplitPane from "@/components/pipelines/ResizableSplitPane";
 import type {
   AIChatMessage,
   AIContextResponse,
@@ -470,20 +471,25 @@ export default function AIChatPage() {
       ) : null}
 
       {/* Draft workspace */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <DraftPanel
-          title="Pipeline YAML"
-          filename="pipeline.yaml"
-          value={drafts.pipeline_yaml}
-          onChange={(value) => setDrafts((current) => ({ ...current, pipeline_yaml: value }))}
-        />
-        <DraftPanel
-          title="Job Definition"
-          filename="job_definition.yaml"
-          value={drafts.job_definition}
-          onChange={(value) => setDrafts((current) => ({ ...current, job_definition: value }))}
-        />
-      </div>
+      <ResizableSplitPane
+        defaultSplit={50}
+        left={
+          <DraftPanel
+            title="Pipeline YAML"
+            filename="pipeline.yaml"
+            value={drafts.pipeline_yaml}
+            onChange={(value) => setDrafts((current) => ({ ...current, pipeline_yaml: value }))}
+          />
+        }
+        right={
+          <DraftPanel
+            title="Job Definition"
+            filename="job_definition.yaml"
+            value={drafts.job_definition}
+            onChange={(value) => setDrafts((current) => ({ ...current, job_definition: value }))}
+          />
+        }
+      />
     </section>
   );
 }

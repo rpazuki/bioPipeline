@@ -17,6 +17,7 @@ import {
   updatePublishedJob,
   validatePublishedJob,
 } from "@/lib/api";
+import ResizableSplitPane from "@/components/pipelines/ResizableSplitPane";
 import type { DefinitionSummary, PublishedField, PublishedJobAdmin, PublishedRunSummary } from "@/types";
 
 function stringifyValue(value: unknown): string {
@@ -229,8 +230,10 @@ export default function PublishedJobsAdminPage() {
 
       {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.9fr)]">
-        <section className="grid gap-3 rounded-md border border-slate-200 bg-white p-4">
+      <ResizableSplitPane
+        defaultSplit={55}
+        left={
+        <section className="grid gap-3 rounded-md border border-slate-200 bg-white p-4 h-full">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-semibold text-slate-950">{editingId ? "Edit Published Job" : "New Published Job"}</h3>
             <button type="button" className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold" onClick={clearEditor}>
@@ -292,8 +295,9 @@ export default function PublishedJobsAdminPage() {
             ) : null}
           </div>
         </section>
-
-        <section className="grid content-start gap-3 rounded-md border border-slate-200 bg-white p-4">
+        }
+        right={
+        <section className="grid content-start gap-3 rounded-md border border-slate-200 bg-white p-4 h-full">
           <h3 className="text-sm font-semibold text-slate-950">Definable Fields</h3>
           {candidates.length === 0 ? <p className="text-sm text-slate-500">Load or inspect a Job Definition to choose public fields.</p> : null}
           <div className="grid max-h-[760px] gap-2 overflow-auto pr-1">
@@ -321,10 +325,13 @@ export default function PublishedJobsAdminPage() {
             })}
           </div>
         </section>
-      </div>
+        }
+      />
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(380px,0.65fr)]">
-        <section className="grid gap-2 rounded-md border border-slate-200 bg-white p-4">
+      <ResizableSplitPane
+        defaultSplit={60}
+        left={
+        <section className="grid gap-2 rounded-md border border-slate-200 bg-white p-4 h-full">
           <h3 className="text-sm font-semibold text-slate-950">Existing Published Jobs</h3>
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
             {published.map((job) => (
@@ -353,8 +360,9 @@ export default function PublishedJobsAdminPage() {
             ))}
           </div>
         </section>
-
-        <section className="grid content-start gap-2 rounded-md border border-slate-200 bg-white p-4">
+        }
+        right={
+        <section className="grid content-start gap-2 rounded-md border border-slate-200 bg-white p-4 h-full">
           <h3 className="text-sm font-semibold text-slate-950">Usage Status</h3>
           {(selectedRuns.length ? selectedRuns : allRuns).slice(0, 12).map((run) => (
             <div key={run.id} className="rounded-md border border-slate-200 p-2 text-xs">
@@ -369,7 +377,8 @@ export default function PublishedJobsAdminPage() {
           ))}
           {allRuns.length === 0 ? <p className="text-sm text-slate-500">No published job runs yet.</p> : null}
         </section>
-      </div>
+        }
+      />
     </section>
   );
 }
