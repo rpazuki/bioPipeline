@@ -129,22 +129,27 @@ export default function PublishedJobsAdminPage() {
     setDefinitionName(document.name);
     setDefinitionContent(document.content);
     setName((current) => current || document.job || document.name.replace(/\.(yaml|yml)$/i, ""));
+    // Auto-inspect the freshly loaded definition so its fields populate and a
+    // default selection is made — otherwise Save Draft stays disabled until the
+    // user separately clicks "Inspect Fields", which is easy to miss.
+    await inspect({ content: document.content });
     setStatus(`Loaded source definition ${document.name}`);
   }
 
-  async function inspect({ preserveSelection = false } = {}) {
+  async function inspect({ content }: { content?: string } = {}) {
     setError(null);
-    const result = await inspectPublishedJob(definitionContent);
+    const source = content ?? definitionContent;
+    const result = await inspectPublishedJob(source);
     const merged = mergeFields(result.candidates, selectedFields);
     const nextEdits = Object.fromEntries(merged.map((field) => [field.id, field]));
     setCandidates(merged);
     setName((current) => current || result.job_name);
     setFieldEdits(nextEdits);
-    if (!preserveSelection) {
-      setSelectedIds(new Set(merged.slice(0, 8).map((field) => field.id)));
-    } else {
-      setSelectedIds(new Set(selectedFields.map((field) => field.id)));
-    }
+    // Do not auto-select any fields — the admin chooses which to expose. Keep
+    // only fields they had already ticked (so re-inspecting after a YAML edit
+    // doesn't wipe their choices); never tick anything on their behalf.
+    const mergedIds = new Set(merged.map((field) => field.id));
+    setSelectedIds(new Set(selectedFields.map((field) => field.id).filter((id) => mergedIds.has(id))));
     setStatus(`Valid definition · ${result.candidates.length} definable fields`);
   }
 
@@ -210,7 +215,7 @@ export default function PublishedJobsAdminPage() {
       );
       return;
     }
-    await inspect({ preserveSelection: true });
+    await inspect();
   }
 
   async function archiveCurrent(jobId: string) {
@@ -309,7 +314,7 @@ export default function PublishedJobsAdminPage() {
             <button type="button" className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold" disabled={!definitionContent} onClick={() => validateCurrent().catch((cause: Error) => setError(cause.message))}>
               Validate
             </button>
-            <button type="button" className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold disabled:opacity-50" disabled={!selectedFields.length || !name} onClick={() => save(false).catch((cause: Error) => setError(cause.message))}>
+            <button type="button" className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold disabled:opacity-50" disabled={!name || !definitionContent} onClick={() => save(false).catch((cause: Error) => setError(cause.message))}>
               {editingId ? "Update Draft" : "Save Draft"}
             </button>
             <button type="button" className="rounded-md bg-emerald-700 px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50" disabled={!selectedFields.length || !name} onClick={() => save(true).catch((cause: Error) => setError(cause.message))}>
