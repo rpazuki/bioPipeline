@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { installPackage, listPackages, uninstallPackage } from "@/lib/api";
 import type { PackageInfo, PackageOpResult, PackageSourceType } from "@/types";
@@ -20,6 +20,11 @@ export default function EnvironmentPanel() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
+
+  const sortedInstalled = useMemo(
+    () => [...installed].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })),
+    [installed],
+  );
 
   const refresh = useCallback(async () => {
     const data = await listPackages();
@@ -124,7 +129,7 @@ export default function EnvironmentPanel() {
           <section className="grid gap-2 rounded-md border border-slate-200 bg-white p-4">
             <h2 className="text-sm font-semibold text-slate-900">Installed ({installed.length})</h2>
             <ul className="grid max-h-72 gap-1 overflow-y-auto">
-              {installed.map((pkg) => (
+              {sortedInstalled.map((pkg) => (
                 <li
                   key={pkg.name}
                   className="flex items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-1.5 text-xs"

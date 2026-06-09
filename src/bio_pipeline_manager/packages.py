@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.metadata
+import os
 import re
 import sqlite3
 import subprocess
@@ -58,10 +59,29 @@ def _utc_now_iso() -> str:
 
 
 def _default_pip_runner(python_executable: str, args: list[str]) -> tuple[int, str, str]:
+    # Isolate pip from the parent process's console so a Ctrl+C / reload signal
+    # delivered to the server (e.g. uvicorn --reload restarting the worker when
+    # the install writes into site-packages) does not propagate into pip and
+    # abort it with "Operation cancelled by user". On Windows,
+    # CREATE_NEW_PROCESS_GROUP disables CTRL+C delivery to the child; on POSIX,
+    # start_new_session detaches it from the controlling terminal's group.
+    popen_kwargs: dict = {}
+    if sys.platform == "win32":
+        popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        popen_kwargs["start_new_session"] = True
+
+    # --no-input (and a closed stdin) guarantee pip never blocks on an
+    # interactive credential prompt, which would otherwise also abort the run.
+    env = {**os.environ, "PIP_NO_INPUT": "1"}
+
     proc = subprocess.run(
-        [python_executable, "-m", "pip", *args],
+        [python_executable, "-m", "pip", "--no-input", *args],
         capture_output=True,
         text=True,
+        stdin=subprocess.DEVNULL,
+        env=env,
+        **popen_kwargs,
     )
     return proc.returncode, proc.stdout, proc.stderr
 

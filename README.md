@@ -147,8 +147,13 @@ bio-pipeline jobs
 Serve the backend API:
 
 ```bash
-uvicorn app.main:app --app-dir backend --reload --port 8005
+uvicorn app.main:app --app-dir backend --reload --reload-dir backend --reload-dir src --port 8005
 ```
+
+`--reload-dir backend --reload-dir src` keeps the auto-reloader watching only the
+source trees. Without it the reloader also watches `.venv`, so installing a
+package from the Environment page churns `site-packages` and restarts the worker
+mid-install.
 
 Run the frontend:
 

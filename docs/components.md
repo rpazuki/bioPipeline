@@ -134,8 +134,12 @@ Backend:
 
 ```bash
 source .venv/bin/activate
-uvicorn app.main:app --app-dir backend --reload --port 8005
+uvicorn app.main:app --app-dir backend --reload --reload-dir backend --reload-dir src --port 8005
 ```
+
+`--reload-dir backend --reload-dir src` scopes the auto-reloader to the source
+trees only. Without it the reloader watches `.venv` too, so a package install
+from the Environment page restarts the worker mid-install.
 
 Frontend:
 

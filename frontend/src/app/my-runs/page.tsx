@@ -248,7 +248,7 @@ export default function MyRunsPage() {
                             {detail.group.tasks.map((task) => {
                               const logOpen = openTaskLogs.has(task.id);
                               return (
-                                <div key={task.id} className="rounded-md border border-slate-200 bg-white p-2 text-xs">
+                                <div key={task.id} className="w-full rounded-md border border-slate-200 bg-white p-2 text-xs">
                                   <div className="flex items-center gap-2">
                                     <button
                                       className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold leading-none"
@@ -262,7 +262,7 @@ export default function MyRunsPage() {
                                   </div>
                                   {task.error ? <p className="mt-1 text-rose-700">{task.error}</p> : null}
                                   {logOpen ? (
-                                    <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-black p-2 font-mono text-[11px] leading-5 text-emerald-300">
+                                    <pre className="mt-2 w-full max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-black p-2 font-mono text-[11px] leading-5 text-emerald-300">
                                       {detail.logs?.[task.id]?.trim() || "No logs yet."}
                                     </pre>
                                   ) : null}

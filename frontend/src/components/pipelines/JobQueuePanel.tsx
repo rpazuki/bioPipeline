@@ -382,14 +382,14 @@ export default function JobQueuePanel({ onStatus }: Props) {
                     {expanded ? (
                       <tr key={`${job.id}-log`} className="border-b border-slate-200">
                         <td className="px-3 pb-3 text-left" colSpan={7}>
-                          <div className="w-full max-w-4xl rounded-md bg-black p-3 text-xs leading-6 text-emerald-300">
+                          <div className="w-full rounded-md bg-black p-3 text-xs leading-6 text-emerald-300">
                             <div className="grid gap-1 text-slate-100">
                               <div className="font-semibold">Log for {job.id}</div>
                               <div className="text-slate-300">
                                 YAML: {formatRelativeYamlPath(job.yaml_path, runtimeInfo?.yaml_root ?? null)}
                               </div>
                             </div>
-                            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words">
+                            <pre className="w-full max-h-72 overflow-auto whitespace-pre-wrap break-words">
                               {logText || "No logs yet."}
                             </pre>
                           </div>

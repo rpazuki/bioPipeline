@@ -32,6 +32,16 @@ dev = [
 [project.scripts]
 bio-pipeline = "bio_pipeline_manager.cli:main"
 
+# Explicit src-layout discovery so every install (editable, strict-editable,
+# wheel, or sdist) bundles BOTH top-level packages under src/:
+#   - bio_pipeline_manager (the manager/API)
+#   - pipeline (the YAML/process engine that bio_pipeline_manager imports at
+#     runtime in run_task.py and job_definition.py)
+# Without this, setuptools falls back to automatic discovery, which can silently
+# drop `pipeline` for non-editable installs and leave the app unimportable.
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests", "backend/tests"]
 pythonpath = ["src", "backend"]
