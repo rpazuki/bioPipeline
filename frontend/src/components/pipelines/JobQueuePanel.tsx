@@ -113,6 +113,34 @@ export default function JobQueuePanel({ onStatus }: Props) {
     }
   }, [jobs, expandedLogJobId]);
 
+  // Stream the open log: while a job's log is expanded, refresh it on an
+  // interval so a running job's output appends live instead of only updating
+  // when the log is closed and reopened.
+  useEffect(() => {
+    if (!expandedLogJobId) {
+      return;
+    }
+    const jobId = expandedLogJobId;
+    let cancelled = false;
+
+    async function pullLog() {
+      try {
+        const response = await getJobLogs(jobId);
+        if (!cancelled) {
+          setJobLogs((current) => ({ ...current, [jobId]: response.log || "No logs yet." }));
+        }
+      } catch {
+        // Keep the last log visible if a single refresh fails.
+      }
+    }
+
+    const timer = window.setInterval(pullLog, 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [expandedLogJobId]);
+
   async function runDue() {
     const completed = await runDueJobs(1);
     onStatus(`Ran ${completed.length} due job${completed.length === 1 ? "" : "s"}`);
