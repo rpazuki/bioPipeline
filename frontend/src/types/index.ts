@@ -123,6 +123,7 @@ export interface JobDefinitionPreview {
   job_name: string;
   task_count: number;
   tasks: MaterializedTask[];
+  warnings: string[];
 }
 
 export interface JobGroupSummary {

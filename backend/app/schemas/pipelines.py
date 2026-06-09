@@ -165,6 +165,7 @@ class JobDefinitionPreviewResponse(BaseModel):
     job_name: str
     task_count: int
     tasks: list[MaterializedTaskResponse]
+    warnings: list[str] = Field(default_factory=list)
 
 
 class JobGroupSummary(BaseModel):
@@ -241,6 +242,7 @@ class PublishedJobInspectRequest(BaseModel):
 class PublishedJobInspectResponse(BaseModel):
     job_name: str
     candidates: list[PublishedField]
+    warnings: list[str] = Field(default_factory=list)
 
 
 class PublishedJobSaveRequest(BaseModel):

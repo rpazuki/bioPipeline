@@ -270,7 +270,7 @@ export async function getJobDefinition(parentJobId: string) {
 
 // Published jobs
 export async function inspectPublishedJob(content: string) {
-  return apiFetch<{ job_name: string; candidates: PublishedField[] }>("/published-jobs/admin/inspect", {
+  return apiFetch<{ job_name: string; candidates: PublishedField[]; warnings: string[] }>("/published-jobs/admin/inspect", {
     method: "POST",
     body: JSON.stringify({ content }),
   });
@@ -331,7 +331,7 @@ export async function archivePublishedJob(id: string) {
 }
 
 export async function validatePublishedJob(id: string) {
-  return apiFetch<{ is_valid: boolean; candidate_count: number; field_count: number; run_count: number }>(
+  return apiFetch<{ is_valid: boolean; candidate_count: number; field_count: number; run_count: number; warnings: string[] }>(
     `/published-jobs/admin/${encodeURIComponent(id)}/validate`,
     { method: "POST" },
   );

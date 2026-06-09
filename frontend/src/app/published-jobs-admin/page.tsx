@@ -79,6 +79,7 @@ export default function PublishedJobsAdminPage() {
   const [candidates, setCandidates] = useState<PublishedField[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [fieldEdits, setFieldEdits] = useState<Record<string, PublishedField>>({});
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("Ready");
 
@@ -119,6 +120,7 @@ export default function PublishedJobsAdminPage() {
     setSelectedIds(new Set());
     setFieldEdits({});
     setSelectedRuns([]);
+    setWarnings([]);
     setStatus("New published job");
   }
 
@@ -140,6 +142,7 @@ export default function PublishedJobsAdminPage() {
     setError(null);
     const source = content ?? definitionContent;
     const result = await inspectPublishedJob(source);
+    setWarnings(result.warnings ?? []);
     const merged = mergeFields(result.candidates, selectedFields);
     const nextEdits = Object.fromEntries(merged.map((field) => [field.id, field]));
     setCandidates(merged);
@@ -160,8 +163,10 @@ export default function PublishedJobsAdminPage() {
     try {
       const inspected = await inspectPublishedJob(job.definition_content);
       merged = mergeFields(inspected.candidates, job.fields);
+      setWarnings(inspected.warnings ?? []);
     } catch {
       merged = job.fields;
+      setWarnings([]);
     }
     setEditingId(job.id);
     setName(job.name);
@@ -210,6 +215,7 @@ export default function PublishedJobsAdminPage() {
   async function validateCurrent() {
     if (editingId) {
       const result = await validatePublishedJob(editingId);
+      setWarnings(result.warnings ?? []);
       setStatus(
         `Saved version is valid · ${result.field_count} public fields · ${result.candidate_count} candidates · ${result.run_count} runs`,
       );
@@ -331,6 +337,13 @@ export default function PublishedJobsAdminPage() {
               </>
             ) : null}
           </div>
+          {warnings.length ? (
+            <div className="grid gap-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              {warnings.map((warning, index) => (
+                <p key={index}>⚠ {warning}</p>
+              ))}
+            </div>
+          ) : null}
         </section>
         }
         right={

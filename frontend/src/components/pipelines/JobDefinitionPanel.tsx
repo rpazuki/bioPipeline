@@ -588,6 +588,13 @@ export default function JobDefinitionPanel() {
             {preview ? `Valid — expands to ${preview.task_count} task${preview.task_count === 1 ? "" : "s"}.` : "Validating…"}
           </p>
         )}
+        {preview?.warnings?.length ? (
+          <div className="grid gap-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            {preview.warnings.map((warning, index) => (
+              <p key={index}>⚠ {warning}</p>
+            ))}
+          </div>
+        ) : null}
         {error ? <p className="text-xs text-rose-700">{error}</p> : null}
     </section>
   );

@@ -376,6 +376,54 @@ def materialize_stage(
     return tasks
 
 
+_ITEM_TOKEN_RE = re.compile(r"\{item\.[a-zA-Z0-9_]+\}")
+
+
+def _references_item(value: Any) -> bool:
+    """True if any string within ``value`` references an ``{item.*}`` token."""
+    if isinstance(value, str):
+        return bool(_ITEM_TOKEN_RE.search(value))
+    if isinstance(value, dict):
+        return any(_references_item(v) for v in value.values())
+    if isinstance(value, list):
+        return any(_references_item(v) for v in value)
+    return False
+
+
+def fanout_warnings(job_def: JobDefinition) -> list[str]:
+    """Lint for fan-out stages whose tasks would not vary per item.
+
+    A stage with a non-``none`` fan-out produces one Task per item. If none of
+    its per-item templates (``input_sources``, ``output_dir``, the arg mappings)
+    reference an ``{item.*}`` token, every Task is identical — almost always a
+    mistake (e.g. ``input_sources`` points at the fan-out folder instead of
+    ``{data_root}/{item.raw}``). Returns human-readable warning strings; it does
+    not raise, so a preview can show the plan alongside the warnings.
+    """
+    warnings: list[str] = []
+    for stage in job_def.stages:
+        fanout = stage.get("fanout", {"type": "none"}) or {"type": "none"}
+        ftype = fanout.get("type", "none")
+        if ftype == "none":
+            continue
+        per_item_templates = [
+            stage.get("input_sources"),
+            stage.get("output_dir"),
+            stage.get("input_arg_mapping"),
+            stage.get("process_arg_mapping"),
+            stage.get("output_path_mapping"),
+        ]
+        if not any(_references_item(t) for t in per_item_templates):
+            name = stage.get("name", "?")
+            warnings.append(
+                f"Stage '{name}' has a '{ftype}' fan-out but none of its "
+                "input_sources/output_dir reference an {item.*} value, so every "
+                "task will be identical. Use a per-item token such as {item.raw}, "
+                '{item.meta} or {item.stem} (e.g. raw_data: "{data_root}/{item.raw}").'
+            )
+    return warnings
+
+
 def expand(text_or_def: str | JobDefinition, *, lenient: bool = False) -> list[MaterializedTask]:
     """Expand a Job Definition into a flat list of materialized Tasks.
 

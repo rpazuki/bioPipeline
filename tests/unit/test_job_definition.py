@@ -5,9 +5,53 @@ import pytest
 from bio_pipeline_manager.job_definition import (
     JobDefinitionError,
     expand,
+    fanout_warnings,
     iter_cells,
     parse_job_definition,
 )
+
+
+_FANOUT_NO_ITEM = """
+job: multi
+defaults:
+  data_root: /data
+  mapping_yaml: /data/mapping.yaml
+stages:
+  - name: fit
+    pipeline_yaml: p.yaml
+    pipeline: fit
+    fanout:
+      type: mapping_file
+      mapping: "{mapping_yaml}"
+    input_sources:
+      raw_data: "{data_root}"
+      meta_data: "{data_root}"
+    output_dir: /out
+"""
+
+
+def test_fanout_warning_when_no_item_token():
+    # mapping_file fan-out whose inputs/outputs never reference {item.*} would
+    # produce N identical tasks — must be flagged.
+    warnings = fanout_warnings(parse_job_definition(_FANOUT_NO_ITEM))
+    assert len(warnings) == 1
+    assert "fit" in warnings[0]
+    assert "item" in warnings[0]
+
+
+def test_no_warning_when_item_token_present():
+    text = _FANOUT_NO_ITEM.replace('raw_data: "{data_root}"', 'raw_data: "{data_root}/{item.raw}"')
+    assert fanout_warnings(parse_job_definition(text)) == []
+
+
+def test_no_warning_when_item_only_in_output_dir():
+    text = _FANOUT_NO_ITEM.replace("output_dir: /out", "output_dir: /out/{item.stem}")
+    assert fanout_warnings(parse_job_definition(text)) == []
+
+
+def test_no_warning_for_fanout_none():
+    text = _FANOUT_NO_ITEM.replace("type: mapping_file", "type: none")
+    assert fanout_warnings(parse_job_definition(text)) == []
 
 
 def _write_mapping(tmp_path: Path) -> Path:

@@ -69,7 +69,7 @@ describe("JobDefinitionPanel", () => {
       { parent_job_id: "grp-1", job_name: "demo", status: "succeeded", total: 3, counts: { succeeded: 3 } },
     ]);
     // Default so the debounced auto-preview always has something to resolve.
-    mocked.previewJobDefinition.mockResolvedValue({ job_name: "", task_count: 0, tasks: [] });
+    mocked.previewJobDefinition.mockResolvedValue({ job_name: "", task_count: 0, tasks: [], warnings: [] });
     mocked.listJobDefinitionTemplates.mockResolvedValue([
       { name: "empty", description: "Minimal one-stage shell." },
     ]);
@@ -126,6 +126,7 @@ describe("JobDefinitionPanel", () => {
           item_index: 0,
         },
       ],
+      warnings: [],
     });
 
     render(<JobDefinitionPanel />);

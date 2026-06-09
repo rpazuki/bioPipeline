@@ -26,7 +26,12 @@ from app.schemas.pipelines import (
 )
 from app.services.runtime import PipelineRuntime
 from bio_pipeline_manager.auth_models import UserRecord
-from bio_pipeline_manager.job_definition import JobDefinitionError, expand, parse_job_definition
+from bio_pipeline_manager.job_definition import (
+    JobDefinitionError,
+    expand,
+    fanout_warnings,
+    parse_job_definition,
+)
 from bio_pipeline_manager.published_jobs import (
     PublishedJobError,
     PublishedJobRecord,
@@ -53,7 +58,11 @@ async def inspect_published_job_definition(
         candidates = inspect_definition(body.content, yaml_loader=runtime.yaml_store.load)
     except (JobDefinitionError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    return PublishedJobInspectResponse(job_name=job_def.name, candidates=candidates)
+    return PublishedJobInspectResponse(
+        job_name=job_def.name,
+        candidates=candidates,
+        warnings=fanout_warnings(job_def),
+    )
 
 
 @router.get("/admin", response_model=list[PublishedJobAdminResponse])
@@ -176,7 +185,7 @@ async def validate_admin_published_job(
 ) -> dict:
     record = _get_published_job(runtime, published_job_id)
     try:
-        parse_job_definition(record.definition_content)
+        job_def = parse_job_definition(record.definition_content)
         candidates = inspect_definition(record.definition_content, yaml_loader=runtime.yaml_store.load)
     except (JobDefinitionError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -185,6 +194,7 @@ async def validate_admin_published_job(
         "candidate_count": len(candidates),
         "field_count": len(record.fields),
         "run_count": runtime.published_jobs.run_count(record.id),
+        "warnings": fanout_warnings(job_def),
     }
 
 

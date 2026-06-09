@@ -14,7 +14,12 @@ from app.schemas.pipelines import (
     MaterializedTaskResponse,
 )
 from app.services.runtime import PipelineRuntime
-from bio_pipeline_manager.job_definition import JobDefinitionError, expand
+from bio_pipeline_manager.job_definition import (
+    JobDefinitionError,
+    expand,
+    fanout_warnings,
+    parse_job_definition,
+)
 
 
 router = APIRouter(prefix="/job-definitions", tags=["job-definitions"])
@@ -24,13 +29,15 @@ router = APIRouter(prefix="/job-definitions", tags=["job-definitions"])
 async def preview_job_definition(body: JobDefinitionRequest) -> JobDefinitionPreviewResponse:
     """Expand a Job Definition into its Tasks without queueing anything."""
     try:
-        tasks = expand(body.content, lenient=True)
+        job_def = parse_job_definition(body.content)
+        tasks = expand(job_def, lenient=True)
     except JobDefinitionError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     return JobDefinitionPreviewResponse(
-        job_name=tasks[0].job_name if tasks else "",
+        job_name=tasks[0].job_name if tasks else job_def.name,
         task_count=len(tasks),
+        warnings=fanout_warnings(job_def),
         tasks=[
             MaterializedTaskResponse(
                 job_name=task.job_name,
