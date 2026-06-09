@@ -568,7 +568,7 @@ export default function JobDefinitionPanel() {
             type="button"
             onClick={onSubmit}
             disabled={busy}
-            className="rounded-md bg-cyan-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            className="rounded-md bg-emerald-700 px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
             Submit
           </button>

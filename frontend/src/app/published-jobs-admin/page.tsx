@@ -312,7 +312,7 @@ export default function PublishedJobsAdminPage() {
             <button type="button" className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold disabled:opacity-50" disabled={!selectedFields.length || !name} onClick={() => save(false).catch((cause: Error) => setError(cause.message))}>
               {editingId ? "Update Draft" : "Save Draft"}
             </button>
-            <button type="button" className="rounded-md bg-cyan-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={!selectedFields.length || !name} onClick={() => save(true).catch((cause: Error) => setError(cause.message))}>
+            <button type="button" className="rounded-md bg-emerald-700 px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50" disabled={!selectedFields.length || !name} onClick={() => save(true).catch((cause: Error) => setError(cause.message))}>
               Publish
             </button>
             {editingId ? (
@@ -457,7 +457,7 @@ export default function PublishedJobsAdminPage() {
                     Duplicate
                   </button>
                   {job.status !== "published" ? (
-                    <button type="button" className="rounded-md border border-cyan-200 px-2 py-1 text-xs font-semibold text-cyan-800" onClick={() => publishPublishedJob(job.id).then(() => refresh()).catch((cause: Error) => setError(cause.message))}>
+                    <button type="button" className="rounded-md bg-emerald-700 px-2 py-1 text-xs font-semibold text-white" onClick={() => publishPublishedJob(job.id).then(() => refresh()).catch((cause: Error) => setError(cause.message))}>
                       Publish
                     </button>
                   ) : null}

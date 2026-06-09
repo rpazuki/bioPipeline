@@ -13,6 +13,7 @@ import {
   listSavedDefinitions,
   restoreDefinition,
   saveDefinition,
+  submitJobDefinition,
 } from "@/lib/api";
 import type { DefinitionSummary } from "@/types";
 
@@ -86,6 +87,22 @@ export default function JobStoragePanel() {
       await refresh();
     });
 
+  const onSubmit = (item: DefinitionSummary) =>
+    run(async () => {
+      if (!item.is_valid) {
+        setStatus(`Cannot submit ${item.name}: definition is invalid`);
+        return;
+      }
+      const doc = await getSavedDefinition(item.name);
+      if (!doc.is_valid) {
+        setStatus(`Cannot submit ${item.name}: ${doc.error ?? "definition is invalid"}`);
+        return;
+      }
+      await submitJobDefinition(doc.content);
+      setStatus(`Submitted ${item.name}`);
+      router.push("/");
+    });
+
   const onRestore = (name: string) =>
     run(async () => {
       await restoreDefinition(name);
@@ -143,6 +160,14 @@ export default function JobStoragePanel() {
                 <span className="flex gap-1.5">
                   <button className="rounded-md bg-cyan-700 px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50" onClick={() => onOpen(item.name)} disabled={busy}>
                     Open
+                  </button>
+                  <button
+                    className="rounded-md bg-emerald-700 px-2.5 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={() => onSubmit(item)}
+                    disabled={busy || !item.is_valid}
+                    title={item.is_valid ? "Submit this job definition" : "Invalid definitions cannot be submitted"}
+                  >
+                    Submit
                   </button>
                   <button className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-semibold disabled:opacity-50" onClick={() => onDuplicate(item.name)} disabled={busy}>
                     Duplicate

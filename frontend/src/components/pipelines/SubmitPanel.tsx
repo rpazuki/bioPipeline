@@ -147,7 +147,7 @@ export default function SubmitPanel({ yamlName, pipelineNames, yamlIsValid, onYa
                 <p className="mt-1 text-xs text-slate-500">Submit a single-pipeline job. Use Job Definitions for multi-stage runs.</p>
               </div>
               <button
-                className="rounded-md bg-cyan-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
+                className="rounded-md bg-emerald-700 px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => submit().catch((cause: Error) => setError(cause.message))}
                 disabled={!canSubmit}
               >
