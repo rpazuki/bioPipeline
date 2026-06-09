@@ -100,6 +100,24 @@ export default function ValidationPanel({
     onStatus(`Saved ${document.name}`);
   }
 
+  async function duplicate() {
+    setSaveError(null);
+    if (!yamlName.trim()) {
+      throw new Error("Enter a YAML path before duplicating");
+    }
+    const parts = yamlName.trim().split("/");
+    const fileName = parts[parts.length - 1];
+    const folder = parts.slice(0, -1).join("/");
+    const defaultPath = folder ? `${folder}/copy_of_${fileName}` : `copy_of_${fileName}`;
+    const newPath = window.prompt("Duplicate as:", defaultPath);
+    if (!newPath) return;
+    const document = await savePipelineYaml(newPath.trim(), yamlContent, false);
+    onYamlNameChange(document.name);
+    onPipelinesChange(document.pipelines);
+    onYamlValidityChange(document.is_valid, document.error ?? null);
+    onStatus(`Duplicated as ${document.name}`);
+  }
+
   const activeDraft = drafts[Math.min(activeIndex, drafts.length - 1)] ?? null;
 
   return (
@@ -115,6 +133,12 @@ export default function ValidationPanel({
           <div className="flex flex-wrap gap-2">
             <button className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold" onClick={validate}>
               Validate
+            </button>
+            <button className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold" onClick={() => duplicate().catch((error: Error) => {
+              setSaveError(error.message);
+              onStatus(`Duplicate failed: ${error.message}`);
+            })}>
+              Duplicate
             </button>
             <button className="rounded-md bg-cyan-700 px-3 py-2 text-sm font-semibold text-white" onClick={() => save().catch((error: Error) => {
               setSaveError(error.message);

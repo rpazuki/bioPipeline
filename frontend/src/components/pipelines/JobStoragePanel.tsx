@@ -11,6 +11,7 @@ import {
   listArchivedDefinitions,
   listSavedDefinitions,
   restoreDefinition,
+  saveDefinition,
 } from "@/lib/api";
 import type { DefinitionSummary } from "@/types";
 
@@ -53,6 +54,20 @@ export default function JobStoragePanel() {
       setJobDefinitionDraft({ name: doc.name, content: doc.content });
       setStatus(`Opened ${name} in the editor`);
       router.push("/job-definitions");
+    });
+
+  const onDuplicate = (name: string) =>
+    run(async () => {
+      const doc = await getSavedDefinition(name);
+      const parts = name.split("/");
+      const fileName = parts[parts.length - 1];
+      const folder = parts.slice(0, -1).join("/");
+      const defaultName = folder ? `${folder}/copy_of_${fileName}` : `copy_of_${fileName}`;
+      const newName = window.prompt("Duplicate as:", defaultName);
+      if (!newName) return;
+      await saveDefinition(newName.trim(), doc.content, false);
+      await refresh();
+      setStatus(`Duplicated ${name} as ${newName.trim()}`);
     });
 
   const onArchive = (name: string) =>
@@ -109,6 +124,9 @@ export default function JobStoragePanel() {
                 <span className="flex gap-1.5">
                   <button className="rounded-md bg-cyan-700 px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50" onClick={() => onOpen(item.name)} disabled={busy}>
                     Open
+                  </button>
+                  <button className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-semibold disabled:opacity-50" onClick={() => onDuplicate(item.name)} disabled={busy}>
+                    Duplicate
                   </button>
                   <button className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-semibold disabled:opacity-50" onClick={() => onArchive(item.name)} disabled={busy}>
                     Archive

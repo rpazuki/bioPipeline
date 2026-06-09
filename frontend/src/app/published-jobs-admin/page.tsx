@@ -220,6 +220,23 @@ export default function PublishedJobsAdminPage() {
     if (editingId === jobId) await loadExisting(jobId);
   }
 
+  async function duplicateCurrent(jobId: string) {
+    const job = await getAdminPublishedJob(jobId);
+    const newName = window.prompt("Duplicate as:", `Copy of ${job.name}`);
+    if (!newName) return;
+    const newJob = await createPublishedJob({
+      name: newName.trim(),
+      description: job.description,
+      definition_name: job.definition_name,
+      definition_content: job.definition_content,
+      fields: job.fields,
+      status: "draft",
+    });
+    setStatus(`Duplicated as ${newJob.name}`);
+    await refresh();
+    await loadExisting(newJob.id);
+  }
+
   async function deleteCurrent(jobId: string) {
     const count = runCounts[jobId] ?? 0;
     const force = count > 0;
@@ -435,6 +452,9 @@ export default function PublishedJobsAdminPage() {
                 <div className="flex flex-wrap gap-2">
                   <button type="button" className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold" onClick={() => loadExisting(job.id).catch((cause: Error) => setError(cause.message))}>
                     Edit
+                  </button>
+                  <button type="button" className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold" onClick={() => duplicateCurrent(job.id).catch((cause: Error) => setError(cause.message))}>
+                    Duplicate
                   </button>
                   {job.status !== "published" ? (
                     <button type="button" className="rounded-md border border-cyan-200 px-2 py-1 text-xs font-semibold text-cyan-800" onClick={() => publishPublishedJob(job.id).then(() => refresh()).catch((cause: Error) => setError(cause.message))}>

@@ -305,6 +305,22 @@ export default function JobDefinitionPanel() {
     void saveToName(name);
   };
 
+  const onDuplicate = () => {
+    const parts = (editingDefinitionName ?? "").split("/");
+    const fileName = parts[parts.length - 1];
+    const folder = parts.slice(0, -1).join("/");
+    const defaultName = editingDefinitionName
+      ? folder ? `${folder}/copy_of_${fileName}` : `copy_of_${fileName}`
+      : "";
+    const name = window.prompt("Duplicate definition as (e.g. copy_of_growth_full.yaml):", defaultName);
+    if (!name) return;
+    run(async () => {
+      await saveDefinition(name.trim(), content, false);
+      setJobDefinitionName(name.trim());
+      setStatus(`Duplicated as ${name.trim()}`);
+    });
+  };
+
   const onAddStage = () =>
     run(async () => {
       const normalized = sanitizeStageName(stageName || stagePipelineName || "stage");
@@ -494,6 +510,14 @@ export default function JobDefinitionPanel() {
               Save As
             </button>
           ) : null}
+          <button
+            type="button"
+            onClick={onDuplicate}
+            disabled={busy}
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
+          >
+            Duplicate
+          </button>
           <button
             type="button"
             onClick={onSubmit}
