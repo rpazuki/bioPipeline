@@ -115,6 +115,8 @@ function appendStageToDefinition(
     output_dir: string;
   },
 ): string {
+  // Use yaml.load only for validation — we intentionally do NOT re-dump the
+  // parsed document so that existing comments are preserved.
   const data = yaml.load(text);
   if (!isRecord(data)) {
     throw new Error("Job Definition YAML must be a mapping before a stage can be added");
@@ -123,18 +125,62 @@ function appendStageToDefinition(
   if (stages.some((item) => isRecord(item) && item.name === stage.name)) {
     throw new Error(`Stage already exists: ${stage.name}`);
   }
-  data.stages = [
-    ...stages,
-    {
-      name: stage.name,
-      ...(stage.needs.length ? { needs: stage.needs } : {}),
-      pipeline_yaml: stage.pipeline_yaml,
-      pipeline: stage.pipeline,
-      fanout: { type: "none" },
-      output_dir: stage.output_dir,
-    },
-  ];
-  return yaml.dump(data, { indent: 2, lineWidth: -1, sortKeys: false, noRefs: true });
+
+  // Serialise only the new stage entry as a YAML list item.
+  // yaml.dump([obj]) → "- name: foo\n  pipeline_yaml: ...\n  ...\n"
+  const newStageObj = {
+    name: stage.name,
+    ...(stage.needs.length ? { needs: stage.needs } : {}),
+    pipeline_yaml: stage.pipeline_yaml,
+    pipeline: stage.pipeline,
+    fanout: { type: "none" },
+    output_dir: stage.output_dir,
+  };
+  const stageListItem = yaml.dump([newStageObj], {
+    indent: 2,
+    lineWidth: -1,
+    sortKeys: false,
+    noRefs: true,
+  });
+  // Indent 2 spaces so the item sits under "stages:"
+  const indentedItem = stageListItem
+    .trimEnd()
+    .split("\n")
+    .map((line) => "  " + line)
+    .join("\n");
+
+  // If there is no stages block yet, add one at the end of the document.
+  if (!Array.isArray(data.stages)) {
+    return text.trimEnd() + "\nstages:\n" + indentedItem + "\n";
+  }
+
+  // Find the "stages:" key at the top level (column 0) in the original text so
+  // we know where the block ends — then insert just before the next top-level
+  // key (or at EOF). This avoids touching any part of the document that already
+  // exists, so all comments are kept intact.
+  const lines = text.split("\n");
+  const stagesLineIdx = lines.findIndex((line) => /^stages\s*:/.test(line));
+
+  if (stagesLineIdx === -1) {
+    // "stages:" line not found (e.g. all-inline style) — safe fallback: append.
+    return text.trimEnd() + "\n" + indentedItem + "\n";
+  }
+
+  // Scan for the next top-level key after the stages block.
+  let nextTopLevelLine = lines.length;
+  for (let i = stagesLineIdx + 1; i < lines.length; i++) {
+    if (/^[A-Za-z_]/.test(lines[i])) {
+      nextTopLevelLine = i;
+      break;
+    }
+  }
+
+  // Insert the new item lines just before the next top-level key (or EOF).
+  return [
+    ...lines.slice(0, nextTopLevelLine),
+    ...indentedItem.split("\n"),
+    ...lines.slice(nextTopLevelLine),
+  ].join("\n");
 }
 
 export default function JobDefinitionPanel() {
