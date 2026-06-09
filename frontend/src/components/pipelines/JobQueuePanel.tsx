@@ -9,6 +9,23 @@ interface Props {
   onStatus: (message: string) => void;
 }
 
+function statusClasses(status: string): string {
+  switch (status) {
+    case "succeeded":
+      return "bg-emerald-100 text-emerald-800";
+    case "running":
+      return "bg-cyan-100 text-cyan-800";
+    case "failed":
+    case "partially_failed":
+      return "bg-rose-100 text-rose-800";
+    case "blocked":
+    case "cancelled":
+      return "bg-amber-100 text-amber-800";
+    default:
+      return "bg-slate-100 text-slate-700";
+  }
+}
+
 function formatRelativeTime(value: string | null): string {
   if (!value) {
     return "—";
@@ -355,7 +372,7 @@ export default function JobQueuePanel({ onStatus }: Props) {
                       </td>
                       <td className="px-3 py-3 font-semibold text-slate-950">{job.pipeline_name}</td>
                       <td className="px-3 py-3">
-                        <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">
+                        <span className={`rounded-full px-2 py-1 text-xs font-semibold ${statusClasses(job.status)}`}>
                           {job.status}
                         </span>
                       </td>
