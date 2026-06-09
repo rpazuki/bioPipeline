@@ -17,6 +17,7 @@ def get_runtime() -> PipelineRuntime:
         auth_session_ttl_hours=settings.auth_session_ttl_hours,
         shared_roots=settings.shared_roots,
         upload_max_bytes=settings.upload_max_bytes,
+        task_timeout=settings.task_timeout_seconds,
     )
 
 

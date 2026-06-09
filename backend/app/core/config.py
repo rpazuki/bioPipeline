@@ -156,6 +156,10 @@ class Settings(BaseSettings):
     worker_enabled: bool = bool(_BACKEND_CONFIG.get("worker_enabled", True))
     worker_interval: float = float(_BACKEND_CONFIG.get("worker_interval", 2.0))
     worker_parallel: int = int(_BACKEND_CONFIG.get("worker_parallel", 1))
+    # Per-task watchdog: kill a task (and its whole process tree) and mark it
+    # FAILED if it runs longer than this many seconds, so one wedged task cannot
+    # freeze the queue forever. 0 / negative disables the watchdog (unbounded).
+    task_timeout_seconds: float = float(_BACKEND_CONFIG.get("task_timeout_seconds", 1800.0))
 
     # Published-run delivery: output archiving + workspace retention/cleanup.
     reaper_enabled: bool = bool(_BACKEND_CONFIG.get("reaper_enabled", True))

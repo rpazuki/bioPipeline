@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+import multiprocessing
 import sys
 from pathlib import Path
 
@@ -33,6 +34,23 @@ from pipeline.engine import build_pipeline_from_yaml
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 log = logging.getLogger("bio_pipeline_manager.run_task")
+
+
+def _pin_multiprocessing_executable() -> None:
+    """Force any multiprocessing child to use THIS interpreter.
+
+    Pipeline processes can use multiprocessing (e.g. cobra's ProcessPool during
+    FBA). On Windows, "spawn" launches a fresh interpreter; when this venv was
+    created from a different base (e.g. an Anaconda install), the spawned child
+    can resolve to that base interpreter instead of the venv. The base lacks the
+    venv's packages, so the child wedges and the parent blocks on it forever.
+    Pinning the spawn executable to ``sys.executable`` keeps children inside this
+    venv. See bio_pipeline_manager.run_task hang investigation.
+    """
+    try:
+        multiprocessing.set_executable(sys.executable)
+    except Exception:  # noqa: BLE001 - never let this stop a task from running
+        log.warning("Could not pin multiprocessing executable to %s", sys.executable)
 
 
 def run_task(task: dict) -> dict:
@@ -68,6 +86,8 @@ def main(argv: list[str] | None = None) -> int:
     if len(argv) != 1:
         log.error("usage: python -m bio_pipeline_manager.run_task TASK_JSON")
         return 2
+
+    _pin_multiprocessing_executable()
 
     task_path = Path(argv[0])
     try:

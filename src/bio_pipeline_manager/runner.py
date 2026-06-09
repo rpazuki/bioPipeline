@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -9,9 +11,42 @@ from pathlib import Path
 from bio_pipeline_manager.models import JobRecord, JobStatus, utc_now
 from bio_pipeline_manager.storage import JobStore
 
+logger = logging.getLogger(__name__)
+
 # The src/ directory, so the subprocess can import `bio_pipeline_manager`
 # and `pipeline` regardless of how the project is installed.
 _SRC_DIR = Path(__file__).resolve().parents[1]
+
+
+def _kill_process_tree(process: subprocess.Popen) -> None:
+    """Kill a subprocess and ALL of its descendants.
+
+    A pipeline Task can spawn children (e.g. cobra's multiprocessing pool), so
+    terminating only the direct child leaves grandchildren orphaned and still
+    holding resources. On Windows we use ``taskkill /T`` to walk the tree; on
+    POSIX we kill the child's process group (the child is started in its own
+    session via ``start_new_session`` so the group id equals its pid).
+    """
+    pid = process.pid
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/T", "/F", "/PID", str(pid)],
+                capture_output=True,
+                check=False,
+            )
+        else:
+            try:
+                os.killpg(os.getpgid(pid), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except Exception:  # noqa: BLE001 - fall back to a plain kill
+                process.kill()
+    except Exception:  # noqa: BLE001 - last-resort, never raise from cleanup
+        try:
+            process.kill()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 class LocalSubprocessRunner:
@@ -28,10 +63,13 @@ class LocalSubprocessRunner:
         *,
         python_executable: str | Path | None = None,
         extra_env: dict[str, str] | None = None,
+        task_timeout: float | None = None,
     ):
         self.store = store
         self.python_executable = str(python_executable or sys.executable)
         self.extra_env = extra_env or {}
+        # None / non-positive disables the watchdog (wait is unbounded).
+        self.task_timeout = task_timeout if task_timeout and task_timeout > 0 else None
 
     def write_task_file(self, job: JobRecord) -> Path:
         """Materialise the Task as a JSON file next to its log."""
@@ -80,23 +118,52 @@ class LocalSubprocessRunner:
             f"{_SRC_DIR}{os.pathsep}{existing_pythonpath}" if existing_pythonpath else str(_SRC_DIR)
         )
 
+        # On POSIX, start the child in its own session so the watchdog can kill
+        # the whole process group (child + any grandchildren it spawns).
+        popen_kwargs: dict = {}
+        if os.name != "nt":
+            popen_kwargs["start_new_session"] = True
+
+        timed_out = False
         with job.log_path.open("w", encoding="utf-8") as log_file:
             log_file.write("$ " + " ".join(command) + "\n\n")
             log_file.flush()
             process = subprocess.Popen(
                 command,
+                stdin=subprocess.DEVNULL,  # no inherited console; a stray input() must fail fast, not hang
                 stdout=log_file,
                 stderr=subprocess.STDOUT,
                 text=True,
                 env=env,
+                **popen_kwargs,
             )
             self.store.set_pid(job.id, process.pid)
             # A cancel may have raced in after the claim but before the pid was
             # recorded, so it could not signal the process — honor it now.
             if self.store.get_job(job.id).status == JobStatus.CANCELLED:
-                process.terminate()
+                _kill_process_tree(process)
             try:
-                returncode = process.wait()
+                returncode = process.wait(timeout=self.task_timeout)
+            except subprocess.TimeoutExpired:
+                # Watchdog fired: one task must never freeze the queue. Kill the
+                # whole tree, record it in the task log, and fail the job.
+                timed_out = True
+                logger.warning(
+                    "Task %s exceeded timeout of %ss; killing process tree (pid=%s)",
+                    job.id,
+                    self.task_timeout,
+                    process.pid,
+                )
+                log_file.write(
+                    f"\n[runner] Task exceeded timeout of {self.task_timeout:.0f}s "
+                    f"and was terminated.\n"
+                )
+                log_file.flush()
+                _kill_process_tree(process)
+                try:
+                    returncode = process.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    returncode = -1
             finally:
                 self.store.set_pid(job.id, None)
 
@@ -106,8 +173,12 @@ class LocalSubprocessRunner:
         if current.status == JobStatus.CANCELLED:
             return current
 
-        status = JobStatus.SUCCEEDED if returncode == 0 else JobStatus.FAILED
-        error = None if returncode == 0 else f"Process exited with {returncode}"
+        if timed_out:
+            status = JobStatus.FAILED
+            error = f"Task exceeded timeout of {self.task_timeout:.0f}s and was terminated"
+        else:
+            status = JobStatus.SUCCEEDED if returncode == 0 else JobStatus.FAILED
+            error = None if returncode == 0 else f"Process exited with {returncode}"
         return self.store.update_status(
             job.id,
             status,

@@ -35,6 +35,7 @@ def create_runtime(
     auth_session_ttl_hours: float = 24.0,
     shared_roots: list[dict] | None = None,
     upload_max_bytes: int | None = None,
+    task_timeout: float | None = None,
 ) -> PipelineRuntime:
     root = Path(home)
     job_store = JobStore(root / "state.sqlite")
@@ -43,7 +44,12 @@ def create_runtime(
         home=root,
         yaml_store=yaml_store,
         job_store=job_store,
-        queue=JobQueue(job_store, root / "logs", yaml_resolver=yaml_store.resolve_name),
+        queue=JobQueue(
+            job_store,
+            root / "logs",
+            yaml_resolver=yaml_store.resolve_name,
+            task_timeout=task_timeout,
+        ),
         packages=PackageManager(
             InstallStore(root / "installs.sqlite"),
             job_guard=job_store.has_active_jobs,

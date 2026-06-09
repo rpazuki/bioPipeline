@@ -37,6 +37,56 @@ def test_builds_run_task_command_and_task_file(tmp_path: Path):
     assert task["process_arg_mapping"] == {"step": {"threshold": "0.5"}}
 
 
+def test_watchdog_kills_task_that_exceeds_timeout(tmp_path: Path):
+    import sys
+
+    store = JobStore(tmp_path / "state.sqlite")
+    queue = JobQueue(store, tmp_path / "logs")
+    job = queue.submit(
+        JobSpec(
+            yaml_path=tmp_path / "pipe.yaml",
+            pipeline_name="demo",
+            output_dir=tmp_path / "out",
+        )
+    )
+
+    class SleepRunner(LocalSubprocessRunner):
+        # Replace the real run_task command with a child that would run far
+        # longer than the watchdog timeout.
+        def build_command(self, job, task_path):
+            return [sys.executable, "-c", "import time; time.sleep(30)"]
+
+    runner = SleepRunner(store, task_timeout=0.5)
+    result = runner.run(job.id)
+
+    assert result.status == JobStatus.FAILED
+    assert "timeout" in (result.error or "").lower()
+    # The log records the watchdog action for visibility in the log view.
+    assert "exceeded timeout" in job.log_path.read_text(encoding="utf-8").lower()
+
+
+def test_no_timeout_runs_to_completion(tmp_path: Path):
+    import sys
+
+    store = JobStore(tmp_path / "state.sqlite")
+    queue = JobQueue(store, tmp_path / "logs")
+    job = queue.submit(
+        JobSpec(
+            yaml_path=tmp_path / "pipe.yaml",
+            pipeline_name="demo",
+            output_dir=tmp_path / "out",
+        )
+    )
+
+    class QuickRunner(LocalSubprocessRunner):
+        def build_command(self, job, task_path):
+            return [sys.executable, "-c", "print('done')"]
+
+    # task_timeout=None (default) must leave wait() unbounded and succeed.
+    result = QuickRunner(store).run(job.id)
+    assert result.status == JobStatus.SUCCEEDED
+
+
 def test_rejects_unknown_backend(tmp_path: Path):
     import pytest
 
