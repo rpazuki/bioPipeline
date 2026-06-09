@@ -7,6 +7,7 @@ import { usePipeline } from "@/components/pipelines/PipelineContext";
 import {
   archiveDefinition,
   deleteSavedDefinition,
+  getJobDefinitionTemplate,
   getSavedDefinition,
   listArchivedDefinitions,
   listSavedDefinitions,
@@ -47,6 +48,15 @@ export default function JobStoragePanel() {
     },
     [],
   );
+
+  const onNewJob = () =>
+    run(async () => {
+      const template = await getJobDefinitionTemplate("empty");
+      // name: "" signals to the editor that this is a new, unsaved definition
+      setJobDefinitionDraft({ name: "", content: template.content });
+      setStatus("New job definition created");
+      router.push("/job-definitions");
+    });
 
   const onOpen = (name: string) =>
     run(async () => {
@@ -96,13 +106,22 @@ export default function JobStoragePanel() {
       <section className="grid gap-2 rounded-md border border-slate-200 bg-white p-4">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-slate-900">Saved Job Definitions ({saved.length})</h2>
-          <button
-            className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold"
-            onClick={() => run(refresh)}
-            disabled={busy}
-          >
-            Refresh
-          </button>
+          <span className="flex gap-2">
+            <button
+              className="rounded-md bg-cyan-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              onClick={onNewJob}
+              disabled={busy}
+            >
+              New Job
+            </button>
+            <button
+              className="rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold disabled:opacity-50"
+              onClick={() => run(refresh)}
+              disabled={busy}
+            >
+              Refresh
+            </button>
+          </span>
         </div>
         {error ? <p className="text-xs text-rose-700">{error}</p> : null}
         {saved.length === 0 ? (
