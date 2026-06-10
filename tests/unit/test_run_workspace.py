@@ -9,7 +9,7 @@ from bio_pipeline_manager.published_jobs import PublishedJobError, PublishedJobR
 from bio_pipeline_manager.run_workspace import RunWorkspaceError, RunWorkspaceStore
 
 
-def _record(fields: list[dict]) -> PublishedJobRecord:
+def _record(fields: list[dict], definition_content: str = "job: x\nstages: []\n") -> PublishedJobRecord:
     now = datetime.now(timezone.utc)
     return PublishedJobRecord(
         id="x",
@@ -18,7 +18,7 @@ def _record(fields: list[dict]) -> PublishedJobRecord:
         status="published",
         version=1,
         definition_name="",
-        definition_content="job: x\nstages: []\n",
+        definition_content=definition_content,
         fields=fields,
         created_at=now,
         updated_at=now,
@@ -99,6 +99,76 @@ def test_resolve_io_maps_input_and_output(tmp_path: Path):
     assert resolved["raw"].endswith("in.csv") and "inputs" in resolved["raw"]
     assert resolved["out"].endswith("out") and "outputs" in resolved["out"]
     assert resolved["keep"] == "hello"  # io_role none passes through unchanged
+
+
+def test_resolve_io_output_preserves_fanout_per_item_structure(tmp_path: Path):
+    # A fanned-out stage's output field must keep its per-item tokens so each
+    # Task writes to a distinct folder instead of overwriting one workspace dir.
+    store = RunWorkspaceStore(tmp_path / "runs")
+    manifest = store.create(owner_user_id="u1", published_job_id="j1")
+    definition = (
+        "job: x\n"
+        "defaults:\n"
+        "  data_root: /data\n"
+        "stages:\n"
+        "  - name: fit\n"
+        "    pipeline: p\n"
+        "    pipeline_yaml: p.yaml\n"
+        "    fanout: {type: mapping_file, mapping: /data/m.yaml}\n"
+        '    output_dir: "{data_root}/processed/{item.stem}"\n'
+    )
+    fields = [
+        {
+            "id": "out",
+            "label": "Out",
+            "type": "directory",
+            "io_role": "output",
+            "required": True,
+            "bindings": [{"target": "definition_path", "path": ["stages", "fit", "output_dir"]}],
+        },
+    ]
+    resolved = resolve_io(
+        _record(fields, definition),
+        {"out": ""},
+        workspaces=store,
+        workspace_id=manifest.workspace_id,
+    )
+    # Rooted in the workspace outputs dir, but still varies per item.
+    assert "outputs" in resolved["out"]
+    assert "processed" in resolved["out"]
+    assert resolved["out"].endswith("{item.stem}")
+
+
+def test_resolve_io_output_without_fanout_is_single_dir(tmp_path: Path):
+    # A stage with no fan-out keeps the single workspace output dir (no regression).
+    store = RunWorkspaceStore(tmp_path / "runs")
+    manifest = store.create(owner_user_id="u1", published_job_id="j1")
+    definition = (
+        "job: x\n"
+        "stages:\n"
+        "  - name: fit\n"
+        "    pipeline: p\n"
+        "    pipeline_yaml: p.yaml\n"
+        "    fanout: {type: none}\n"
+        '    output_dir: "/data/processed/{item.stem}"\n'
+    )
+    fields = [
+        {
+            "id": "out",
+            "label": "Out",
+            "type": "directory",
+            "io_role": "output",
+            "required": True,
+            "bindings": [{"target": "definition_path", "path": ["stages", "fit", "output_dir"]}],
+        },
+    ]
+    resolved = resolve_io(
+        _record(fields, definition),
+        {"out": ""},
+        workspaces=store,
+        workspace_id=manifest.workspace_id,
+    )
+    assert resolved["out"].endswith("out") and "{item" not in resolved["out"]
 
 
 def test_resolve_io_requires_a_file_for_required_input(tmp_path: Path):

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import sqlite3
 import uuid
 from copy import deepcopy
@@ -398,6 +400,54 @@ def inspect_definition(
     return deduped
 
 
+def _is_stage_output_dir_binding(binding: dict[str, Any]) -> bool:
+    """True if a binding targets a stage's ``output_dir`` in the definition."""
+    path = binding.get("path") or []
+    return (
+        binding.get("target") == "definition_path"
+        and isinstance(path, list)
+        and len(path) == 3
+        and path[0] == "stages"
+        and path[2] == "output_dir"
+    )
+
+
+def _stage_output_template_and_fanout(definition_content: str, stage_name: str) -> tuple[str, str]:
+    """Return ``(output_dir_template, fanout_type)`` for a stage, else ``("", "none")``."""
+    try:
+        data = yaml.safe_load(definition_content)
+    except yaml.YAMLError:
+        return "", "none"
+    if not isinstance(data, dict):
+        return "", "none"
+    for stage in data.get("stages", []) or []:
+        if isinstance(stage, dict) and stage.get("name") == stage_name:
+            template = str(stage.get("output_dir", "") or "")
+            fanout = stage.get("fanout") or {"type": "none"}
+            ftype = (fanout.get("type") if isinstance(fanout, dict) else "none") or "none"
+            return template, ftype
+    return "", "none"
+
+
+def _reroot_output_under_workspace(template: str, workspace_dir: str) -> str:
+    """Re-root a stage ``output_dir`` template under the run workspace.
+
+    A fanned-out stage's ``output_dir`` varies per item (e.g.
+    ``{data_root}\\processed\\{variant.name}\\{item.stem}``). Replacing it with a
+    single workspace directory would make every fan-out Task write to — and
+    overwrite — the same place. Instead we keep the per-cell / per-item structure
+    but place it UNDER the workspace dir: the leading root segment (e.g.
+    ``{data_root}``) is dropped and the remaining token-bearing tail is appended
+    to the workspace dir, so each Task still gets a distinct folder and the
+    outputs are collected from the workspace for delivery.
+    """
+    segments = [seg for seg in re.split(r"[\\/]+", template.strip()) if seg]
+    tail = segments[1:]  # drop the original root segment (replaced by the workspace)
+    if not tail:
+        return workspace_dir
+    return os.path.join(workspace_dir, *tail)
+
+
 def resolve_io(
     record: PublishedJobRecord,
     values: dict[str, Any],
@@ -434,7 +484,20 @@ def resolve_io(
         else:  # output
             if workspaces is None or workspace_id is None:
                 raise PublishedJobError(f"Field '{label}' is an output and requires a run workspace")
-            resolved[field_id] = str(workspaces.output_dir(workspace_id, field_id))
+            base = str(workspaces.output_dir(workspace_id, field_id))
+            # If this output overrides a fanned-out stage's output_dir, preserve
+            # the per-item structure so its Tasks don't all overwrite one folder.
+            out_binding = next(
+                (b for b in field_def.get("bindings", []) if _is_stage_output_dir_binding(b)),
+                None,
+            )
+            if out_binding is not None:
+                template, ftype = _stage_output_template_and_fanout(
+                    record.definition_content, out_binding["path"][1]
+                )
+                if ftype != "none":
+                    base = _reroot_output_under_workspace(template, base)
+            resolved[field_id] = base
     return resolved
 
 
