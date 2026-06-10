@@ -157,7 +157,9 @@ per-item fields are available for templating.
 > the stage is **materialised**: at submit for eligible (first) stages, and at run
 > time for stages gated behind `needs` (so a source produced upstream is fine —
 > see §8). A genuinely missing source on a first stage gives a clear validation
-> error (HTTP 400), not a server crash. `none` needs no files.
+> error (HTTP 400), not a server crash. `none` needs no files. A source whose value
+> is the `$WILL_PROVIDE$` placeholder is the exception: it is **mocked** with one
+> record at validation time and supplied by a researcher when published (see §12).
 
 `data_dir`, when present, is itself templated and is also exposed to
 `input_sources`/`output_dir` templates as `{data_dir}`.
@@ -218,7 +220,9 @@ pipelines:
 
 `src: EMPTY` is the convention for inputs that have no meaningful default —
 the pipeline cannot run until a real path is provided. `input_sources` is how
-the Job Definition supplies those paths:
+the Job Definition supplies those paths (and when that path is one a *researcher*
+fills in via a published job, the Job Definition uses `$WILL_PROVIDE$` for it —
+see §12):
 
 ```yaml
 # in the stage definition
@@ -356,8 +360,9 @@ bio-pipeline submit growth.yaml growth_rate_fit_pipeline \
 | `GET /job-definitions/{parent_job_id}` | Group detail with per-task records. |
 
 Malformed definitions or unreadable fan-out sources return **400** with a
-descriptive `detail`. The same endpoints exist (without the `/api/v1` prefix) on
-the lightweight notebook server.
+descriptive `detail`; a definition still containing `$WILL_PROVIDE$` also returns
+**400** (publish it instead — see §12). The same endpoints exist (without the
+`/api/v1` prefix) on the lightweight notebook server.
 
 ### Notebook client
 
@@ -378,7 +383,9 @@ definition, then:
 
 - **Preview** — see the expanded Tasks (stage, matrix cell, pipeline, output dir)
   without queueing.
-- **Submit** — queue the group; it appears under "Submitted jobs".
+- **Submit** — queue the group; it appears under "Submitted jobs". Disabled when
+  the definition contains `$WILL_PROVIDE$` — publish it and run it from the
+  *Published Jobs* page instead (see §12).
 - **Run due** — drain the queue.
 - Click any submitted job to see the hierarchical view: stages → per-cell Tasks
   with their statuses and the group rollup.
@@ -418,6 +425,8 @@ one file replaces:
 | 400 *"unresolved template variable `{x}`"* | A `{token}` doesn't match any variable/default/item field. |
 | 400 *"stage '…' needs unknown stage '…'"* / *"dependency cycle"* | Fix the `needs:` references. |
 | 400 *"YAML name must be relative and stay inside the YAML store"* | `pipeline_yaml` must name a stored YAML, not an absolute/escaping path. |
+| 400 *"… `$WILL_PROVIDE$` placeholder value(s) … cannot be submitted directly"* | The definition has deferred values — publish it and run it from the *Published Jobs* page instead of submitting directly (see §12). |
+| 400 *"… placeholder value(s) that were not provided: …"* | A published job was run with a `$WILL_PROVIDE$` value left unfilled or never exposed as a field — provide it, or expose it in the admin page (see §12). |
 | Task `blocked` | An upstream Task in the same cell did not succeed — inspect that Task's log. |
 
 ---
@@ -430,6 +439,52 @@ each field's value is spliced into the definition before it expands. Path-like
 fields (`file`, `directory`, `path`) can be marked as **researcher inputs or
 outputs**, so a remote researcher supplies her own data and gets results back —
 without the server filesystem ever being exposed.
+
+### Deferred values — `$WILL_PROVIDE$` (researcher-supplied)
+
+Some values aren't known when the definition is authored because a **researcher
+supplies them at run time** — most often a fan-out source like a `mapping_file`
+mapping or a `data_dir`, or a shared `data_root`. Mark any such value with the
+placeholder `$WILL_PROVIDE$`:
+
+```yaml
+defaults:
+  data_root: $WILL_PROVIDE$                       # researcher provides the data folder
+  data_to_metadata_mapping_yaml: $WILL_PROVIDE$   # researcher provides the mapping
+```
+
+The placeholder changes three behaviors:
+
+1. **Validation is mocked, not failed.** When a fan-out source contains
+   `$WILL_PROVIDE$`, the expander does **not** touch the filesystem; it fills the
+   fan-out with a **single mock record** so the per-item templates
+   (`{item.raw}` / `{item.meta}` / `{item.stem}` / `{item.path}` …) still resolve.
+   Preview shows one representative Task per cell instead of the *"could not read
+   mapping file"* error you would otherwise get for a path that does not exist yet.
+2. **Direct submission is blocked.** A definition that still contains
+   `$WILL_PROVIDE$` cannot be submitted from the CLI, the *Job Definitions* page,
+   or the API — running it would queue the mock placeholder. The Submit button is
+   disabled and the API returns **400**. The job must be **published** and run from
+   the *Published Jobs* page instead.
+3. **The published form fills it in.** Each `$WILL_PROVIDE$` value must be
+   **exposed as a field** (selected in the *Published Jobs Admin* page). When the
+   researcher provides a value it replaces the placeholder *before* the definition
+   expands, and the real fan-out source is read at run time. The admin page warns
+   about any placeholder value not yet selected as a field, and clears the warning
+   once it is.
+
+If a published job is run with a placeholder still unfilled — the researcher left
+a field blank, or the admin never exposed it as a field — submission fails with a
+clear, named error (e.g. *"… placeholder value(s) that were not provided:
+defaults.data_root"*), **not** the generic "submit directly" message.
+
+> **`$WILL_PROVIDE$` vs `EMPTY`.** These solve different problems. `EMPTY` (§6) is
+> a *pipeline* convention: an `Inputs` `src: EMPTY` has no default path and must be
+> filled by a stage's `input_sources`. `$WILL_PROVIDE$` is a *Job Definition*
+> convention: a value a **researcher** supplies through a published job, mocked
+> during validation and barred from direct submission. A stage often uses both — its
+> `input_sources` feeds a pipeline's `EMPTY` input from a `{data_root}` that is
+> itself `$WILL_PROVIDE$`.
 
 ### Field I/O classification (admin, at publish time)
 
