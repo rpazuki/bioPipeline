@@ -325,6 +325,7 @@ function OutputFieldHint({ field }: { field: PublishedField }) {
 
 export default function PublishedJobsPage() {
   const [jobs, setJobs] = useState<PublishedJobPublicSummary[]>([]);
+  const [filterText, setFilterText] = useState("");
   const [selected, setSelected] = useState<PublishedJobPublicDetail | null>(null);
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [files, setFiles] = useState<Record<string, File[]>>({});
@@ -339,6 +340,15 @@ export default function PublishedJobsPage() {
   async function refresh() {
     setJobs(await listPublishedJobs());
   }
+
+  const normalizedFilter = filterText.trim().toLowerCase();
+  const visibleJobs = [...jobs]
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
+    .filter((job) => {
+      if (!normalizedFilter) return true;
+      const haystack = `${job.name}\n${job.description ?? ""}`.toLowerCase();
+      return haystack.includes(normalizedFilter);
+    });
 
   useEffect(() => {
     refresh().catch((cause: Error) => setError(cause.message));
@@ -413,8 +423,19 @@ export default function PublishedJobsPage() {
           <h2 className="text-lg font-semibold text-slate-950">Published Jobs</h2>
           <p className="mt-1 text-sm text-slate-500">Run admin-published workflows without seeing job or pipeline YAML.</p>
         </div>
+        <label className="grid gap-1 text-xs font-semibold text-slate-600">
+          Filter jobs
+          <input
+            type="text"
+            value={filterText}
+            onChange={(event) => setFilterText(event.target.value)}
+            placeholder="Search by name or description"
+            className="h-9 rounded-md border border-slate-300 px-3 text-sm font-normal text-slate-900"
+          />
+        </label>
         {jobs.length === 0 ? <p className="text-sm text-slate-500">No jobs have been published yet.</p> : null}
-        {jobs.map((job) => (
+        {jobs.length > 0 && visibleJobs.length === 0 ? <p className="text-sm text-slate-500">No jobs match your filter.</p> : null}
+        {visibleJobs.map((job) => (
           <button
             key={job.id}
             type="button"
