@@ -35,6 +35,24 @@ _TOKEN_RE = re.compile(r"\{([a-zA-Z0-9_.]+)\}")
 
 FANOUT_TYPES = {"none", "mapping_file", "patterns", "folders"}
 
+# Sentinel marking a value a researcher supplies later, on the Published Jobs
+# page. During preview/validation the expander fills a fan-out source carrying
+# this token with a *single* mock item — so downstream {item.*} templates still
+# resolve — and the queue refuses to submit a definition that still contains it.
+# Such a job must be published and run with real values, not submitted directly.
+PROVIDED_LATER = "$WILL_PROVIDE$"
+
+
+def contains_provided_later(value: Any) -> bool:
+    """True if ``value`` (a string, or nested dict/list) embeds :data:`PROVIDED_LATER`."""
+    if isinstance(value, str):
+        return PROVIDED_LATER in value
+    if isinstance(value, dict):
+        return any(contains_provided_later(item) for item in value.values())
+    if isinstance(value, list):
+        return any(contains_provided_later(item) for item in value)
+    return False
+
 
 class JobDefinitionError(ValueError):
     """Raised when a Job Definition is malformed or cannot be expanded."""
@@ -244,6 +262,24 @@ def stage_by_name(job_def: JobDefinition, name: str) -> dict[str, Any]:
     raise JobDefinitionError(f"unknown stage '{name}'")
 
 
+def _provided_later_file_items() -> list[dict[str, str]]:
+    """One placeholder file-pair item for a deferred mapping_file/patterns fan-out.
+
+    The fan-out source is supplied by a researcher later, so its real items are
+    unknown at validation time. A single mock pair lets the stage's per-item
+    templates (``{item.raw}`` / ``{item.meta}`` / ``{item.stem}`` / ``{item.name}``)
+    resolve so the plan validates and shows exactly one representative task.
+    """
+    raw, meta = "sample.csv", "sample_meta.csv"
+    return [{"item.raw": raw, "item.meta": meta, "item.stem": Path(raw).stem, "item.name": Path(raw).name}]
+
+
+def _provided_later_folder_items() -> list[dict[str, str]]:
+    """One placeholder folder item for a deferred folders fan-out."""
+    name = "sample"
+    return [{"item.path": name, "item.name": name, "item.stem": name}]
+
+
 def _fanout_items(stage: dict[str, Any], context: dict[str, str]) -> tuple[list[dict[str, str]], dict[str, str]]:
     """Resolve a stage's fan-out into per-item template fragments.
 
@@ -268,6 +304,8 @@ def _fanout_items(stage: dict[str, Any], context: dict[str, str]) -> tuple[list[
         if "mapping" not in fanout:
             raise JobDefinitionError(f"stage '{stage_name}' mapping_file fan-out requires a 'mapping' path")
         mapping_path = _render(fanout["mapping"], item_context)
+        if contains_provided_later(mapping_path):
+            return _provided_later_file_items(), extra
         try:
             mapping = load_file_mapping(mapping_path)
         except (FileNotFoundError, OSError, ValueError) as exc:
@@ -284,11 +322,19 @@ def _fanout_items(stage: dict[str, Any], context: dict[str, str]) -> tuple[list[
         for required in ("raw_pattern", "meta_pattern"):
             if required not in fanout:
                 raise JobDefinitionError(f"stage '{stage_name}' patterns fan-out requires '{required}'")
+        raw_pattern = _render(fanout["raw_pattern"], item_context)
+        meta_pattern = _render(fanout["meta_pattern"], item_context)
+        if (
+            contains_provided_later(extra.get("data_dir", ""))
+            or contains_provided_later(raw_pattern)
+            or contains_provided_later(meta_pattern)
+        ):
+            return _provided_later_file_items(), extra
         try:
             mapping = create_file_mapping_from_patterns(
                 extra.get("data_dir", ""),
-                _render(fanout["raw_pattern"], item_context),
-                _render(fanout["meta_pattern"], item_context),
+                raw_pattern,
+                meta_pattern,
             )
         except (FileNotFoundError, OSError, ValueError) as exc:
             raise JobDefinitionError(f"stage '{stage_name}' patterns fan-out failed: {exc}") from exc
@@ -299,6 +345,8 @@ def _fanout_items(stage: dict[str, Any], context: dict[str, str]) -> tuple[list[
         return items, extra
 
     if ftype == "folders":
+        if contains_provided_later(extra.get("data_dir", "")):
+            return _provided_later_folder_items(), extra
         try:
             folders = list_folders(extra.get("data_dir", ""))
         except (FileNotFoundError, OSError) as exc:
@@ -422,6 +470,29 @@ def fanout_warnings(job_def: JobDefinition) -> list[str]:
                 '{item.meta} or {item.stem} (e.g. raw_data: "{data_root}/{item.raw}").'
             )
     return warnings
+
+
+def provided_later_warnings(job_def: JobDefinition) -> list[str]:
+    """Warn when a definition still carries :data:`PROVIDED_LATER` placeholders.
+
+    Such a job must be published and run with researcher-supplied values — it
+    cannot be submitted directly. Surfaced in preview/inspect so the author
+    remembers to expose those values as researcher input fields.
+    """
+    present = any(contains_provided_later(value) for value in job_def.defaults.values()) or any(
+        contains_provided_later(stage) for stage in job_def.stages
+    )
+    if not present:
+        return []
+    return [
+        f"This definition uses the {PROVIDED_LATER} placeholder for value(s) a researcher must "
+        "provide. Publish it and expose those values as input fields — it cannot be submitted directly."
+    ]
+
+
+def definition_warnings(job_def: JobDefinition) -> list[str]:
+    """Every non-fatal lint shown for a definition: fan-out + placeholder warnings."""
+    return fanout_warnings(job_def) + provided_later_warnings(job_def)
 
 
 def expand(text_or_def: str | JobDefinition, *, lenient: bool = False) -> list[MaterializedTask]:

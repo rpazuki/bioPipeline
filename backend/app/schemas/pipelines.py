@@ -395,6 +395,7 @@ class UninstallRequest(BaseModel):
 class DefinitionSummary(BaseModel):
     name: str
     job: str = ""
+    description: str = ""
     is_valid: bool = True
     error: str | None = None
 

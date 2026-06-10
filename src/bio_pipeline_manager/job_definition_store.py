@@ -142,14 +142,15 @@ class JobDefinitionStore:
         # parse_job_definition raises JobDefinitionError (a ValueError subclass).
         parse_job_definition(content)
 
-    def summary(self, name: str, *, archived: bool = False) -> tuple[str, bool, str | None]:
-        """Return ``(job_name, is_valid, error)`` for a stored definition."""
+    def summary(self, name: str, *, archived: bool = False) -> tuple[str, str, bool, str | None]:
+        """Return ``(job_name, description, is_valid, error)`` for a stored definition."""
         base = self.archive_root if archived else self.root
         content = _resolve_name(base, name).read_text(encoding="utf-8")
         try:
-            return parse_job_definition(content).name, True, None
+            parsed = parse_job_definition(content)
+            return parsed.name, parsed.description, True, None
         except JobDefinitionError as exc:
-            return "", False, str(exc)
+            return "", "", False, str(exc)
 
     def _cleanup_empty_parents(self, base: Path, path: Path) -> None:
         root = base.resolve()

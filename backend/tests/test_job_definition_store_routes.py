@@ -42,7 +42,9 @@ def test_save_list_get_and_tree(tmp_path: Path):
 
     listing = client.get(BASE)
     assert listing.status_code == 200
-    assert listing.json() == [{"name": "designs/growth.yaml", "job": "growth_full", "is_valid": True, "error": None}]
+    assert listing.json() == [
+        {"name": "designs/growth.yaml", "job": "growth_full", "description": "", "is_valid": True, "error": None}
+    ]
 
     doc = client.get(f"{BASE}/designs/growth.yaml")
     assert doc.status_code == 200

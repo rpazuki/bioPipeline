@@ -21,6 +21,16 @@ import {
 import ResizableSplitPane from "@/components/pipelines/ResizableSplitPane";
 import type { DefinitionSummary, PublishedField, PublishedFieldIoRole, PublishedJobAdmin, PublishedRunSummary, SharedRootInfo } from "@/types";
 
+// Placeholder marking a value a researcher supplies at run time. Each one must
+// be exposed (selected) as an input field so the researcher can fill it in.
+// Keep in sync with PROVIDED_LATER in bio_pipeline_manager/job_definition.py.
+const PROVIDED_LATER = "$WILL_PROVIDE$";
+
+function hasPlaceholder(value: unknown): boolean {
+  if (value == null) return false;
+  return (typeof value === "string" ? value : JSON.stringify(value)).includes(PROVIDED_LATER);
+}
+
 function stringifyValue(value: unknown): string {
   if (value == null) return "";
   return typeof value === "string" ? value : JSON.stringify(value);
@@ -87,6 +97,17 @@ export default function PublishedJobsAdminPage() {
     () => candidates.filter((field) => selectedIds.has(field.id)).map((field) => fieldEdits[field.id] ?? field),
     [candidates, fieldEdits, selectedIds],
   );
+  // Placeholder values still needing exposure: a $WILL_PROVIDE$ candidate the
+  // admin hasn't selected as a field yet. Selecting it clears the warning.
+  const placeholderWarnings = useMemo(() => {
+    const unexposed = candidates.filter((field) => hasPlaceholder(field.default) && !selectedIds.has(field.id));
+    if (!unexposed.length) return [] as string[];
+    return [
+      `Select these placeholder value(s) as input fields so a researcher can provide them: ${unexposed
+        .map((field) => field.label)
+        .join(", ")}.`,
+    ];
+  }, [candidates, selectedIds]);
   const runCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const run of allRuns) counts[run.published_job_id] = (counts[run.published_job_id] ?? 0) + 1;
@@ -283,7 +304,7 @@ export default function PublishedJobsAdminPage() {
               New
             </button>
           </div>
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3">
             <label className="grid gap-1 text-xs font-semibold text-slate-600">
               Published name
               <input className="h-9 rounded-md border border-slate-300 px-3 text-sm" value={name} onChange={(event) => setName(event.target.value)} />
@@ -304,9 +325,9 @@ export default function PublishedJobsAdminPage() {
                 </button>
               </span>
             </label>
-            <label className="grid gap-1 text-xs font-semibold text-slate-600 md:col-span-2">
+            <label className="grid gap-1 text-xs font-semibold text-slate-600">
               Description
-              <input className="h-9 rounded-md border border-slate-300 px-3 text-sm" value={description} onChange={(event) => setDescription(event.target.value)} />
+              <textarea className="min-h-[4.5rem] resize-y rounded-md border border-slate-300 px-3 py-2 text-sm" value={description} onChange={(event) => setDescription(event.target.value)} />
             </label>
           </div>
           <label className="grid gap-1 text-xs font-semibold text-slate-600">
@@ -337,9 +358,9 @@ export default function PublishedJobsAdminPage() {
               </>
             ) : null}
           </div>
-          {warnings.length ? (
+          {warnings.length || placeholderWarnings.length ? (
             <div className="grid gap-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              {warnings.map((warning, index) => (
+              {[...warnings, ...placeholderWarnings].map((warning, index) => (
                 <p key={index}>⚠ {warning}</p>
               ))}
             </div>
@@ -457,13 +478,16 @@ export default function PublishedJobsAdminPage() {
         left={
         <section className="grid gap-2 rounded-md border border-slate-200 bg-white p-4 h-full">
           <h3 className="text-sm font-semibold text-slate-950">Existing Published Jobs</h3>
-          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-2">
             {published.map((job) => (
               <div key={job.id} className="grid gap-2 rounded-md border border-slate-200 p-3">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-semibold text-slate-900">{job.name}</span>
                   <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusClasses(job.status)}`}>{job.status}</span>
                 </div>
+                {job.description ? (
+                  <p className="text-xs text-slate-500 whitespace-pre-line">{job.description}</p>
+                ) : null}
                 <p className="text-xs text-slate-500">
                   {job.fields.length} fields · v{job.version} · {runCounts[job.id] ?? 0} runs
                 </p>

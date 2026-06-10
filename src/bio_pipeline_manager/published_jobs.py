@@ -13,7 +13,12 @@ from typing import Any, Callable
 
 import yaml
 
-from bio_pipeline_manager.job_definition import JobDefinitionError, parse_job_definition
+from bio_pipeline_manager.job_definition import (
+    PROVIDED_LATER,
+    JobDefinitionError,
+    contains_provided_later,
+    parse_job_definition,
+)
 from bio_pipeline_manager.models import utc_now
 from bio_pipeline_manager.run_workspace import RunWorkspaceError, RunWorkspaceStore
 from bio_pipeline_manager.shared_storage import SharedStorage, SharedStorageError
@@ -546,9 +551,35 @@ def render_definition(record: PublishedJobRecord, values: dict[str, Any]) -> str
         value = coerced_values[field["id"]]
         for binding in field.get("bindings", []):
             _apply_binding(rendered, binding, value)
+    # A $WILL_PROVIDE$ placeholder left in the rendered definition means a value
+    # was never exposed as an input field — so the researcher had no way to supply
+    # it. Fail here with an actionable message instead of letting the generic
+    # "cannot be submitted directly" queue guard fire on the published-job path.
+    leftover = _provided_later_locations(rendered)
+    if leftover:
+        raise PublishedJobError(
+            f"This published job still has {PROVIDED_LATER} placeholder value(s) that were not "
+            f"provided: {', '.join(leftover)}. Each must be exposed as a researcher input field."
+        )
     content = yaml.safe_dump(rendered, sort_keys=False)
     parse_job_definition(content)
     return content
+
+
+def _provided_later_locations(data: Any, prefix: str = "") -> list[str]:
+    """Dotted paths of every string in ``data`` still holding a PROVIDED_LATER placeholder."""
+    found: list[str] = []
+    if isinstance(data, str):
+        if PROVIDED_LATER in data:
+            found.append(prefix or "(value)")
+    elif isinstance(data, dict):
+        for key, value in data.items():
+            child = f"{prefix}.{key}" if prefix else str(key)
+            found.extend(_provided_later_locations(value, child))
+    elif isinstance(data, list):
+        for index, value in enumerate(data):
+            found.extend(_provided_later_locations(value, f"{prefix}[{index}]"))
+    return found
 
 
 def public_fields(fields: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -729,6 +760,13 @@ def _coerce_values(fields: list[dict[str, Any]], values: dict[str, Any]) -> dict
     for field in fields:
         field_id = field["id"]
         raw = values[field_id] if field_id in values else field.get("default")
+        # A value still holding the $WILL_PROVIDE$ placeholder means the researcher
+        # never supplied it — always required, regardless of the field's own flag,
+        # so the placeholder can never reach the queue.
+        if contains_provided_later(raw):
+            raise PublishedJobError(
+                f"Field '{field.get('label', field_id)}' must be provided (it is marked {PROVIDED_LATER} in the job)."
+            )
         if raw in (None, "") and field.get("required", True):
             raise PublishedJobError(f"Field '{field.get('label', field_id)}' is required")
         coerced[field_id] = _coerce_value(raw, field)

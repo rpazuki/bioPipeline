@@ -2,6 +2,9 @@
 
 from pathlib import Path
 
+import pytest
+
+from bio_pipeline_manager.job_definition import JobDefinitionError
 from bio_pipeline_manager.job_queue import JobQueue
 from bio_pipeline_manager.models import JobStatus, utc_now
 from bio_pipeline_manager.storage import JobStore
@@ -115,3 +118,26 @@ stages:
 
     collate = next(r for r in new_records if r.spec.stage == "collate")
     assert set(collate.spec.depends_on) == prep_ids
+
+
+def test_submit_definition_rejects_provided_later_placeholder(tmp_path: Path):
+    # A definition still carrying $WILL_PROVIDE$ must be published, not submitted
+    # directly — the queue refuses it before any task is materialised.
+    text = """
+job: deferred
+defaults:
+  mapping_yaml: $WILL_PROVIDE$
+stages:
+  - name: fit
+    pipeline_yaml: a.yaml
+    pipeline: demo
+    fanout: {type: mapping_file, mapping: "{mapping_yaml}"}
+    output_dir: "/out/{item.stem}"
+    input_sources: {raw: "{item.raw}"}
+"""
+    queue = _queue(tmp_path)
+    with pytest.raises(JobDefinitionError, match="cannot be submitted directly"):
+        queue.submit_definition(text, yaml_resolver=Path)
+
+    # Nothing was queued.
+    assert queue.store.list_parent_ids() == []

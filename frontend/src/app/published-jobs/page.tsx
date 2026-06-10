@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   browseSharedRoot,
@@ -18,7 +18,11 @@ import type { PublishedField, PublishedJobPublicDetail, PublishedJobPublicSummar
 type SharedSelection = { root: string; path: string; name: string };
 
 function defaultValue(field: PublishedField) {
-  if (field.default !== undefined && field.default !== null) return field.default;
+  // A $WILL_PROVIDE$ placeholder is not a real default — start the field empty so
+  // the researcher fills it in rather than submitting the placeholder verbatim.
+  if (field.default !== undefined && field.default !== null && !String(field.default).includes("$WILL_PROVIDE$")) {
+    return field.default;
+  }
   if (field.type === "boolean") return false;
   if (field.type === "multi_enum" || field.type === "list") return [];
   if (field.type === "object" || field.type === "json") return "{}";
@@ -32,8 +36,21 @@ function asInputValue(value: unknown): string {
 
 function FieldHelp({ field }: { field: PublishedField }) {
   const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClickOutside(event: MouseEvent) {
+      if (ref.current && !ref.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
+
   return (
-    <span className="relative inline-flex">
+    <span ref={ref} className="relative inline-flex">
       <button
         type="button"
         aria-label={`About ${field.label}`}
@@ -155,19 +172,25 @@ function InputFieldControl({
       {canUpload ? (
         <span className="flex flex-wrap items-center gap-2">
           {isDirectory ? (
-            <input
-              type="file"
-              multiple
-              {...({ webkitdirectory: "" } as Record<string, string>)}
-              className="text-xs font-normal"
-              onChange={(event) => onPickFiles(Array.from(event.target.files ?? []))}
-            />
+            <label className="cursor-pointer rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+              Choose Folder
+              <input
+                type="file"
+                multiple
+                {...({ webkitdirectory: "" } as Record<string, string>)}
+                className="sr-only"
+                onChange={(event) => onPickFiles(Array.from(event.target.files ?? []))}
+              />
+            </label>
           ) : (
-            <input
-              type="file"
-              className="text-xs font-normal"
-              onChange={(event) => onPickFiles(event.target.files?.[0] ? [event.target.files[0]] : [])}
-            />
+            <label className="cursor-pointer rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+              Choose File
+              <input
+                type="file"
+                className="sr-only"
+                onChange={(event) => onPickFiles(event.target.files?.[0] ? [event.target.files[0]] : [])}
+              />
+            </label>
           )}
           {files.length ? (
             <span className="text-xs font-normal text-emerald-700">{isDirectory ? `${files.length} files` : files[0].name}</span>
@@ -399,7 +422,7 @@ export default function PublishedJobsPage() {
             onClick={() => selectJob(job.id).catch((cause: Error) => setError(cause.message))}
           >
             <span className="block text-sm font-semibold text-slate-950">{job.name}</span>
-            <span className="mt-1 block text-xs text-slate-500">{job.description || `Version ${job.version}`}</span>
+            <span className="mt-1 block text-xs text-slate-500 whitespace-pre-line">{job.description || `Version ${job.version}`}</span>
           </button>
         ))}
       </aside>
@@ -409,7 +432,7 @@ export default function PublishedJobsPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-sm font-semibold text-slate-950">{selected?.name ?? "Job Form"}</h3>
-            <p className="mt-1 text-xs text-slate-500">{selected?.description ?? status}</p>
+            <p className="mt-1 text-xs text-slate-500 whitespace-pre-line">{selected?.description ?? status}</p>
           </div>
           <span className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">{status}</span>
         </div>

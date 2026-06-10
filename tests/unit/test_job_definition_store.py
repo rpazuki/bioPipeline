@@ -26,7 +26,7 @@ def test_save_load_and_summary(tmp_path: Path):
 
     assert store.load("demo.yaml") == VALID
     assert store.job_name("demo.yaml") == "growth_full"
-    assert store.summary("demo.yaml") == ("growth_full", True, None)
+    assert store.summary("demo.yaml") == ("growth_full", "", True, None)
     assert [store.relative_name(p) for p in store.list()] == ["demo.yaml"]
 
 

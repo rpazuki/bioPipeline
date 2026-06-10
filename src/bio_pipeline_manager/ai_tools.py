@@ -275,15 +275,15 @@ class AIToolRegistry:
         store = self.runtime.definition_store
         for path in store.list():
             name = store.relative_name(path)
-            job, is_valid, error = store.summary(name)
-            items.append({"name": name, "job": job, "is_valid": is_valid, "error": error})
+            job, description, is_valid, error = store.summary(name)
+            items.append({"name": name, "job": job, "description": description, "is_valid": is_valid, "error": error})
         return {"items": items}
 
     def _get_job_definition(self, args: dict[str, Any]) -> dict[str, Any]:
         name = _required_str(args, "name")
         content = self.runtime.definition_store.load(name)
-        job, is_valid, error = self.runtime.definition_store.summary(name)
-        return {"name": name, "content": content, "job": job, "is_valid": is_valid, "error": error}
+        job, description, is_valid, error = self.runtime.definition_store.summary(name)
+        return {"name": name, "content": content, "job": job, "description": description, "is_valid": is_valid, "error": error}
 
     def _preview_job_definition(self, args: dict[str, Any]) -> dict[str, Any]:
         tasks = expand(_required_str(args, "content"), lenient=True)

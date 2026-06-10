@@ -124,8 +124,8 @@ async def get_definition(name: str, runtime: Annotated[PipelineRuntime, Depends(
     return _document(runtime, name)
 
 
-def _summary(name: str, job: str, is_valid: bool, error: str | None) -> DefinitionSummary:
-    return DefinitionSummary(name=name, job=job, is_valid=is_valid, error=error)
+def _summary(name: str, job: str, description: str, is_valid: bool, error: str | None) -> DefinitionSummary:
+    return DefinitionSummary(name=name, job=job, description=description, is_valid=is_valid, error=error)
 
 
 def _document(runtime: PipelineRuntime, name: str) -> DefinitionDocument:
@@ -134,7 +134,7 @@ def _document(runtime: PipelineRuntime, name: str) -> DefinitionDocument:
         content = store.load(name)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    job, is_valid, error = store.summary(name)
+    job, _, is_valid, error = store.summary(name)
     return DefinitionDocument(name=name, content=content, job=job, is_valid=is_valid, error=error)
 
 
@@ -163,5 +163,5 @@ def _folder_node(runtime: PipelineRuntime, path) -> DefinitionTreeNode:
 def _file_node(runtime: PipelineRuntime, path) -> DefinitionTreeNode:
     store = runtime.definition_store
     name = store.relative_name(path)
-    job, is_valid, error = store.summary(name)
+    job, _, is_valid, error = store.summary(name)
     return DefinitionTreeNode(name=path.name, path=name, node_type="file", job=job, is_valid=is_valid, error=error)

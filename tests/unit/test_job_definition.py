@@ -8,6 +8,7 @@ from bio_pipeline_manager.job_definition import (
     fanout_warnings,
     iter_cells,
     parse_job_definition,
+    provided_later_warnings,
 )
 
 
@@ -465,3 +466,87 @@ stages:
 """
     with pytest.raises(JobDefinitionError):
         expand(text, lenient=True)
+
+
+_PROVIDED_LATER_MAPPING = """
+job: deferred
+defaults:
+  data_root: /data
+  mapping_yaml: $WILL_PROVIDE$
+stages:
+  - name: fit
+    pipeline_yaml: p.yaml
+    pipeline: demo
+    fanout:
+      type: mapping_file
+      mapping: "{mapping_yaml}"
+    output_dir: "/out/{item.stem}"
+    input_sources:
+      raw_data: "{data_root}/{item.raw}"
+      meta_data: "{data_root}/{item.meta}"
+"""
+
+
+def test_provided_later_mapping_file_mocks_single_item():
+    # A first-stage mapping_file source marked $WILL_PROVIDE$ must NOT hit the
+    # filesystem; it expands (even non-lenient) to exactly one mock item so the
+    # downstream {item.*} templates validate.
+    tasks = expand(_PROVIDED_LATER_MAPPING)
+    assert len(tasks) == 1
+    assert tasks[0].output_dir == "/out/sample"
+    assert tasks[0].input_sources == {
+        "raw_data": "/data/sample.csv",
+        "meta_data": "/data/sample_meta.csv",
+    }
+
+
+def test_provided_later_patterns_mocks_single_item():
+    text = """
+job: deferred
+stages:
+  - name: prep
+    pipeline_yaml: p.yaml
+    pipeline: demo
+    fanout:
+      type: patterns
+      data_dir: $WILL_PROVIDE$
+      raw_pattern: "raw*.csv"
+      meta_pattern: "meta*.csv"
+    output_dir: "/out/{item.stem}"
+    input_sources:
+      raw: "{item.raw}"
+      meta: "{item.meta}"
+"""
+    tasks = expand(text)
+    assert len(tasks) == 1
+    assert tasks[0].input_sources == {"raw": "sample.csv", "meta": "sample_meta.csv"}
+
+
+def test_provided_later_folders_mocks_single_item():
+    text = """
+job: deferred
+stages:
+  - name: collate
+    pipeline_yaml: p.yaml
+    pipeline: demo
+    fanout:
+      type: folders
+      data_dir: $WILL_PROVIDE$
+    output_dir: "/out/{item.name}"
+    input_sources:
+      folder: "{item.path}"
+"""
+    tasks = expand(text)
+    assert len(tasks) == 1
+    assert tasks[0].output_dir == "/out/sample"
+    assert tasks[0].input_sources == {"folder": "sample"}
+
+
+def test_provided_later_warning_is_listed():
+    warnings = provided_later_warnings(parse_job_definition(_PROVIDED_LATER_MAPPING))
+    assert len(warnings) == 1
+    assert "$WILL_PROVIDE$" in warnings[0]
+
+
+def test_no_provided_later_warning_when_absent(tmp_path: Path):
+    assert provided_later_warnings(parse_job_definition(_growth_rates_def(_write_mapping(tmp_path)))) == []

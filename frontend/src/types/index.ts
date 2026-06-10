@@ -313,6 +313,7 @@ export interface UserUpdate {
 export interface DefinitionSummary {
   name: string;
   job: string;
+  description: string;
   is_valid: boolean;
   error?: string | null;
 }

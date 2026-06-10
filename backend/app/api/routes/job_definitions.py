@@ -16,8 +16,8 @@ from app.schemas.pipelines import (
 from app.services.runtime import PipelineRuntime
 from bio_pipeline_manager.job_definition import (
     JobDefinitionError,
+    definition_warnings,
     expand,
-    fanout_warnings,
     parse_job_definition,
 )
 
@@ -37,7 +37,7 @@ async def preview_job_definition(body: JobDefinitionRequest) -> JobDefinitionPre
     return JobDefinitionPreviewResponse(
         job_name=tasks[0].job_name if tasks else job_def.name,
         task_count=len(tasks),
-        warnings=fanout_warnings(job_def),
+        warnings=definition_warnings(job_def),
         tasks=[
             MaterializedTaskResponse(
                 job_name=task.job_name,

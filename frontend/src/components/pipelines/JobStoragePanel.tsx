@@ -148,37 +148,42 @@ export default function JobStoragePanel() {
             {saved.map((item) => (
               <li
                 key={item.name}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-2"
+                className="grid gap-1.5 rounded-md border border-slate-200 px-3 py-2"
               >
-                <span className="min-w-0">
-                  <span className="font-mono text-xs text-slate-900">{item.name}</span>
-                  {item.job ? <span className="ml-2 text-xs text-slate-500">job: {item.job}</span> : null}
-                  {!item.is_valid ? (
-                    <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">invalid</span>
-                  ) : null}
-                </span>
-                <span className="flex gap-1.5">
-                  <button className="rounded-md bg-cyan-700 px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50" onClick={() => onOpen(item.name)} disabled={busy}>
-                    Open
-                  </button>
-                  <button
-                    className="rounded-md bg-emerald-700 px-2.5 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-                    onClick={() => onSubmit(item)}
-                    disabled={busy || !item.is_valid}
-                    title={item.is_valid ? "Submit this job definition" : "Invalid definitions cannot be submitted"}
-                  >
-                    Submit
-                  </button>
-                  <button className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-semibold disabled:opacity-50" onClick={() => onDuplicate(item.name)} disabled={busy}>
-                    Duplicate
-                  </button>
-                  <button className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-semibold disabled:opacity-50" onClick={() => onArchive(item.name)} disabled={busy}>
-                    Archive
-                  </button>
-                  <button className="rounded-md border border-red-200 px-2.5 py-1 text-xs font-semibold text-red-700 disabled:opacity-50" onClick={() => onDelete(item.name, false)} disabled={busy}>
-                    Delete
-                  </button>
-                </span>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="min-w-0">
+                    <span className="font-mono text-xs text-slate-900">{item.name}</span>
+                    {item.job ? <span className="ml-2 text-xs text-slate-500">job: {item.job}</span> : null}
+                    {!item.is_valid ? (
+                      <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">invalid</span>
+                    ) : null}
+                  </span>
+                  <span className="flex gap-1.5">
+                    <button className="rounded-md bg-cyan-700 px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50" onClick={() => onOpen(item.name)} disabled={busy}>
+                      Open
+                    </button>
+                    <button
+                      className="rounded-md bg-emerald-700 px-2.5 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() => onSubmit(item)}
+                      disabled={busy || !item.is_valid}
+                      title={item.is_valid ? "Submit this job definition" : "Invalid definitions cannot be submitted"}
+                    >
+                      Submit
+                    </button>
+                    <button className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-semibold disabled:opacity-50" onClick={() => onDuplicate(item.name)} disabled={busy}>
+                      Duplicate
+                    </button>
+                    <button className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-semibold disabled:opacity-50" onClick={() => onArchive(item.name)} disabled={busy}>
+                      Archive
+                    </button>
+                    <button className="rounded-md border border-red-200 px-2.5 py-1 text-xs font-semibold text-red-700 disabled:opacity-50" onClick={() => onDelete(item.name, false)} disabled={busy}>
+                      Delete
+                    </button>
+                  </span>
+                </div>
+                {item.description ? (
+                  <p className="text-xs text-slate-500 whitespace-pre-line">{item.description}</p>
+                ) : null}
               </li>
             ))}
           </ul>

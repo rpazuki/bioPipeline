@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Callable
 
 from bio_pipeline_manager.job_definition import (
+    PROVIDED_LATER,
     JobDefinitionError,
     cell_matrix_key,
     iter_cells,
@@ -79,6 +80,15 @@ class JobQueue:
         """
         # Validate up-front so a bad definition fails the submit, not later.
         job_def = parse_job_definition(text)
+        # A definition with unfilled $WILL_PROVIDE$ placeholders is not runnable:
+        # its fan-out source / values are supplied by a researcher on the Published
+        # Jobs page. Refuse the direct submit so we never queue placeholder tasks.
+        if PROVIDED_LATER in text:
+            raise JobDefinitionError(
+                f"This Job Definition contains {PROVIDED_LATER} placeholder value(s) that a "
+                "researcher must supply. Publish it as a Published Job and run it from the "
+                "Published Jobs page — it cannot be submitted directly."
+            )
         if yaml_resolver is not None:
             self.yaml_resolver = yaml_resolver
 

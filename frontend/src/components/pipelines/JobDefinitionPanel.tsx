@@ -58,6 +58,12 @@ stages:
     output_dir: "{data_root}/processed/{variant.name}_STRAINS"
 `;
 
+// Placeholder for a value a researcher supplies on the Published Jobs page. A
+// definition containing it cannot be submitted directly (the backend rejects
+// it) — it must be published and run from there. Keep in sync with the backend
+// PROVIDED_LATER constant in bio_pipeline_manager/job_definition.py.
+const PROVIDED_LATER = "$WILL_PROVIDE$";
+
 function statusClasses(status: string): string {
   switch (status) {
     case "succeeded":
@@ -221,6 +227,7 @@ export default function JobDefinitionPanel() {
   const [stageNeeds, setStageNeeds] = useState<string[]>([]);
 
   const existingStageNames = useMemo(() => stageNamesFromContent(content), [content]);
+  const requiresPublish = useMemo(() => content.includes(PROVIDED_LATER), [content]);
   const selectedPipelineYaml = useMemo(
     () => pipelineYamls.find((item) => item.name === stageYamlName) ?? null,
     [pipelineYamls, stageYamlName],
@@ -567,7 +574,12 @@ export default function JobDefinitionPanel() {
           <button
             type="button"
             onClick={onSubmit}
-            disabled={busy}
+            disabled={busy || requiresPublish}
+            title={
+              requiresPublish
+                ? `This definition contains ${PROVIDED_LATER} — publish it and run it from the Published Jobs page.`
+                : undefined
+            }
             className="rounded-md bg-emerald-700 px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
             Submit
