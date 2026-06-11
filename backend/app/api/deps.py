@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Annotated
 from functools import lru_cache
 
-from fastapi import Cookie, Depends, HTTPException, status
+from fastapi import Cookie, Depends, HTTPException, Response, status
 
 from app.core.config import settings
 from app.services.runtime import PipelineRuntime, create_runtime
@@ -21,8 +21,26 @@ def get_runtime() -> PipelineRuntime:
     )
 
 
+def set_session_cookie(response: Response, token: str) -> None:
+    """Write the session cookie with the standard attributes.
+
+    Shared by login and sliding-expiration renewal so both stay in lock-step on
+    max-age, security flags, and path.
+    """
+    response.set_cookie(
+        settings.auth_session_cookie_name,
+        token,
+        max_age=int(settings.auth_session_ttl_hours * 60 * 60),
+        httponly=True,
+        secure=settings.auth_secure_cookies,
+        samesite="lax",
+        path="/",
+    )
+
+
 def get_current_user(
     runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
+    response: Response,
     session_token: Annotated[str | None, Cookie(alias=settings.auth_session_cookie_name)] = None,
 ) -> UserRecord:
     resolved = runtime.auth.user_for_token(session_token)
@@ -31,7 +49,15 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
         )
-    user, _session = resolved
+    user, session = resolved
+    # Sliding expiration: refresh an active session (and its cookie) once it is
+    # past the halfway point of its TTL. Without this, a session dies at a fixed
+    # TTL even during active use, so background polls start returning 401 while a
+    # long-running request admitted earlier still completes — exactly the
+    # "ai-chat 200 but jobs 401" split that motivated this change.
+    if session_token and runtime.auth.should_renew(session):
+        runtime.auth.renew_session(session)
+        set_session_cookie(response, session_token)
     return user
 
 

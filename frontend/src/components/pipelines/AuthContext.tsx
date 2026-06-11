@@ -2,7 +2,12 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
-import { getCurrentUser, login as loginRequest, logout as logoutRequest } from "@/lib/api";
+import {
+  UNAUTHORIZED_EVENT,
+  getCurrentUser,
+  login as loginRequest,
+  logout as logoutRequest,
+} from "@/lib/api";
 import type { User } from "@/types";
 
 type AuthStatus = "loading" | "authenticated" | "unauthenticated";
@@ -38,6 +43,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Any API call that reports a 401 (e.g. an expired session surfacing on a
+  // background poll) drops us back to the login screen instead of leaving the
+  // user on a page whose requests silently fail.
+  useEffect(() => {
+    function handleUnauthorized() {
+      setUser(null);
+      setStatus("unauthenticated");
+    }
+    window.addEventListener(UNAUTHORIZED_EVENT, handleUnauthorized);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, handleUnauthorized);
+  }, []);
 
   const login = useCallback(async (username: string, password: string) => {
     setError(null);

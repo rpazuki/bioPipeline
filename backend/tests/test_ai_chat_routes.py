@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+import app.api.routes.ai_chat as ai_chat_routes
 from app.api.deps import get_runtime
 from app.core.config import settings
 from app.main import app
@@ -240,6 +242,61 @@ def test_ai_messages_runs_read_only_tool(tmp_path: Path, monkeypatch):
     assert call["status"] == "succeeded"
     assert "list_pipeline_yamls" in body["message"]["content"]
     assert body["needs_confirmation"] is None
+
+    _reset()
+
+
+def test_ai_messages_streams_heartbeats_before_result(tmp_path: Path, monkeypatch):
+    _set_fake_ai_config(monkeypatch)
+    client = _client(tmp_path)
+
+    # Force a turn that outlasts several heartbeat intervals so the keepalive
+    # path (not just the instant final line) is exercised.
+    monkeypatch.setattr(ai_chat_routes, "_HEARTBEAT_SECONDS", 0.05)
+
+    def _slow_turn(body, runtime, admin):  # noqa: ANN001 - test stub
+        time.sleep(0.25)
+        return {
+            "message": {"role": "assistant", "content": "slow done"},
+            "tool_calls": [],
+            "drafts": [],
+            "needs_confirmation": None,
+        }
+
+    monkeypatch.setattr(ai_chat_routes, "_run_chat_turn", _slow_turn)
+
+    response = client.post(
+        "/api/v1/ai-chat/messages",
+        json={"messages": [{"role": "user", "content": "hello"}]},
+    )
+    assert response.status_code == 200
+    # Heartbeats are blank lines emitted before the single JSON result line.
+    assert response.text.startswith("\n")
+    lines = [line for line in response.text.split("\n") if line.strip()]
+    assert len(lines) == 1
+    assert json.loads(lines[-1])["message"]["content"] == "slow done"
+
+    _reset()
+
+
+def test_ai_messages_error_is_carried_in_stream_body(tmp_path: Path, monkeypatch):
+    _set_fake_ai_config(monkeypatch)
+    client = _client(tmp_path)
+
+    def _boom(body, runtime, admin):  # noqa: ANN001 - test stub
+        return ai_chat_routes._error_payload(502, "AI chat failed: boom")
+
+    monkeypatch.setattr(ai_chat_routes, "_run_chat_turn", _boom)
+
+    response = client.post(
+        "/api/v1/ai-chat/messages",
+        json={"messages": [{"role": "user", "content": "hello"}]},
+    )
+    # The HTTP status stays 200 once streaming starts; the error rides in the body.
+    assert response.status_code == 200
+    payload = json.loads(response.text.strip().splitlines()[-1])
+    assert payload["error"]["status"] == 502
+    assert "boom" in payload["error"]["detail"]
 
     _reset()
 

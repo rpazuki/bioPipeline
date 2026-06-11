@@ -40,6 +40,23 @@ import type {
 
 const API_PREFIX = process.env.NEXT_PUBLIC_API_PREFIX ?? "/api/v1";
 
+// Most calls should fail fast rather than hang forever. A few are legitimately
+// long (AI chat, package installs, run-due) and opt into a larger timeout or
+// disable it with 0.
+const DEFAULT_TIMEOUT_MS = 60_000;
+// The AI agent runs a multi-step provider loop; allow comfortably beyond the
+// backend's own time budget so the client only aborts on a true hang.
+export const AI_CHAT_TIMEOUT_MS = 180_000;
+// Browser event other components (AuthContext) listen for to drop back to the
+// login screen the moment any request reports an expired/missing session.
+export const UNAUTHORIZED_EVENT = "bio-pipeline:unauthorized";
+
+function notifyUnauthorized() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
+  }
+}
+
 function encodePath(path: string) {
   return path
     .split("/")
@@ -48,22 +65,54 @@ function encodePath(path: string) {
     .join("/");
 }
 
-async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+async function apiFetch<T>(
+  path: string,
+  options: RequestInit = {},
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
+): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string> | undefined),
   };
-  const response = await fetch(`${API_PREFIX}${path}`, { credentials: "include", ...options, headers });
+  // Abort a stalled request so callers get a clear timeout instead of an
+  // indefinite spinner. timeoutMs <= 0 disables the deadline.
+  const controller = new AbortController();
+  const timer = timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  let response: Response;
+  try {
+    response = await fetch(`${API_PREFIX}${path}`, {
+      credentials: "include",
+      ...options,
+      headers,
+      signal: controller.signal,
+    });
+  } catch (cause) {
+    if ((cause as { name?: string })?.name === "AbortError") {
+      throw new Error(
+        `Request timed out after ${Math.round(timeoutMs / 1000)}s — the server took too long to respond. Wait a moment and retry.`,
+      );
+    }
+    throw cause;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
   if (!response.ok) {
+    // A 401 on any call but the login attempt itself means the session has
+    // expired or been revoked. Notify the app so it returns to the login screen
+    // instead of silently swallowing the failure in a background poll.
+    if (response.status === 401 && path !== "/auth/login") {
+      notifyUnauthorized();
+    }
     const body = await response.json().catch(() => ({}));
     if (body?.detail) {
       throw new Error(body.detail);
     }
-    // No JSON detail on a 5xx usually means the dev proxy returned it (backend
-    // restarted or the request timed out), not the API itself.
+    // A 5xx with no JSON detail almost always comes from the Next.js dev rewrite
+    // proxy, not FastAPI: the proxy aborts upstream requests after ~30s, so a
+    // long AI turn surfaces here as an opaque 500 with a clean backend log.
     if (response.status >= 500) {
       throw new Error(
-        `Server error ${response.status} — the backend may have restarted or the request timed out. Wait a moment and retry.`,
+        `Server error ${response.status} with no response body — this usually means the dev proxy timed out the request to the backend (its limit is ~30s) or the backend restarted. Check the Next.js terminal for the underlying error.`,
       );
     }
     throw new Error(`API error ${response.status}`);
@@ -218,9 +267,10 @@ export async function submitJob(payload: JobSubmit) {
 }
 
 export async function runDueJobs(parallel = 1) {
+  // Runs jobs synchronously server-side; can outlast the default timeout.
   return apiFetch<Job[]>(`/jobs/run-due?parallel=${parallel}`, {
     method: "POST",
-  });
+  }, 0);
 }
 
 export async function cancelJob(jobId: string) {
@@ -492,17 +542,18 @@ export async function listPackages() {
 }
 
 export async function installPackage(spec: string, sourceType: PackageSourceType = "pypi") {
+  // Package resolution/installation can take well over a minute; no timeout.
   return apiFetch<PackageOpResult>("/packages/install", {
     method: "POST",
     body: JSON.stringify({ spec, source_type: sourceType }),
-  });
+  }, 0);
 }
 
 export async function uninstallPackage(name: string) {
   return apiFetch<PackageOpResult>("/packages/uninstall", {
     method: "POST",
     body: JSON.stringify({ name }),
-  });
+  }, 0);
 }
 
 // AI Designer
@@ -517,16 +568,71 @@ export async function testAIProvider(payload: AIProviderSelection) {
   });
 }
 
-export async function sendAIChatMessage(payload: AIChatRequest) {
-  return apiFetch<AIChatResponse>("/ai-chat/messages", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+// The AI chat endpoint streams: blank heartbeat lines keep the proxy connection
+// alive during a long agent turn, then a single JSON line carries the result (or
+// an `{ error }` payload, since the 200 status is already committed once
+// streaming starts). We wait for the whole body and parse the last non-empty
+// line. Heartbeats are not processed incrementally — they only exist to keep the
+// connection from idling out.
+export async function sendAIChatMessage(payload: AIChatRequest): Promise<AIChatResponse> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), AI_CHAT_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(`${API_PREFIX}/ai-chat/messages`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+  } catch (cause) {
+    if ((cause as { name?: string })?.name === "AbortError") {
+      throw new Error(
+        `AI request timed out after ${Math.round(AI_CHAT_TIMEOUT_MS / 1000)}s. Try a shorter request or fewer steps.`,
+      );
+    }
+    throw cause;
+  } finally {
+    clearTimeout(timer);
+  }
+
+  // Pre-stream failures (notably auth) still arrive as a normal status + JSON.
+  if (!response.ok) {
+    if (response.status === 401) notifyUnauthorized();
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body?.detail ?? `API error ${response.status}`);
+  }
+
+  const text = await response.text();
+  const lines = text.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
+  const last = lines[lines.length - 1];
+  if (!last) {
+    throw new Error("AI chat returned an empty response. Wait a moment and retry.");
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(last);
+  } catch {
+    throw new Error("AI chat returned a malformed response. Wait a moment and retry.");
+  }
+  if (parsed && typeof parsed === "object" && "error" in parsed) {
+    const err = (parsed as { error: { status?: number; detail?: string } }).error;
+    if (err?.status === 401) notifyUnauthorized();
+    throw new Error(err?.detail ?? "AI chat failed.");
+  }
+  return parsed as AIChatResponse;
 }
 
 export async function executeAITool(name: string, args: Record<string, unknown>, confirmed = false) {
-  return apiFetch<AIToolCallRecord>("/ai-chat/tools/execute", {
-    method: "POST",
-    body: JSON.stringify({ name, arguments: args, confirmed }),
-  });
+  // A confirmed tool may submit and run jobs synchronously, so allow the longer
+  // AI-chat budget rather than the default fail-fast timeout.
+  return apiFetch<AIToolCallRecord>(
+    "/ai-chat/tools/execute",
+    {
+      method: "POST",
+      body: JSON.stringify({ name, arguments: args, confirmed }),
+    },
+    AI_CHAT_TIMEOUT_MS,
+  );
 }

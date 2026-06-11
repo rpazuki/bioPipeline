@@ -7,6 +7,9 @@ function mockFetch(payload: unknown) {
     ok: true,
     status: 200,
     json: async () => payload,
+    // The AI chat client reads the streamed body as text and parses the last
+    // line; expose the payload as a single JSON line for that path.
+    text: async () => JSON.stringify(payload),
   });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;

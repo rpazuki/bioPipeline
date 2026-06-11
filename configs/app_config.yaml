@@ -42,6 +42,10 @@ backend:
       default_provider: claude
       # Bounds provider calls per chat turn (caps latency and token usage).
       max_tool_iterations: 6
+      # Overall wall-clock budget (seconds) for one chat turn's tool loop. The
+      # request is aborted with a 504 if it runs longer, so a stalled provider
+      # cannot block a request for minutes. 0 disables the deadline.
+      max_request_seconds: 120
       # API keys come from the environment / .env (see .env.example).
       # ${VAR} placeholders are expanded server-side; a blank key also falls
       # back to a conventional per-provider env var (e.g. ANTHROPIC_API_KEY).

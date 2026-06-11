@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 
-from app.api.deps import get_current_user, get_runtime
+from app.api.deps import get_current_user, get_runtime, set_session_cookie
 from app.core.config import settings
 from app.schemas.pipelines import AuthResponse, LoginRequest, UserResponse
 from app.services.runtime import PipelineRuntime
@@ -37,16 +37,7 @@ async def login(
         result = runtime.auth.authenticate(username=body.username, password=body.password)
     except AuthError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
-    max_age = int(settings.auth_session_ttl_hours * 60 * 60)
-    response.set_cookie(
-        settings.auth_session_cookie_name,
-        result.token,
-        max_age=max_age,
-        httponly=True,
-        secure=settings.auth_secure_cookies,
-        samesite="lax",
-        path="/",
-    )
+    set_session_cookie(response, result.token)
     return AuthResponse(user=user_response(result.user))
 
 

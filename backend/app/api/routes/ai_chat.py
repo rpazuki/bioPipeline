@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 
 from app.api.deps import get_runtime, require_admin
 from app.core.config import settings
@@ -33,6 +36,12 @@ from bio_pipeline_manager.auth_models import UserRecord
 
 
 router = APIRouter(prefix="/ai-chat", tags=["ai-chat"])
+
+# How often to emit a keepalive while the agent runs. A reverse/dev proxy (e.g.
+# Next.js rewrites, ~30s idle timeout) aborts an upstream request that produces
+# no bytes for too long; a sub-timeout heartbeat keeps the connection open for
+# the full multi-step tool loop instead of surfacing an opaque 500.
+_HEARTBEAT_SECONDS = 10.0
 
 
 def _context_path() -> Path:
@@ -114,15 +123,16 @@ def execute_ai_tool(
     return AIToolCallRecord(**asdict(execution))
 
 
-# Sync handler: the agent loop makes blocking httpx provider calls. FastAPI runs
-# a sync def in a threadpool, so the multi-second tool loop never stalls the
-# event loop (which would starve other requests and reset proxied connections).
-@router.post("/messages", response_model=AIChatResponse)
-def send_ai_chat_message(
-    body: AIChatRequest,
-    runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
-    admin: Annotated[UserRecord, Depends(require_admin)],
-) -> AIChatResponse:
+def _run_chat_turn(
+    body: AIChatRequest, runtime: PipelineRuntime, admin: UserRecord
+) -> dict:
+    """Run one chat turn and return a JSON-able payload.
+
+    All failure modes are captured into an ``{"error": {...}}`` payload rather
+    than raised: the response is streamed, so once the 200 + headers are on the
+    wire the status can no longer change. The client turns an ``error`` payload
+    back into a thrown error, preserving the original messages and status codes.
+    """
     agent = AIChatAgent(
         registry=_tool_registry(runtime, admin),
         schema_provider=_schema_provider(runtime, admin),
@@ -141,28 +151,25 @@ def send_ai_chat_message(
     except AIProviderError as exc:
         message = redact_provider_error(str(exc), settings.ai)
         if "429" in message or "rate_limit" in message:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=(
-                    "AI provider rate limit reached (input tokens per minute). "
-                    "Wait about a minute and retry. If it persists, lower "
-                    "max_tool_iterations in configs/app_config.yaml or request a "
-                    "higher limit from the provider."
-                ),
-            ) from exc
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=message
-        ) from exc
+            return _error_payload(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "AI provider rate limit reached (input tokens per minute). "
+                "Wait about a minute and retry. If it persists, lower "
+                "max_tool_iterations in configs/app_config.yaml or request a "
+                "higher limit from the provider.",
+            )
+        return _error_payload(status.HTTP_400_BAD_REQUEST, message)
     except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=redact_provider_error(str(exc), settings.ai),
-        ) from exc
-    except Exception as exc:  # noqa: BLE001 - return a readable error, never a bare 500
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"AI chat failed: {redact_provider_error(str(exc), settings.ai)}",
-        ) from exc
+        return _error_payload(
+            status.HTTP_400_BAD_REQUEST, redact_provider_error(str(exc), settings.ai)
+        )
+    except TimeoutError as exc:
+        return _error_payload(status.HTTP_504_GATEWAY_TIMEOUT, str(exc))
+    except Exception as exc:  # noqa: BLE001 - report a readable error, never crash the stream
+        return _error_payload(
+            status.HTTP_502_BAD_GATEWAY,
+            f"AI chat failed: {redact_provider_error(str(exc), settings.ai)}",
+        )
     return AIChatResponse(
         message={"role": "assistant", "content": outcome.text},
         tool_calls=[AIToolCallRecord(**asdict(call)) for call in outcome.tool_calls],
@@ -172,4 +179,47 @@ def send_ai_chat_message(
             if outcome.needs_confirmation
             else None
         ),
-    )
+    ).model_dump(mode="json")
+
+
+def _error_payload(status_code: int, detail: str) -> dict:
+    return {"error": {"status": status_code, "detail": detail}}
+
+
+# Streaming handler: the agent's blocking tool loop runs in a worker thread while
+# this coroutine emits a keepalive heartbeat every few seconds. That keeps the
+# fronting proxy's idle timer from aborting a long turn (which otherwise surfaces
+# as an opaque 500). The body is newline-delimited: zero or more blank heartbeat
+# lines followed by a single JSON result/error line (the client parses the last
+# non-empty line). Auth failures still surface as a normal 401/403 because the
+# dependencies run before streaming begins.
+@router.post("/messages")
+async def send_ai_chat_message(
+    body: AIChatRequest,
+    runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
+    admin: Annotated[UserRecord, Depends(require_admin)],
+) -> StreamingResponse:
+    async def _stream():
+        task = asyncio.create_task(asyncio.to_thread(_run_chat_turn, body, runtime, admin))
+        try:
+            while True:
+                done, _ = await asyncio.wait({task}, timeout=_HEARTBEAT_SECONDS)
+                if task in done:
+                    exc = task.exception()
+                    if exc is not None:
+                        payload = _error_payload(
+                            status.HTTP_502_BAD_GATEWAY,
+                            f"AI chat failed: {redact_provider_error(str(exc), settings.ai)}",
+                        )
+                    else:
+                        payload = task.result()
+                    yield (json.dumps(payload) + "\n").encode("utf-8")
+                    return
+                # Keepalive: a bare newline resets the proxy idle timer without
+                # disturbing the final JSON line.
+                yield b"\n"
+        except asyncio.CancelledError:
+            task.cancel()
+            raise
+
+    return StreamingResponse(_stream(), media_type="application/x-ndjson")

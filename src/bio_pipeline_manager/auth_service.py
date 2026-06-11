@@ -133,6 +133,23 @@ class AuthService:
             return None
         return user, session
 
+    def should_renew(self, session: SessionRecord) -> bool:
+        """True once a session is past the halfway point of its TTL.
+
+        Renewals are throttled to at most one per half-TTL window so a steadily
+        used session keeps a rolling expiry without a database write on every
+        request.
+        """
+        if self.session_ttl <= timedelta(0):
+            return False
+        remaining = session.expires_at - utc_now()
+        return remaining < (self.session_ttl / 2)
+
+    def renew_session(self, session: SessionRecord) -> SessionRecord:
+        """Extend a session to a full TTL from now and return the updated record."""
+        self.store.touch_session(session.id, expires_at=utc_now() + self.session_ttl)
+        return self.store.get_session(session.id)
+
     def logout(self, token: str | None) -> None:
         resolved = self.user_for_token(token)
         if resolved is not None:

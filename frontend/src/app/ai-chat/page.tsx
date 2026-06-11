@@ -75,6 +75,34 @@ function asText(content: unknown): string {
   return JSON.stringify(content, null, 2);
 }
 
+// Copy text to the clipboard, falling back to a hidden textarea + execCommand
+// when the async Clipboard API is unavailable (e.g. a non-HTTPS dev host).
+async function copyText(text: string): Promise<boolean> {
+  if (!text) return false;
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fall through to the legacy path below.
+  }
+  try {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(textarea);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 // Persist the conversation so it survives navigating away from the page and
 // full reloads. Cleared by the Reset button.
 const STORAGE_KEY = "ai-designer-conversation-v1";
@@ -369,8 +397,13 @@ export default function AIChatPage() {
                     : "border-cyan-200 bg-cyan-50/60 text-slate-900"
                 }`}
               >
-                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                  {message.role}
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    {message.role}
+                  </span>
+                  {message.role === "assistant" && message.content ? (
+                    <CopyButton text={message.content} title="Copy as Markdown" />
+                  ) : null}
                 </div>
                 {message.role === "assistant" ? (
                   <div className="text-sm text-slate-900">
@@ -494,6 +527,29 @@ export default function AIChatPage() {
   );
 }
 
+function CopyButton({ text, label = "Copy", title }: { text: string; label?: string; title?: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    if (await copyText(text)) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      className="rounded-md border border-slate-300 bg-white/70 px-2 py-0.5 text-[11px] font-semibold text-slate-600 hover:bg-white disabled:opacity-40"
+      onClick={() => void handleCopy()}
+      disabled={!text}
+      title={title}
+    >
+      {copied ? "Copied" : label}
+    </button>
+  );
+}
+
 function DraftPanel({
   title,
   filename,
@@ -509,9 +565,10 @@ function DraftPanel({
 
   async function copy() {
     if (!value) return;
-    await navigator.clipboard.writeText(value);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    if (await copyText(value)) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
   }
 
   function download() {

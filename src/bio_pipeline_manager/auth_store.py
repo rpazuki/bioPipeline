@@ -193,6 +193,21 @@ class AuthStore:
             ).fetchone()
         return self._row_to_session(row) if row else None
 
+    def touch_session(self, session_id: str, *, expires_at: datetime) -> None:
+        """Extend an active (non-revoked) session's expiry.
+
+        Used by sliding-expiration renewal so a steadily-used session never
+        lapses mid-use. A revoked session is intentionally left untouched.
+        """
+        expires_at = as_utc(expires_at)
+        if expires_at is None:
+            raise ValueError("expires_at is required")
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE sessions SET expires_at = ? WHERE id = ? AND revoked_at IS NULL",
+                (expires_at.isoformat(), session_id),
+            )
+
     def revoke_session(self, session_id: str) -> None:
         with self.connect() as conn:
             conn.execute(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
 
@@ -109,9 +110,19 @@ class AIChatAgent:
         conversation = self._build_conversation(messages, workspace)
 
         max_iterations = int(self.ai_config.get("max_tool_iterations", 8))
+        # Overall wall-clock budget for the whole tool loop. Each provider call
+        # is already bounded (httpx timeout), but without an overall deadline a
+        # multi-iteration loop can block a request for minutes. 0 disables it.
+        max_seconds = float(self.ai_config.get("max_request_seconds", 120))
+        deadline = time.monotonic() + max_seconds if max_seconds > 0 else None
         outcome = AIChatOutcome(text="", provider=config.provider, model=config.model)
 
         for _ in range(max(1, max_iterations)):
+            if deadline is not None and time.monotonic() > deadline:
+                raise TimeoutError(
+                    f"AI request exceeded its {int(max_seconds)}s time budget before "
+                    "finishing. Try a shorter request, fewer steps, or a faster model."
+                )
             result: AIProviderResult = client.complete(
                 config=config,
                 system_prompt=system_prompt,
@@ -235,16 +246,30 @@ class AIChatAgent:
 
 # Caps on what a tool result contributes to the model conversation. These bound
 # token growth (results are re-sent every round) without starving the model of
-# the fields it needs to act.
-_MAX_TOOL_RESULT_CHARS = 4000
-_MAX_CONTENT_CHARS = 6000
+# the fields it needs to act. The overall ceiling must stay comfortably above
+# the per-file content cap, otherwise a `get_*` result whose only large field is
+# the (already capped) `content` is discarded wholesale by `_enforce_cap` and the
+# model receives a blind mid-file slice instead of the file.
+_MAX_CONTENT_CHARS = 16000
+_MAX_TOOL_RESULT_CHARS = _MAX_CONTENT_CHARS + 2000
 _MAX_LIST_ITEMS = 60
 
 
 def _cap_str(value: str, limit: int = _MAX_CONTENT_CHARS) -> str:
+    """Cap text to `limit`, truncating on a line boundary when possible.
+
+    Slicing mid-line would hand the model invalid YAML; instead we cut back to
+    the last newline (when one sits in the second half of the kept text) and add
+    a YAML-comment marker so the partial content stays parseable and the model
+    knows the full file lives in the editor draft.
+    """
     if len(value) <= limit:
         return value
-    return value[:limit] + f"\n…[truncated {len(value) - limit} chars]"
+    cut = value[:limit]
+    newline = cut.rfind("\n")
+    if newline > limit // 2:
+        cut = cut[:newline]
+    return cut + f"\n# …[truncated {len(value) - len(cut)} chars; full file is in the editor draft]"
 
 
 def _model_tool_result(name: str, result: Any) -> Any:
