@@ -36,6 +36,26 @@ function stringifyValue(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
+// A stable, definition-derived description of what a candidate field maps to,
+// derived from its binding (not its label). Shown read-only so an admin can still
+// tell which field is which after renaming the label researchers see.
+function fieldOrigin(field: PublishedField): string {
+  const binding = field.bindings?.[0];
+  if (!binding) return field.id;
+  if (binding.target === "definition_path") {
+    const path = binding.path ?? [];
+    if (path[0] === "variables") return `Variable: ${path[1]}`;
+    if (path[0] === "defaults") return `Default: ${path[1]}`;
+    if (path[0] === "stages") return `${path[1]}: ${path.slice(2).join(".")}`;
+    return path.join(".") || field.id;
+  }
+  if (binding.target === "stage_input_source") return `${binding.stage}: input ${binding.input}`;
+  if (binding.target === "stage_input_arg") return `${binding.stage}: input ${binding.input}.${binding.parameter}`;
+  if (binding.target === "stage_process_arg") return `${binding.stage}: ${binding.process}.${binding.parameter}`;
+  if (binding.target === "stage_output_path") return `${binding.stage}: output ${binding.output}`;
+  return field.id;
+}
+
 function toggleChannel(list: string[] | undefined, value: string, on: boolean): string[] {
   const set = new Set(list ?? []);
   if (on) set.add(value);
@@ -60,12 +80,39 @@ function statusClasses(status: string): string {
   }
 }
 
+// Attributes the admin curates in the editor. Everything else (type, default,
+// options, bindings) is *derived from the definition* and must track it, so a
+// saved field can never pin a stale structure (e.g. enum options captured before
+// a variant gained a {variant.group_cols} field).
+const CURATED_FIELD_KEYS = [
+  "label",
+  "help",
+  "example",
+  "readonly",
+  "io_role",
+  "accept",
+  "sources",
+  "delivery",
+  "shared_roots",
+] as const;
+
 function mergeFields(candidates: PublishedField[], existing: PublishedField[]) {
   const byId = new Map(candidates.map((field) => [field.id, field]));
   const idByBinding = new Map(candidates.map((field) => [JSON.stringify(field.bindings ?? []), field.id]));
-  for (const field of existing) {
-    const targetId = idByBinding.get(JSON.stringify(field.bindings ?? [])) ?? field.id;
-    byId.set(targetId, { ...byId.get(targetId), ...field, id: targetId });
+  for (const saved of existing) {
+    const targetId = idByBinding.get(JSON.stringify(saved.bindings ?? [])) ?? saved.id;
+    const candidate = byId.get(targetId);
+    if (!candidate) {
+      // No matching candidate in the current definition — keep the saved field as-is.
+      byId.set(targetId, { ...saved, id: targetId });
+      continue;
+    }
+    // Fresh structure from the candidate; overlay only the admin-curated attributes.
+    const curated: Record<string, unknown> = {};
+    for (const key of CURATED_FIELD_KEYS) {
+      if (saved[key] !== undefined) curated[key] = saved[key];
+    }
+    byId.set(targetId, { ...candidate, ...curated, id: targetId });
   }
   return Array.from(byId.values());
 }
@@ -289,7 +336,6 @@ export default function PublishedJobsAdminPage() {
           <h2 className="text-lg font-semibold text-slate-950">Published Jobs Admin</h2>
           <p className="mt-1 text-sm text-slate-500">Create, edit, validate, publish, archive, and monitor user-facing job forms.</p>
         </div>
-        <span className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">{status}</span>
       </div>
 
       {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
@@ -358,6 +404,7 @@ export default function PublishedJobsAdminPage() {
               </>
             ) : null}
           </div>
+          <span className="w-fit rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">{status}</span>
           {warnings.length || placeholderWarnings.length ? (
             <div className="grid gap-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
               {[...warnings, ...placeholderWarnings].map((warning, index) => (
@@ -379,14 +426,23 @@ export default function PublishedJobsAdminPage() {
                 <div key={field.id} className="grid gap-2 rounded-md border border-slate-200 p-3">
                   <label className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                     <input type="checkbox" checked={selected} onChange={() => toggleField(field)} />
-                    {field.label}
+                    <span className="font-mono text-xs text-slate-700">{fieldOrigin(field)}</span>
                     <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">{field.type}</span>
                   </label>
                   {selected ? (
                     <div className="grid gap-2">
-                      <input className="h-8 rounded-md border border-slate-300 px-2 text-xs" value={edit.label} onChange={(event) => patchField(field.id, { label: event.target.value })} />
-                      <input className="h-8 rounded-md border border-slate-300 px-2 text-xs" value={edit.help} onChange={(event) => patchField(field.id, { help: event.target.value })} />
-                      <input className="h-8 rounded-md border border-slate-300 px-2 text-xs" value={edit.example} onChange={(event) => patchField(field.id, { example: event.target.value })} placeholder={`Example: ${stringifyValue(field.default)}`} />
+                      <label className="grid gap-1 text-xs text-slate-600">
+                        Label researchers see
+                        <input className="h-8 rounded-md border border-slate-300 px-2 text-xs" value={edit.label} onChange={(event) => patchField(field.id, { label: event.target.value })} placeholder={fieldOrigin(field)} />
+                      </label>
+                      <label className="grid gap-1 text-xs text-slate-600">
+                        Help text
+                        <input className="h-8 rounded-md border border-slate-300 px-2 text-xs" value={edit.help} onChange={(event) => patchField(field.id, { help: event.target.value })} />
+                      </label>
+                      <label className="grid gap-1 text-xs text-slate-600">
+                        Example
+                        <input className="h-8 rounded-md border border-slate-300 px-2 text-xs" value={edit.example} onChange={(event) => patchField(field.id, { example: event.target.value })} placeholder={`Example: ${stringifyValue(field.default)}`} />
+                      </label>
                       <label className="flex items-center gap-2 text-xs text-slate-600">
                         <input type="checkbox" checked={edit.readonly ?? false} onChange={(event) => patchField(field.id, { readonly: event.target.checked })} />
                         Readonly (shown as text to researchers)

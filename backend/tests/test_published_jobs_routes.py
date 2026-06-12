@@ -165,6 +165,74 @@ def test_user_submits_rewinds_and_sees_own_run(tmp_path: Path):
     get_runtime.cache_clear()
 
 
+JOB_DEF_VARIANT = """
+job: variant_demo
+variables:
+  variant:
+    - {name: a, group_cols: well, pipeline: demo}
+    - {name: b, group_cols: gid, pipeline: demo}
+defaults:
+  root: /tmp/base
+stages:
+  - name: run
+    pipeline_yaml: demo.yaml
+    pipeline: "{variant.pipeline}"
+    fanout: {type: none}
+    process_arg_mapping:
+      step:
+        value: "{variant.group_cols}"
+    output_dir: "{root}/{variant.name}"
+"""
+
+
+def test_user_submits_variant_with_stale_option_missing_field(tmp_path: Path):
+    # A variant enum whose stored option values predate a later-added field
+    # ({variant.group_cols}) must still run: the submit reconciles the selection
+    # against the current definition entry by name so the token resolves.
+    client = _client(tmp_path)
+    client.post("/api/v1/pipeline-yamls", json={"name": "demo.yaml", "content": PIPELINE_YAML, "overwrite": True})
+    create = client.post(
+        "/api/v1/published-jobs/admin",
+        json={
+            "name": "Variant demo",
+            "definition_content": JOB_DEF_VARIANT,
+            "status": "published",
+            "fields": [
+                {
+                    "id": "var_variant",
+                    "label": "Variant",
+                    "type": "enum",
+                    "required": True,
+                    "default": {"name": "a", "pipeline": "demo"},  # stale: no group_cols
+                    "help": "Pick a variant",
+                    "example": "a",
+                    "options": [
+                        {"label": "a", "value": {"name": "a", "pipeline": "demo"}},
+                        {"label": "b", "value": {"name": "b", "pipeline": "demo"}},
+                    ],
+                    "bindings": [{"target": "definition_path", "path": ["variables", "variant"]}],
+                }
+            ],
+        },
+    )
+    assert create.status_code == 201
+    job_id = create.json()["id"]
+
+    # Submit the (stale) "b" option — missing group_cols — through the full path.
+    submitted = client.post(
+        f"/api/v1/published-jobs/catalog/{job_id}/runs",
+        json={"values": {"var_variant": {"name": "b", "pipeline": "demo"}}},
+    )
+    assert submitted.status_code == 201, submitted.text
+    task = submitted.json()["group"]["tasks"][0]
+    assert task["matrix_key"] == {"variant": "b"}
+    # {variant.group_cols} resolved from the current definition entry, not the stale option.
+    assert task["process_arg_mapping"] == {"step": {"value": "gid"}}
+
+    app.dependency_overrides.clear()
+    get_runtime.cache_clear()
+
+
 def test_admin_lists_usage_validates_and_deletes_drafts(tmp_path: Path):
     client = _client(tmp_path)
     client.post("/api/v1/pipeline-yamls", json={"name": "demo.yaml", "content": PIPELINE_YAML, "overwrite": True})

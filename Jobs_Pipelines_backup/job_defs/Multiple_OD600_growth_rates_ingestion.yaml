@@ -5,12 +5,21 @@ description: "Multiple experiments parsing, fitting, and plotting OD values. \n 
 variables:
 
   variant:
-    - name: no_replicates
-      pipeline: growth_rate_fit_pipeline
-    - name: replicates
-      pipeline: growth_rate_replicates_fit_pipeline
-    - name: post_replicates
-      pipeline: growth_rate_post_replicates_fit_pipeline
+    - {name: no_replicates, 
+      group_cols: 'well',
+      od600_col: 'od600',
+      od600_col_std: '',
+      pipeline: growth_rate_fit_pipeline}
+    - {name: replicates,
+      group_cols: 'group_id',
+      od600_col: 'od600_mean',
+      od600_col_std: 'od600_std',
+      pipeline: growth_rate_replicates_fit_pipeline}
+    - {name: post_replicates,
+      group_cols: 'well', 
+      od600_col: 'od600',
+      od600_col_std: '',
+      pipeline: growth_rate_post_replicates_fit_pipeline}
 
 defaults:
   data_root: $WILL_PROVIDE$
@@ -33,8 +42,85 @@ stages:
   #------------------------------------------------
     # Passing values into the pipeline
     process_arg_mapping:
-        df_predict_modified_gompertz: 
-            save_plot_data: False
+      df_parsed:
+        value_column_name: od600
+      df_report:
+        value_column_name: od600
+      df_replicate_stats:
+        strain_pattern: "[A-Za-z]+"
+        custom_rules:
+          SLAB:
+            direction: alphabetical
+            sample_size: 3
+          purB:
+            direction: alphabetical
+            sample_size: 3
+          ilvI:
+            direction: alphabetical
+            sample_size: 3
+          WT:
+            direction: alphabetical
+            sample_size: 2
+          BLANK:
+            direction: alphabetical
+            sample_size: 1
+        ddof: 0
+        value_column_name: od600
+      df_replicate_stats_mv:
+        custom_rules:
+          SLAB:
+            direction: alphabetical
+            sample_size: 3
+          purB:
+            direction: alphabetical
+            sample_size: 3
+          ilvI:
+            direction: alphabetical
+            sample_size: 3
+          WT:
+            direction: alphabetical
+            sample_size: 2
+          BLANK:
+            direction: alphabetical
+            sample_size: 1
+        ddof: 0
+        value_column_name: mv_mu_max
+      df_transformed:
+        value_col: "{variant.od600_col}"
+        transformed_col: log_od_od0
+        OD_0_averaging_window: 4
+        group_cols:
+          - "{variant.group_cols}"
+      df_fit_modified_gompertz:
+        time_col: time_h
+        value_col: log_od_od0
+        clip_exp: 50.0
+        min_points: 5
+        group_cols:
+          - "{variant.group_cols}"
+        fixed_params:
+          y0: 0.0
+      df_fit_max_growth_rate:
+        time_col: time_h
+        value_col: log_od_od0
+        group_cols:
+          - "{variant.group_cols}"
+        moving_window_size: 5
+        smoothing_iterations: 4
+        smooth_window_size: 2
+      df_combined_fit:
+        on_cols:
+          - "{variant.group_cols}"
+      df_predict_modified_gompertz:
+        time_col: time_h
+        value_col: log_od_od0
+        standard_deviation_column: "{variant.od600_col_std}"
+        group_cols:
+          - "{variant.group_cols}"
+        save_plot_data: true
+      df_combined_fit_2:
+        on_cols:
+          - group_id
     
   #------------------------------------------------
     output_dir: "{data_root}\\processed\\{variant.name}\\{item.stem}"

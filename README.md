@@ -147,7 +147,7 @@ bio-pipeline jobs
 Serve the backend API:
 
 ```bash
-uvicorn app.main:app --app-dir backend --reload --reload-dir backend --reload-dir src --port 8005
+uvicorn app.main:app --app-dir backend --reload --reload-dir backend --reload-dir src --port 8006
 ```
 
 `--reload-dir backend --reload-dir src` keeps the auto-reloader watching only the

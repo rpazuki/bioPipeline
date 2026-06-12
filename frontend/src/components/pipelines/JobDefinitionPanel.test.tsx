@@ -11,6 +11,7 @@ vi.mock("@/lib/api");
 vi.mock("@/components/pipelines/JobStageGraph", () => ({ default: () => null }));
 
 const pipelineContextState = vi.hoisted(() => ({
+  status: "Ready",
   jobDefinitionDraft: null as { name: string; content: string } | null,
   jobDefinitionName: null as string | null,
   jobDefinitionContent: "",
@@ -35,6 +36,7 @@ vi.mock("@/components/pipelines/PipelineContext", async () => {
         pipelineContextState.jobDefinitionContent,
       );
       return {
+        status: pipelineContextState.status,
         jobDefinitionDraft,
         jobDefinitionName,
         jobDefinitionContent,
@@ -94,6 +96,11 @@ describe("JobDefinitionPanel", () => {
     render(<JobDefinitionPanel />);
     expect(await screen.findByText("demo")).toBeInTheDocument();
     expect(screen.getByText("succeeded")).toBeInTheDocument();
+  });
+
+  it("shows the pipeline status message below the action buttons", async () => {
+    render(<JobDefinitionPanel />);
+    expect(await screen.findByText("Ready")).toBeInTheDocument();
   });
 
   it("previews the definition and shows the expanded tasks", async () => {

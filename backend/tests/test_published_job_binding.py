@@ -4,12 +4,14 @@ from datetime import datetime
 
 import pytest
 
+from bio_pipeline_manager.job_definition import expand
 from bio_pipeline_manager.published_jobs import (
     PublishedJobError,
     PublishedJobRecord,
     _apply_binding,
     _coerce_values,
     _provided_later_locations,
+    _reconcile_variable_value,
     render_definition,
 )
 
@@ -109,3 +111,56 @@ def test_render_definition_rejects_unexposed_placeholder():
     record = _record(_DEF, [_FIELD_MAP])
     with pytest.raises(PublishedJobError, match=r"defaults\.data_root"):
         render_definition(record, {"default_mapping": "/real/map.yaml"})
+
+
+_VAR_DEF = """job: demo
+variables:
+  variant:
+    - {name: a, group_cols: well, pipeline: p_a}
+    - {name: b, group_cols: gid, pipeline: p_b}
+defaults:
+  data_root: /data
+stages:
+  - name: s
+    pipeline_yaml: p.yaml
+    pipeline: "{variant.pipeline}"
+    fanout: {type: none}
+    output_dir: "/out/{variant.name}"
+    process_arg_mapping:
+      proc: {cols: "{variant.group_cols}"}
+"""
+
+# A variant option captured before the definition gained `group_cols` — the value
+# is missing that field even though the current definition references it.
+_STALE_VARIANT_FIELD = {
+    "id": "var_variant", "label": "Variant", "type": "enum", "required": True,
+    "default": {"name": "a", "pipeline": "p_a"},
+    "options": [
+        {"label": "a", "value": {"name": "a", "pipeline": "p_a"}},
+        {"label": "b", "value": {"name": "b", "pipeline": "p_b"}},
+    ],
+    "bindings": [{"target": "definition_path", "path": ["variables", "variant"]}],
+}
+
+
+def test_reconcile_variable_value_fills_from_definition():
+    original = {"variant": [{"name": "a", "group_cols": "well", "pipeline": "p_a"}]}
+    binding = {"target": "definition_path", "path": ["variables", "variant"]}
+    assert _reconcile_variable_value(original, binding, {"name": "a", "pipeline": "p_a"}) == {
+        "name": "a", "group_cols": "well", "pipeline": "p_a",
+    }
+
+
+def test_reconcile_variable_value_ignores_non_variable_binding():
+    binding = {"target": "stage_process_arg", "stage": "s", "process": "p", "parameter": "x"}
+    assert _reconcile_variable_value({"variant": []}, binding, "v") == "v"
+
+
+def test_render_definition_heals_stale_variant_option():
+    # A researcher picking a stale option (missing group_cols) must still expand:
+    # render reconciles the selection to the current definition entry by name.
+    record = _record(_VAR_DEF, [_STALE_VARIANT_FIELD])
+    tasks = expand(render_definition(record, {"var_variant": {"name": "b", "pipeline": "p_b"}}))
+    assert len(tasks) == 1
+    assert tasks[0].pipeline_name == "p_b"
+    assert tasks[0].process_arg_mapping["proc"]["cols"] == "gid"

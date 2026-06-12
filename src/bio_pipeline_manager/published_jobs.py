@@ -546,11 +546,12 @@ def render_definition(record: PublishedJobRecord, values: dict[str, Any]) -> str
     if not isinstance(data, dict):
         raise PublishedJobError("Published job definition must be a mapping")
     rendered = deepcopy(data)
+    original_variables = data.get("variables") if isinstance(data.get("variables"), dict) else {}
     coerced_values = _coerce_values(record.fields, values)
     for field in record.fields:
         value = coerced_values[field["id"]]
         for binding in field.get("bindings", []):
-            _apply_binding(rendered, binding, value)
+            _apply_binding(rendered, binding, _reconcile_variable_value(original_variables, binding, value))
     # A $WILL_PROVIDE$ placeholder left in the rendered definition means a value
     # was never exposed as an input field — so the researcher had no way to supply
     # it. Fail here with an actionable message instead of letting the generic
@@ -564,6 +565,34 @@ def render_definition(record: PublishedJobRecord, values: dict[str, Any]) -> str
     content = yaml.safe_dump(rendered, sort_keys=False)
     parse_job_definition(content)
     return content
+
+
+def _reconcile_variable_value(original_variables: dict[str, Any], binding: dict[str, Any], value: Any) -> Any:
+    """Fill a researcher's matrix-variable selection out to the definition's full entry.
+
+    A variable is exposed as an enum whose option values are the matrix entries
+    captured when the field was inspected. If the definition later gains a field on
+    those entries (e.g. a new ``{variant.group_cols}`` reference), an older stored
+    option can be missing it — replacing ``variables.variant`` with that partial
+    value leaves the new token unresolved at run time. So when a binding targets a
+    whole ``variables.<name>`` and the chosen value is a dict, re-match it to the
+    *current* definition entry by ``name`` and use that complete entry instead.
+    """
+    if binding.get("target") != "definition_path":
+        return value
+    path = binding.get("path")
+    if not (isinstance(path, list) and len(path) == 2 and path[0] == "variables"):
+        return value
+    entries = original_variables.get(path[1])
+    if not isinstance(entries, list) or not isinstance(value, dict):
+        return value
+    key = value.get("name")
+    if key is None:
+        return value
+    for entry in entries:
+        if isinstance(entry, dict) and entry.get("name") == key:
+            return entry
+    return value
 
 
 def _provided_later_locations(data: Any, prefix: str = "") -> list[str]:

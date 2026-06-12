@@ -192,6 +192,7 @@ function appendStageToDefinition(
 export default function JobDefinitionPanel() {
   const router = useRouter();
   const {
+    status,
     jobDefinitionDraft,
     jobDefinitionName,
     jobDefinitionContent,
@@ -593,6 +594,7 @@ export default function JobDefinitionPanel() {
             Run due
           </button>
         </div>
+        <span className="w-fit rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">{status}</span>
         {previewError ? (
           <p className="rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-700">{previewError}</p>
         ) : (

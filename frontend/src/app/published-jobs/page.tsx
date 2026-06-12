@@ -356,6 +356,7 @@ export default function PublishedJobsPage() {
 
   async function selectJob(id: string) {
     const job = await getPublishedJob(id);
+    setError(null); // a stale error from a previous job must not linger on the new one
     setSelected(job);
     setValues(Object.fromEntries(job.fields.map((field) => [field.id, defaultValue(field)])));
     setFiles({});
@@ -405,10 +406,13 @@ export default function PublishedJobsPage() {
     setStatus("Submitting…");
     const run = await submitPublishedJobRun(selected.id, values, scheduledAt || null, { workspaceId: wsId, fileBindings });
     setStatus(`Submitted run ${run.id}`);
-    // Each execution gets a fresh workspace/selection set.
+    // Each execution gets a fresh workspace, so drop the spent workspace id. Keep
+    // the file/shared selections, though: a researcher often re-runs the same job
+    // with a tweaked option (e.g. a different averaging method) and the same data.
+    // Clearing them stranded the inputs — the next submit reported the field empty
+    // even after the file was re-picked (re-selecting the same file fires no change
+    // event). The selections re-upload into the new workspace on the next submit.
     setWorkspaceId(null);
-    setFiles({});
-    setShared({});
   }
 
   return (
@@ -455,7 +459,6 @@ export default function PublishedJobsPage() {
             <h3 className="text-sm font-semibold text-slate-950">{selected?.name ?? "Job Form"}</h3>
             <p className="mt-1 text-xs text-slate-500 whitespace-pre-line">{selected?.description ?? status}</p>
           </div>
-          <span className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">{status}</span>
         </div>
         {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
         {selected ? (
@@ -495,9 +498,12 @@ export default function PublishedJobsPage() {
                 <input className="h-9 rounded-md border border-slate-300 px-3 text-sm" type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} />
               </label>
             </div>
-            <button type="button" className="w-fit rounded-md bg-cyan-700 px-4 py-2 text-sm font-semibold text-white" onClick={() => submit().catch((cause: Error) => setError(cause.message))}>
-              Execute Job
-            </button>
+            <div className="grid gap-2">
+              <button type="button" className="w-fit rounded-md bg-cyan-700 px-4 py-2 text-sm font-semibold text-white" onClick={() => submit().catch((cause: Error) => setError(cause.message))}>
+                Execute Job
+              </button>
+              <span className="w-fit rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">{status}</span>
+            </div>
           </div>
         ) : (
           <p className="text-sm text-slate-500">Select a published job to fill its fields and execute it.</p>
