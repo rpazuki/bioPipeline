@@ -31,16 +31,16 @@ describe("PublishedJobsAdminPage field editor", () => {
   });
 
   it("shows the definition-derived origin read-only and keeps it after the label is renamed", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     mocked.listSavedDefinitions.mockResolvedValue([] as any);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     mocked.listAdminPublishedJobs.mockResolvedValue([] as any);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     mocked.listAdminPublishedRuns.mockResolvedValue([] as any);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     mocked.listAdminSharedRoots.mockResolvedValue([] as any);
     mocked.inspectPublishedJob.mockResolvedValue(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       { job_name: "j", candidates: [variantCandidate], warnings: [] } as any,
     );
 

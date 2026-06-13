@@ -14,12 +14,13 @@ import {
   listAdminPublishedRuns,
   listAdminSharedRoots,
   listSavedDefinitions,
+  listTypeLibrary,
   publishPublishedJob,
   updatePublishedJob,
   validatePublishedJob,
 } from "@/lib/api";
 import ResizableSplitPane from "@/components/pipelines/ResizableSplitPane";
-import type { DefinitionSummary, PublishedField, PublishedFieldIoRole, PublishedJobAdmin, PublishedRunSummary, SharedRootInfo } from "@/types";
+import type { DefinitionSummary, PublishedField, PublishedFieldIoRole, PublishedJobAdmin, PublishedRunSummary, SharedRootInfo, TypeDef } from "@/types";
 
 // Placeholder marking a value a researcher supplies at run time. Each one must
 // be exposed (selected) as an input field so the researcher can fill it in.
@@ -94,6 +95,10 @@ const CURATED_FIELD_KEYS = [
   "sources",
   "delivery",
   "shared_roots",
+  // The structured-type binding the admin chose. `type_schema` itself is derived
+  // (the backend re-resolves it from the library on save), so it is not curated.
+  "schema_ref",
+  "container",
 ] as const;
 
 function mergeFields(candidates: PublishedField[], existing: PublishedField[]) {
@@ -112,7 +117,11 @@ function mergeFields(candidates: PublishedField[], existing: PublishedField[]) {
     for (const key of CURATED_FIELD_KEYS) {
       if (saved[key] !== undefined) curated[key] = saved[key];
     }
-    byId.set(targetId, { ...candidate, ...curated, id: targetId });
+    const next = { ...candidate, ...curated, id: targetId };
+    // A curated schema_ref means the admin bound this field to a library type; keep it
+    // typed even though the fresh candidate's inferred type is a plain primitive.
+    if (next.schema_ref) next.type = "typed";
+    byId.set(targetId, next);
   }
   return Array.from(byId.values());
 }
@@ -127,6 +136,7 @@ export default function PublishedJobsAdminPage() {
   const [published, setPublished] = useState<PublishedJobAdmin[]>([]);
   const [allRuns, setAllRuns] = useState<PublishedRunSummary[]>([]);
   const [availableRoots, setAvailableRoots] = useState<SharedRootInfo[]>([]);
+  const [libraryTypes, setLibraryTypes] = useState<TypeDef[]>([]);
   const [selectedRuns, setSelectedRuns] = useState<PublishedRunSummary[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -162,16 +172,18 @@ export default function PublishedJobsAdminPage() {
   }, [allRuns]);
 
   async function refresh() {
-    const [defs, jobs, runs, roots] = await Promise.all([
+    const [defs, jobs, runs, roots, types] = await Promise.all([
       listSavedDefinitions(),
       listAdminPublishedJobs(),
       listAdminPublishedRuns(),
       listAdminSharedRoots().catch(() => [] as SharedRootInfo[]),
+      listTypeLibrary().then((result) => result.types).catch(() => [] as TypeDef[]),
     ]);
     setDefinitions(defs);
     setPublished(jobs);
     setAllRuns(runs);
     setAvailableRoots(roots);
+    setLibraryTypes(types);
   }
 
   useEffect(() => {
@@ -447,12 +459,66 @@ export default function PublishedJobsAdminPage() {
                         <input type="checkbox" checked={edit.readonly ?? false} onChange={(event) => patchField(field.id, { readonly: event.target.checked })} />
                         Readonly (shown as text to researchers)
                       </label>
+                      {(edit.io_role ?? "none") === "none" ? (
+                        <div className="grid gap-2 rounded-md bg-slate-50 p-2">
+                          <label className="grid gap-1 text-xs text-slate-600">
+                            Structured type
+                            <select
+                              className="h-8 rounded-md border border-slate-300 px-2 text-xs"
+                              value={edit.schema_ref ?? ""}
+                              onChange={(event) => {
+                                const ref = event.target.value;
+                                if (!ref) patchField(field.id, { type: field.type, schema_ref: "", container: "single", type_schema: null });
+                                else patchField(field.id, { type: "typed", schema_ref: ref, container: edit.container ?? "single" });
+                              }}
+                            >
+                              <option value="">Plain value ({field.type})</option>
+                              {libraryTypes.map((libType) => (
+                                <option key={libType.name} value={libType.name}>{libType.name}</option>
+                              ))}
+                            </select>
+                          </label>
+                          {edit.schema_ref ? (
+                            <label className="grid gap-1 text-xs text-slate-600">
+                              Shape
+                              <select
+                                className="h-8 rounded-md border border-slate-300 px-2 text-xs"
+                                value={edit.container ?? "single"}
+                                onChange={(event) => patchField(field.id, { container: event.target.value as "single" | "list" | "map" })}
+                              >
+                                <option value="single">One {edit.schema_ref}</option>
+                                <option value="list">List of {edit.schema_ref}</option>
+                                <option value="map">Map (named entries) of {edit.schema_ref}</option>
+                              </select>
+                            </label>
+                          ) : null}
+                          {!edit.schema_ref && field.schema_suggestion ? (
+                            <button
+                              type="button"
+                              className="w-fit rounded-md border border-cyan-300 px-2 py-1 text-xs font-semibold text-cyan-800"
+                              onClick={() => patchField(field.id, { type: "typed", schema_ref: field.schema_suggestion ?? "", container: field.schema_suggestion_container ?? "single" })}
+                            >
+                              Looks like {field.schema_suggestion} ({field.schema_suggestion_container}) — apply
+                            </button>
+                          ) : null}
+                          {libraryTypes.length === 0 ? (
+                            <span className="text-[11px] text-slate-400">No library types yet — define them on the Environment page.</span>
+                          ) : null}
+                        </div>
+                      ) : null}
                       <label className="grid gap-1 text-xs text-slate-600">
                         Researcher handling
                         <select
                           className="h-8 rounded-md border border-slate-300 px-2 text-xs"
                           value={edit.io_role ?? "none"}
-                          onChange={(event) => patchField(field.id, { io_role: event.target.value as PublishedFieldIoRole })}
+                          onChange={(event) => {
+                            const io_role = event.target.value as PublishedFieldIoRole;
+                            // Switching to a file I/O role clears any structured-type binding (a typed
+                            // value is a plain value, not a file), keeping the two mutually exclusive.
+                            patchField(field.id, io_role === "none"
+                              ? { io_role }
+                              : { io_role, type: field.type, schema_ref: "", container: "single", type_schema: null });
+                          }}
                         >
                           <option value="none">Server-managed (plain value)</option>
                           <option value="input">Input — researcher provides a file/folder</option>

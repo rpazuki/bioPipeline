@@ -127,7 +127,7 @@ function loadPersisted(): Partial<PersistedState> {
 }
 
 export default function AIChatPage() {
-  const persisted = useMemo(loadPersisted, []);
+  const persisted = useMemo(() => loadPersisted(), []);
   const [context, setContext] = useState<AIContextResponse | null>(null);
   const [provider, setProvider] = useState<string>(persisted.provider ?? "");
   const [messages, setMessages] = useState<AIChatMessage[]>(persisted.messages ?? []);

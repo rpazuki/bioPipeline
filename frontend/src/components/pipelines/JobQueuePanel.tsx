@@ -102,7 +102,7 @@ export default function JobQueuePanel({ onStatus }: Props) {
     }, 3000);
 
     return () => window.clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   useEffect(() => {

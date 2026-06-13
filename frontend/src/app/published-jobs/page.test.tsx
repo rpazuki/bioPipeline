@@ -7,7 +7,7 @@ import * as api from "@/lib/api";
 vi.mock("@/lib/api");
 const mocked = vi.mocked(api);
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function detail(id: string, name: string, fields: any[] = []) {
   return { id, name, description: "", version: 1, fields };
 }
@@ -22,10 +22,10 @@ describe("PublishedJobsPage", () => {
     mocked.listPublishedJobs.mockResolvedValue([
       { id: "A", name: "Job A", description: "", version: 1 },
       { id: "B", name: "Job B", description: "", version: 1 },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
     ] as any);
     mocked.getPublishedJob.mockImplementation(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       async (id: string) => detail(id, id === "A" ? "Job A" : "Job B") as any,
     );
     mocked.submitPublishedJobRun.mockRejectedValue(new Error("submit failed"));
@@ -48,21 +48,21 @@ describe("PublishedJobsPage", () => {
       id: "f1", label: "Data File", type: "file", required: true, io_role: "input",
       accept: "file", sources: ["upload"], help: "", example: "", options: [],
     };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     mocked.listPublishedJobs.mockResolvedValue([{ id: "J", name: "Job", description: "", version: 1 }] as any);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     mocked.getPublishedJob.mockResolvedValue(detail("J", "Job", [fileField]) as any);
     mocked.createDraftRun
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       .mockResolvedValueOnce({ workspace_id: "ws1" } as any)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       .mockResolvedValueOnce({ workspace_id: "ws2" } as any);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     mocked.uploadRunInput.mockResolvedValue({ field_id: "f1", handle: "h", filename: "raw.csv", size: 4 } as any);
     mocked.submitPublishedJobRun
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       .mockResolvedValueOnce({ id: "run1" } as any)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       .mockResolvedValueOnce({ id: "run2" } as any);
 
     const { container } = render(<PublishedJobsPage />);

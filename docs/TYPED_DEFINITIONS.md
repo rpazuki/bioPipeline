@@ -1,7 +1,7 @@
 # Typed Definitions — Structured types for published-job fields
 
-Status: **Phases 1–2 implemented** (backend core + library/extractor on the Environment page);
-Phases 3–4 planned (see §10).
+Status: **Phases 1–3 implemented** (backend core + library/extractor on the Environment page +
+admin type-picker); Phase 4 (researcher editor) planned (see §10).
 
 Decisions locked with the user:
 
@@ -345,9 +345,12 @@ CustomReplicateRule:
   - `TypeLibraryPanel.tsx` on the Environment page: list / create / edit / delete types, and an
     **Extract from a Python class** box (paste a qualified name → preview the types + warnings →
     upsert). API client + TS types added.
-- **Phase 3 — admin picker.** Type + container dropdowns (and the `schema_suggestion` "apply"
-  affordance) in the Definable Fields panel (`published-jobs-admin/page.tsx`); add
-  `schema_ref` / `container` to `CURATED_FIELD_KEYS`.
+- **Phase 3 — admin picker. ✅ Implemented.** In the Definable Fields panel
+  (`published-jobs-admin/page.tsx`): a **Structured type** dropdown (library types) plus a **Shape**
+  dropdown (single / list / map) for plain-value fields, an **apply** button for the inspector's
+  `schema_suggestion`, and switching a field to file I/O clears any typed binding (mutually
+  exclusive). `schema_ref` / `container` added to `CURATED_FIELD_KEYS`; `mergeFields` keeps a field
+  `typed` across re-inspect when `schema_ref` is set; the library is loaded via `listTypeLibrary`.
 - **Phase 4 — researcher editor.** `TypedValueEditor` (single / list / map, recursive) wired into
   the published-jobs page; e2e test on the OD600 `custom_rules` case.
 
