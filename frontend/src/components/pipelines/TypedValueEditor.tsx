@@ -110,21 +110,23 @@ function ListEditor({
   const items = Array.isArray(value) ? value : [];
   return (
     <div className="grid gap-2">
-      {items.map((item, index) => (
-        <div key={index} className="grid gap-1 rounded-md border border-slate-200 bg-slate-50 p-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] uppercase tracking-wide text-slate-400">{schema.name} #{index + 1}</span>
-            <button
-              type="button"
-              className="rounded border border-rose-200 px-2 py-0.5 text-[11px] font-semibold text-rose-700"
-              onClick={() => onChange(items.filter((_, other) => other !== index))}
-            >
-              Remove
-            </button>
+      <div className="grid max-h-72 gap-2 overflow-y-auto pr-1">
+        {items.map((item, index) => (
+          <div key={index} className="grid gap-1 rounded-md border border-slate-200 bg-slate-50 p-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] uppercase tracking-wide text-slate-400">{schema.name} #{index + 1}</span>
+              <button
+                type="button"
+                className="rounded border border-rose-200 px-2 py-0.5 text-[11px] font-semibold text-rose-700"
+                onClick={() => onChange(items.filter((_, other) => other !== index))}
+              >
+                Remove
+              </button>
+            </div>
+            <ObjectEditor schema={schema} value={item} onChange={(next) => onChange(items.map((existing, other) => (other === index ? next : existing)))} />
           </div>
-          <ObjectEditor schema={schema} value={item} onChange={(next) => onChange(items.map((existing, other) => (other === index ? next : existing)))} />
-        </div>
-      ))}
+        ))}
+      </div>
       <button
         type="button"
         className="w-fit rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-600"
@@ -173,27 +175,29 @@ function MapEditor({
 
   return (
     <div className="grid gap-2">
-      {rows.map((row, index) => (
-        <div key={row.id} className="grid gap-1 rounded-md border border-slate-200 bg-slate-50 p-2">
-          <div className="flex items-center gap-2">
-            <input
-              className="h-8 flex-1 rounded-md border border-slate-300 px-2 text-xs font-medium text-slate-950"
-              placeholder="key (e.g. SLAB)"
-              value={row.key}
-              onChange={(event) => commit(rows.map((other, position) => (position === index ? { ...other, key: event.target.value } : other)))}
-            />
-            <button
-              type="button"
-              className="rounded border border-rose-200 px-2 py-0.5 text-[11px] font-semibold text-rose-700"
-              onClick={() => commit(rows.filter((_, position) => position !== index))}
-            >
-              Remove
-            </button>
+      <div className="grid max-h-72 gap-2 overflow-y-auto pr-1">
+        {rows.map((row, index) => (
+          <div key={row.id} className="grid gap-1 rounded-md border border-slate-200 bg-slate-50 p-2">
+            <div className="flex items-center gap-2">
+              <input
+                className="h-8 flex-1 rounded-md border border-slate-300 px-2 text-xs font-medium text-slate-950"
+                placeholder="key (e.g. SLAB)"
+                value={row.key}
+                onChange={(event) => commit(rows.map((other, position) => (position === index ? { ...other, key: event.target.value } : other)))}
+              />
+              <button
+                type="button"
+                className="rounded border border-rose-200 px-2 py-0.5 text-[11px] font-semibold text-rose-700"
+                onClick={() => commit(rows.filter((_, position) => position !== index))}
+              >
+                Remove
+              </button>
+            </div>
+            {duplicate(row.key) ? <span className="text-[11px] text-amber-700">Duplicate key — only the last is kept.</span> : null}
+            <ObjectEditor schema={schema} value={row.value} onChange={(next) => commit(rows.map((other, position) => (position === index ? { ...other, value: next } : other)))} />
           </div>
-          {duplicate(row.key) ? <span className="text-[11px] text-amber-700">Duplicate key — only the last is kept.</span> : null}
-          <ObjectEditor schema={schema} value={row.value} onChange={(next) => commit(rows.map((other, position) => (position === index ? { ...other, value: next } : other)))} />
-        </div>
-      ))}
+        ))}
+      </div>
       <button
         type="button"
         className="w-fit rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-600"

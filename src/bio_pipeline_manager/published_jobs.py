@@ -28,6 +28,7 @@ from bio_pipeline_manager.type_schema import (
     coerce_typed_value,
     resolve_type,
     suggest_type,
+    validate_library,
 )
 
 FIELD_TYPES = {
@@ -369,6 +370,15 @@ def inspect_definition(
 ) -> list[dict[str, Any]]:
     job_def = parse_job_definition(definition_content)
     raw = yaml.safe_load(definition_content) or {}
+    # Inline type definitions declared directly in the job YAML under definitions:.
+    # These are structurally identical to the project type library and take priority
+    # over library suggestions when a candidate's value matches.
+    inline_defs: dict[str, Any] = raw.get("definitions") or {}
+    if inline_defs:
+        try:
+            validate_library(inline_defs)
+        except TypeSchemaError as exc:
+            raise ValueError(f"Job 'definitions:' block is invalid: {exc}") from exc
     candidates: list[dict[str, Any]] = []
 
     for name, values in job_def.variables.items():
@@ -414,10 +424,21 @@ def inspect_definition(
         candidate["sources"] = ["upload"] if role == "input" else []
         candidate["delivery"] = ["download"] if role == "output" else []
         candidate["shared_roots"] = []
-        # Cheap, on-demand hint: if a structured value matches a library type, tell the
-        # admin so they can bind the field to it with one click. Non-binding — the
-        # admin still chooses. Skipped entirely when no library is supplied.
-        if type_library:
+        # Inline definitions: the job itself declared the type, so auto-bind — no
+        # admin choice needed. Takes priority over the project library suggestion.
+        if inline_defs:
+            suggestion = suggest_type(inline_defs, candidate.get("default"))
+            if suggestion:
+                stype, scontainer = suggestion
+                try:
+                    candidate["type"] = "typed"
+                    candidate["container"] = scontainer
+                    candidate["type_schema"] = resolve_type(inline_defs, stype)
+                except TypeSchemaError:
+                    pass
+        # Library suggestion: non-binding hint shown to the admin (only when the
+        # candidate was not already resolved from an inline definitions: block).
+        if type_library and candidate.get("type") != "typed":
             suggestion = suggest_type(type_library, candidate.get("default"))
             if suggestion:
                 candidate["schema_suggestion"], candidate["schema_suggestion_container"] = suggestion
@@ -811,28 +832,40 @@ def _validate_definition_and_fields(definition_content: str, fields: list[dict[s
 
 
 def resolve_typed_fields(fields: list[dict[str, Any]], library: dict[str, Any]) -> list[dict[str, Any]]:
-    """Denormalize the resolved ``type_schema`` onto each typed field from the library.
+    """Denormalize the resolved ``type_schema`` onto each typed field.
 
-    Called at save/publish so the stored field is self-contained and tracks the
-    *current* library (re-resolved each save, like enum options). A field opts into a
-    type by carrying ``schema_ref`` (the library type name) and a ``container``.
+    Two sources of typed fields are supported:
+
+    - **Library reference** (``schema_ref`` set): re-resolves ``type_schema`` from the
+      project library on every save so the stored field tracks the current library.
+    - **Inline definition** (``type == "typed"`` with no ``schema_ref``): ``type_schema``
+      was resolved at inspect time from the job's own ``definitions:`` block and is
+      already embedded — passed through unchanged.
     """
     resolved: list[dict[str, Any]] = []
     for field in fields:
         schema_ref = field.get("schema_ref")
-        if not schema_ref and field.get("type") != "typed":
+        if schema_ref:
+            # Library reference: re-resolve from the project type library.
+            container = field.get("container", "single")
+            if container not in CONTAINERS:
+                raise PublishedJobError(f"Field '{field.get('id')}' has an invalid container '{container}'")
+            try:
+                type_schema = resolve_type(library, schema_ref)
+            except TypeSchemaError as exc:
+                raise PublishedJobError(str(exc)) from exc
+            resolved.append({**field, "type": "typed", "container": container, "type_schema": type_schema})
+        elif field.get("type") == "typed":
+            # Inline typed field: type_schema was resolved from the job's definitions:
+            # block at inspect time and is stored directly on the field.
+            if not isinstance(field.get("type_schema"), dict):
+                raise PublishedJobError(
+                    f"Typed field '{field.get('id')}' has no type_schema; "
+                    "add a schema_ref or re-inspect the job definition."
+                )
             resolved.append(field)
-            continue
-        if not schema_ref:
-            raise PublishedJobError(f"Typed field '{field.get('id')}' needs a schema_ref")
-        container = field.get("container", "single")
-        if container not in CONTAINERS:
-            raise PublishedJobError(f"Field '{field.get('id')}' has an invalid container '{container}'")
-        try:
-            type_schema = resolve_type(library, schema_ref)
-        except TypeSchemaError as exc:
-            raise PublishedJobError(str(exc)) from exc
-        resolved.append({**field, "type": "typed", "container": container, "type_schema": type_schema})
+        else:
+            resolved.append(field)
     return resolved
 
 

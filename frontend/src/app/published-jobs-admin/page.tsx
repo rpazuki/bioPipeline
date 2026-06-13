@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   archivePublishedJob,
@@ -145,15 +145,23 @@ export default function PublishedJobsAdminPage() {
   const [definitionName, setDefinitionName] = useState("");
   const [candidates, setCandidates] = useState<PublishedField[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [fieldOrder, setFieldOrder] = useState<string[]>([]);
   const [fieldEdits, setFieldEdits] = useState<Record<string, PublishedField>>({});
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const paneWrapRef = useRef<HTMLDivElement>(null);
+  const [paneHeight, setPaneHeight] = useState(600);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("Ready");
 
-  const selectedFields = useMemo(
-    () => candidates.filter((field) => selectedIds.has(field.id)).map((field) => fieldEdits[field.id] ?? field),
-    [candidates, fieldEdits, selectedIds],
-  );
+  const selectedFields = useMemo(() => {
+    const byId = new Map(candidates.map((field) => [field.id, fieldEdits[field.id] ?? field]));
+    return fieldOrder
+      .filter((id) => selectedIds.has(id))
+      .map((id) => byId.get(id))
+      .filter((f): f is PublishedField => f !== undefined);
+  }, [candidates, fieldEdits, selectedIds, fieldOrder]);
   // Placeholder values still needing exposure: a $WILL_PROVIDE$ candidate the
   // admin hasn't selected as a field yet. Selecting it clears the warning.
   const placeholderWarnings = useMemo(() => {
@@ -170,6 +178,15 @@ export default function PublishedJobsAdminPage() {
     for (const run of allRuns) counts[run.published_job_id] = (counts[run.published_job_id] ?? 0) + 1;
     return counts;
   }, [allRuns]);
+
+  const orderedCandidates = useMemo(() => {
+    const selectedInOrder = fieldOrder
+      .filter((id) => selectedIds.has(id))
+      .map((id) => candidates.find((c) => c.id === id))
+      .filter((f): f is PublishedField => f !== undefined);
+    const unselected = candidates.filter((c) => !selectedIds.has(c.id));
+    return [...selectedInOrder, ...unselected];
+  }, [candidates, fieldOrder, selectedIds]);
 
   async function refresh() {
     const [defs, jobs, runs, roots, types] = await Promise.all([
@@ -190,6 +207,17 @@ export default function PublishedJobsAdminPage() {
     refresh().catch((cause: Error) => setError(cause.message));
   }, []);
 
+  useEffect(() => {
+    function measure() {
+      if (!paneWrapRef.current) return;
+      const top = paneWrapRef.current.getBoundingClientRect().top;
+      setPaneHeight(Math.max(800, window.innerHeight - top - 16));
+    }
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+
   function clearEditor() {
     setEditingId(null);
     setName("");
@@ -198,6 +226,7 @@ export default function PublishedJobsAdminPage() {
     setDefinitionContent("");
     setCandidates([]);
     setSelectedIds(new Set());
+    setFieldOrder([]);
     setFieldEdits({});
     setSelectedRuns([]);
     setWarnings([]);
@@ -232,7 +261,10 @@ export default function PublishedJobsAdminPage() {
     // only fields they had already ticked (so re-inspecting after a YAML edit
     // doesn't wipe their choices); never tick anything on their behalf.
     const mergedIds = new Set(merged.map((field) => field.id));
-    setSelectedIds(new Set(selectedFields.map((field) => field.id).filter((id) => mergedIds.has(id))));
+    const survivingIds = new Set(selectedFields.map((field) => field.id).filter((id) => mergedIds.has(id)));
+    setSelectedIds(survivingIds);
+    // Preserve the order of fields that survived re-inspect; drop those that vanished.
+    setFieldOrder((prev) => prev.filter((id) => survivingIds.has(id)));
     setStatus(`Valid definition · ${result.candidates.length} definable fields`);
   }
 
@@ -254,19 +286,26 @@ export default function PublishedJobsAdminPage() {
     setDefinitionName(job.definition_name);
     setDefinitionContent(job.definition_content);
     setCandidates(merged);
-    setSelectedIds(selectedFieldIds(job.fields, merged));
+    const ids = selectedFieldIds(job.fields, merged);
+    setSelectedIds(ids);
+    // Restore the saved field order; any extra candidates are not selected so won't appear.
+    setFieldOrder(job.fields.map((f) => f.id));
     setFieldEdits(Object.fromEntries(merged.map((field) => [field.id, field])));
     setSelectedRuns(runs);
     setStatus(`Editing ${job.name} · ${job.status} · v${job.version}`);
   }
 
   function toggleField(field: PublishedField) {
+    const adding = !selectedIds.has(field.id);
     setSelectedIds((current) => {
       const next = new Set(current);
-      if (next.has(field.id)) next.delete(field.id);
-      else next.add(field.id);
+      if (adding) next.add(field.id);
+      else next.delete(field.id);
       return next;
     });
+    setFieldOrder((current) =>
+      adding ? [...current, field.id] : current.filter((id) => id !== field.id),
+    );
     setFieldEdits((current) => ({ ...current, [field.id]: current[field.id] ?? field }));
   }
 
@@ -352,10 +391,12 @@ export default function PublishedJobsAdminPage() {
 
       {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
 
+      <div ref={paneWrapRef} style={{ height: paneHeight }}>
       <ResizableSplitPane
         defaultSplit={55}
+        className="h-full"
         left={
-        <section className="grid gap-3 rounded-md border border-slate-200 bg-white p-4 h-full">
+        <section className="grid content-start gap-3 rounded-md border border-slate-200 bg-white p-4 h-full overflow-auto">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-semibold text-slate-950">{editingId ? "Edit Published Job" : "New Published Job"}</h3>
             <button type="button" className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold" onClick={clearEditor}>
@@ -427,16 +468,54 @@ export default function PublishedJobsAdminPage() {
         </section>
         }
         right={
-        <section className="grid content-start gap-3 rounded-md border border-slate-200 bg-white p-4 h-full">
+        <section className="flex h-full flex-col gap-3 rounded-md border border-slate-200 bg-white p-4">
           <h3 className="text-sm font-semibold text-slate-950">Definable Fields</h3>
           {candidates.length === 0 ? <p className="text-sm text-slate-500">Load or inspect a Job Definition to choose public fields.</p> : null}
-          <div className="grid max-h-[760px] gap-2 overflow-auto pr-1">
-            {candidates.map((field) => {
+          <div className="grid min-h-0 flex-1 content-start gap-2 overflow-auto pr-1">
+            {orderedCandidates.map((field) => {
               const edit = fieldEdits[field.id] ?? field;
               const selected = selectedIds.has(field.id);
               return (
-                <div key={field.id} className="grid gap-2 rounded-md border border-slate-200 p-3">
+                <div
+                  key={field.id}
+                  onDragOver={selected ? (e) => { e.preventDefault(); setDragOverId(field.id); } : undefined}
+                  onDrop={selected ? () => {
+                    if (!draggingId || draggingId === field.id) return;
+                    setFieldOrder((prev) => {
+                      const next = [...prev];
+                      const from = next.indexOf(draggingId);
+                      const to = next.indexOf(field.id);
+                      if (from === -1 || to === -1) return prev;
+                      next.splice(from, 1);
+                      next.splice(to, 0, draggingId);
+                      return next;
+                    });
+                    setDraggingId(null);
+                    setDragOverId(null);
+                  } : undefined}
+                  className={`grid gap-2 rounded-md border p-3 ${
+                    selected && draggingId === field.id
+                      ? "border-slate-200 opacity-40"
+                      : selected && dragOverId === field.id
+                        ? "border-cyan-400 bg-cyan-50"
+                        : "border-slate-200"
+                  }`}
+                >
                   <label className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                    <span
+                      draggable={selected}
+                      onDragStart={selected ? () => setDraggingId(field.id) : undefined}
+                      onDragEnd={selected ? () => { setDraggingId(null); setDragOverId(null); } : undefined}
+                      onClick={(e) => e.stopPropagation()}
+                      className={`shrink-0 select-none ${selected ? "cursor-grab text-slate-300 active:cursor-grabbing" : "cursor-default text-slate-200"}`}
+                      aria-hidden
+                    >
+                      <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
+                        <circle cx="3" cy="2" r="1.5" /><circle cx="7" cy="2" r="1.5" />
+                        <circle cx="3" cy="7" r="1.5" /><circle cx="7" cy="7" r="1.5" />
+                        <circle cx="3" cy="12" r="1.5" /><circle cx="7" cy="12" r="1.5" />
+                      </svg>
+                    </span>
                     <input type="checkbox" checked={selected} onChange={() => toggleField(field)} />
                     <span className="font-mono text-xs text-slate-700">{fieldOrigin(field)}</span>
                     <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">{field.type}</span>
@@ -594,6 +673,7 @@ export default function PublishedJobsAdminPage() {
         </section>
         }
       />
+      </div>
 
       <ResizableSplitPane
         defaultSplit={60}

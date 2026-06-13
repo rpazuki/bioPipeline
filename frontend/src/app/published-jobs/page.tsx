@@ -346,6 +346,8 @@ export default function PublishedJobsPage() {
   const [scheduledAt, setScheduledAt] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("Choose a published job");
+  const paneWrapRef = useRef<HTMLDivElement>(null);
+  const [paneHeight, setPaneHeight] = useState(600);
 
   async function refresh() {
     setJobs(await listPublishedJobs());
@@ -362,6 +364,17 @@ export default function PublishedJobsPage() {
 
   useEffect(() => {
     refresh().catch((cause: Error) => setError(cause.message));
+  }, []);
+
+  useEffect(() => {
+    function measure() {
+      if (!paneWrapRef.current) return;
+      const top = paneWrapRef.current.getBoundingClientRect().top;
+      setPaneHeight(Math.max(800, window.innerHeight - top - 16));
+    }
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
   }, []);
 
   async function selectJob(id: string) {
@@ -427,10 +440,12 @@ export default function PublishedJobsPage() {
 
   return (
     <section className="p-5">
+      <div ref={paneWrapRef} style={{ height: paneHeight }}>
       <ResizableSplitPane
-        defaultSplit={30}
+        defaultSplit={50}
         minLeft={20}
         minRight={30}
+        className="h-full"
         left={
         <aside className="grid content-start gap-3 rounded-md border border-slate-200 bg-white p-4 h-full">
         <div>
@@ -531,6 +546,7 @@ export default function PublishedJobsPage() {
       </main>
         }
       />
+      </div>
       {browseField && selected ? (
         <SharedBrowser
           jobId={selected.id}
