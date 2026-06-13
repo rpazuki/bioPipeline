@@ -144,6 +144,13 @@ export async function getCurrentUser() {
   return apiFetch<AuthResponse>("/auth/me");
 }
 
+export async function changePassword(currentPassword: string, newPassword: string) {
+  return apiFetch<AuthResponse>("/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+}
+
 export async function listUsers() {
   return apiFetch<User[]>("/users");
 }

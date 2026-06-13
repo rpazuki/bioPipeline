@@ -6,7 +6,7 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 
 from app.api.deps import get_current_user, get_runtime, set_session_cookie
 from app.core.config import settings
-from app.schemas.pipelines import AuthResponse, LoginRequest, UserResponse
+from app.schemas.pipelines import AuthResponse, ChangePasswordRequest, LoginRequest, UserResponse
 from app.services.runtime import PipelineRuntime
 from bio_pipeline_manager.auth_models import UserRecord
 from bio_pipeline_manager.auth_service import AuthError
@@ -54,3 +54,20 @@ async def logout(
 @router.get("/me", response_model=AuthResponse)
 async def me(user: Annotated[UserRecord, Depends(get_current_user)]) -> AuthResponse:
     return AuthResponse(user=user_response(user))
+
+
+@router.post("/change-password", response_model=AuthResponse)
+async def change_password(
+    body: ChangePasswordRequest,
+    user: Annotated[UserRecord, Depends(get_current_user)],
+    runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
+) -> AuthResponse:
+    try:
+        updated = runtime.auth.change_password(
+            user.id,
+            current_password=body.current_password,
+            new_password=body.new_password,
+        )
+    except AuthError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return AuthResponse(user=user_response(updated))

@@ -18,11 +18,13 @@ const NAV = [
   { href: "/storage", label: "Pipeline Storage" },
   { href: "/environment", label: "Environment" },
   { href: "/users", label: "Researchers" },
+  { href: "/change-password", label: "Change Password" },
 ];
 
 const USER_NAV = [
   { href: "/published-jobs", label: "Published Jobs" },
   { href: "/my-runs", label: "My Runs" },
+  { href: "/change-password", label: "Change Password" },
 ];
 
 function roleLabel(role?: string) {

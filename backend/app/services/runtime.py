@@ -12,6 +12,7 @@ from bio_pipeline_manager.published_jobs import PublishedJobStore
 from bio_pipeline_manager.run_workspace import RunWorkspaceStore
 from bio_pipeline_manager.shared_storage import SharedStorage
 from bio_pipeline_manager.storage import JobStore
+from bio_pipeline_manager.type_library_store import TypeLibraryStore
 from bio_pipeline_manager.yaml_store import YamlStore
 
 
@@ -26,6 +27,7 @@ class PipelineRuntime:
     published_jobs: PublishedJobStore
     run_workspaces: RunWorkspaceStore
     shared_storage: SharedStorage
+    type_library: TypeLibraryStore
     auth: AuthService
 
 
@@ -62,5 +64,6 @@ def create_runtime(
             else RunWorkspaceStore(root / "runs")
         ),
         shared_storage=SharedStorage(shared_roots),
+        type_library=TypeLibraryStore(root / "type_library.yaml"),
         auth=AuthService(AuthStore(root / "auth.sqlite"), session_ttl_hours=auth_session_ttl_hours),
     )

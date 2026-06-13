@@ -18,6 +18,7 @@ from app.api.routes import (
     runtime,
     storage,
     templates,
+    type_library,
     users,
     validation,
 )
@@ -89,6 +90,7 @@ app.include_router(job_definitions.router, prefix=PREFIX, dependencies=ADMIN_ONL
 app.include_router(job_definition_store.router, prefix=PREFIX, dependencies=ADMIN_ONLY)
 app.include_router(job_definition_templates.router, prefix=PREFIX, dependencies=ADMIN_ONLY)
 app.include_router(packages.router, prefix=PREFIX, dependencies=ADMIN_ONLY)
+app.include_router(type_library.router, prefix=PREFIX)
 app.include_router(published_jobs.router, prefix=PREFIX)
 app.include_router(runtime.router, prefix=PREFIX, dependencies=ADMIN_ONLY)
 

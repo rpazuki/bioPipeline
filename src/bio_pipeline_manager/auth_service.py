@@ -192,6 +192,18 @@ class AuthService:
         self.store.revoke_user_sessions(user_id)
         return user
 
+    def change_password(self, user_id: str, *, current_password: str, new_password: str) -> UserRecord:
+        """Self-service password change: verify the caller's current password first.
+
+        Unlike :meth:`reset_password` (an admin action that revokes every session),
+        this keeps the caller's existing sessions valid — they have just proven
+        knowledge of the current password, so there is no need to sign them out.
+        """
+        user = self.store.get_user(user_id)
+        if not verify_password(current_password, user.password_hash):
+            raise AuthError("Current password is incorrect")
+        return self.store.update_user(user_id, password_hash=hash_password(new_password))
+
     def disable_user(self, user_id: str) -> UserRecord:
         return self.update_user(user_id, is_active=False)
 

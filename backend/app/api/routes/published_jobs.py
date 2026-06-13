@@ -40,6 +40,7 @@ from bio_pipeline_manager.published_jobs import (
     public_fields,
     render_definition,
     resolve_io,
+    resolve_typed_fields,
 )
 from bio_pipeline_manager.run_workspace import RunWorkspaceError
 from bio_pipeline_manager.shared_storage import SharedStorageError
@@ -55,7 +56,11 @@ async def inspect_published_job_definition(
 ) -> PublishedJobInspectResponse:
     try:
         job_def = parse_job_definition(body.content)
-        candidates = inspect_definition(body.content, yaml_loader=runtime.yaml_store.load)
+        candidates = inspect_definition(
+            body.content,
+            yaml_loader=runtime.yaml_store.load,
+            type_library=runtime.type_library.all(),
+        )
     except (JobDefinitionError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return PublishedJobInspectResponse(
@@ -97,12 +102,13 @@ async def create_admin_published_job(
     admin: Annotated[UserRecord, Depends(require_admin)],
 ) -> PublishedJobAdminResponse:
     try:
+        fields = resolve_typed_fields([field.model_dump() for field in body.fields], runtime.type_library.all())
         record = runtime.published_jobs.create(
             name=body.name,
             description=body.description,
             definition_name=body.definition_name,
             definition_content=body.definition_content,
-            fields=[field.model_dump() for field in body.fields],
+            fields=fields,
             actor=admin.id,
             status=body.status,
         )
@@ -143,13 +149,18 @@ async def update_admin_published_job(
     admin: Annotated[UserRecord, Depends(require_admin)],
 ) -> PublishedJobAdminResponse:
     try:
+        fields = (
+            resolve_typed_fields([field.model_dump() for field in body.fields], runtime.type_library.all())
+            if body.fields is not None
+            else None
+        )
         record = runtime.published_jobs.update(
             published_job_id,
             name=body.name,
             description=body.description,
             definition_name=body.definition_name,
             definition_content=body.definition_content,
-            fields=[field.model_dump() for field in body.fields] if body.fields is not None else None,
+            fields=fields,
             actor=admin.id,
         )
     except KeyError as exc:

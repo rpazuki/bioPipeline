@@ -215,6 +215,14 @@ class PublishedField(BaseModel):
     shared_roots: list[str] = Field(default_factory=list)
     options: list[PublishedFieldOption] = Field(default_factory=list)
     bindings: list[PublishedFieldBinding] = Field(default_factory=list)
+    # Structured-type binding (type == "typed"): the library type name, the container
+    # shape, and the resolved self-contained schema tree. ``schema_suggestion*`` are
+    # set only on inspect candidates as a non-binding hint.
+    schema_ref: str = ""
+    container: Literal["single", "list", "map"] = "single"
+    type_schema: dict[str, Any] | None = None
+    schema_suggestion: str = ""
+    schema_suggestion_container: str = ""
 
 
 class PublicPublishedField(BaseModel):
@@ -233,6 +241,11 @@ class PublicPublishedField(BaseModel):
     delivery: list[str] = Field(default_factory=list)
     shared_roots: list[str] = Field(default_factory=list)
     options: list[PublishedFieldOption] = Field(default_factory=list)
+    # Researchers need the structured-type info to render the typed editor; the
+    # binding (``bindings``) stays admin-only.
+    schema_ref: str = ""
+    container: Literal["single", "list", "map"] = "single"
+    type_schema: dict[str, Any] | None = None
 
 
 class PublishedJobInspectRequest(BaseModel):
@@ -461,3 +474,25 @@ class UserUpdateRequest(BaseModel):
 
 class PasswordResetRequest(BaseModel):
     password: str
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class TypeDefRequest(BaseModel):
+    # Fields are passed through as raw specs; the store's validate_library enforces
+    # structure (known refs, valid containers, enums carry options, no cycles).
+    description: str = ""
+    fields: dict[str, dict[str, Any]]
+
+
+class TypeDefResponse(BaseModel):
+    name: str
+    description: str = ""
+    fields: dict[str, Any] = Field(default_factory=dict)
+
+
+class TypeLibraryResponse(BaseModel):
+    types: list[TypeDefResponse] = Field(default_factory=list)

@@ -22,6 +22,13 @@ from bio_pipeline_manager.job_definition import (
 from bio_pipeline_manager.models import utc_now
 from bio_pipeline_manager.run_workspace import RunWorkspaceError, RunWorkspaceStore
 from bio_pipeline_manager.shared_storage import SharedStorage, SharedStorageError
+from bio_pipeline_manager.type_schema import (
+    CONTAINERS,
+    TypeSchemaError,
+    coerce_typed_value,
+    resolve_type,
+    suggest_type,
+)
 
 FIELD_TYPES = {
     "string",
@@ -39,6 +46,10 @@ FIELD_TYPES = {
     "list",
     "object",
     "json",
+    # A structured value bound to a named type from the project type library. The
+    # resolved structure travels on the field as ``type_schema`` (+ ``schema_ref`` /
+    # ``container``), so run time never needs the library.
+    "typed",
 }
 
 
@@ -354,6 +365,7 @@ def inspect_definition(
     definition_content: str,
     *,
     yaml_loader: Callable[[str], str] | None = None,
+    type_library: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     job_def = parse_job_definition(definition_content)
     raw = yaml.safe_load(definition_content) or {}
@@ -402,6 +414,13 @@ def inspect_definition(
         candidate["sources"] = ["upload"] if role == "input" else []
         candidate["delivery"] = ["download"] if role == "output" else []
         candidate["shared_roots"] = []
+        # Cheap, on-demand hint: if a structured value matches a library type, tell the
+        # admin so they can bind the field to it with one click. Non-binding — the
+        # admin still chooses. Skipped entirely when no library is supplied.
+        if type_library:
+            suggestion = suggest_type(type_library, candidate.get("default"))
+            if suggestion:
+                candidate["schema_suggestion"], candidate["schema_suggestion_container"] = suggestion
     return deduped
 
 
@@ -780,8 +799,41 @@ def _validate_definition_and_fields(definition_content: str, fields: list[dict[s
         ids.add(field_id)
         if field.get("type") not in FIELD_TYPES:
             raise PublishedJobError(f"Field '{field_id}' has unsupported type '{field.get('type')}'")
+        if field.get("type") == "typed":
+            if field.get("container", "single") not in CONTAINERS:
+                raise PublishedJobError(f"Field '{field_id}' has an invalid container '{field.get('container')}'")
+            if not isinstance(field.get("type_schema"), dict):
+                raise PublishedJobError(
+                    f"Field '{field_id}' is typed but has no resolved schema — choose a type from the library."
+                )
         if not isinstance(field.get("bindings"), list) or not field["bindings"]:
             raise PublishedJobError(f"Field '{field_id}' needs at least one binding")
+
+
+def resolve_typed_fields(fields: list[dict[str, Any]], library: dict[str, Any]) -> list[dict[str, Any]]:
+    """Denormalize the resolved ``type_schema`` onto each typed field from the library.
+
+    Called at save/publish so the stored field is self-contained and tracks the
+    *current* library (re-resolved each save, like enum options). A field opts into a
+    type by carrying ``schema_ref`` (the library type name) and a ``container``.
+    """
+    resolved: list[dict[str, Any]] = []
+    for field in fields:
+        schema_ref = field.get("schema_ref")
+        if not schema_ref and field.get("type") != "typed":
+            resolved.append(field)
+            continue
+        if not schema_ref:
+            raise PublishedJobError(f"Typed field '{field.get('id')}' needs a schema_ref")
+        container = field.get("container", "single")
+        if container not in CONTAINERS:
+            raise PublishedJobError(f"Field '{field.get('id')}' has an invalid container '{container}'")
+        try:
+            type_schema = resolve_type(library, schema_ref)
+        except TypeSchemaError as exc:
+            raise PublishedJobError(str(exc)) from exc
+        resolved.append({**field, "type": "typed", "container": container, "type_schema": type_schema})
+    return resolved
 
 
 def _coerce_values(fields: list[dict[str, Any]], values: dict[str, Any]) -> dict[str, Any]:
@@ -824,6 +876,16 @@ def _coerce_value(value: Any, field: dict[str, Any]) -> Any:
         if isinstance(value, str):
             return yaml.safe_load(value)
         return value
+    if field_type == "typed":
+        # A researcher may submit the structured value directly (dict/list) or, as a
+        # fallback, as a JSON/YAML string from a plain textarea. Parse then validate
+        # against the field's resolved schema, producing a native structure.
+        if isinstance(value, str):
+            value = yaml.safe_load(value)
+        try:
+            return coerce_typed_value(field, value)
+        except TypeSchemaError as exc:
+            raise PublishedJobError(str(exc)) from exc
     return value
 
 

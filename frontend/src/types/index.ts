@@ -153,7 +153,28 @@ export type PublishedFieldType =
   | "datetime"
   | "list"
   | "object"
-  | "json";
+  | "json"
+  | "typed";
+
+// One node of a resolved type tree (denormalized onto a typed field). A leaf has a
+// primitive `type`; a nested-type node has `type: "typed"` plus its own `type_schema`.
+export interface ResolvedTypeField {
+  name: string;
+  type: PublishedFieldType;
+  container: "single" | "list" | "map";
+  required: boolean;
+  options: PublishedFieldOption[];
+  help?: string;
+  example?: string;
+  default?: unknown;
+  schema_ref?: string;
+  type_schema?: ResolvedType | null;
+}
+
+export interface ResolvedType {
+  name: string;
+  fields: ResolvedTypeField[];
+}
 
 export interface PublishedFieldOption {
   label: string;
@@ -200,6 +221,20 @@ export interface PublishedField {
   shared_roots?: string[];
   options: PublishedFieldOption[];
   bindings?: PublishedFieldBinding[];
+  // Structured-type binding (type === "typed"): library type name, container shape,
+  // and the resolved schema tree. `schema_suggestion*` appear only on inspect
+  // candidates as a non-binding hint.
+  schema_ref?: string;
+  container?: "single" | "list" | "map";
+  type_schema?: ResolvedType | null;
+  schema_suggestion?: string;
+  schema_suggestion_container?: "single" | "list" | "map";
+}
+
+export interface TypeDef {
+  name: string;
+  description: string;
+  fields: Record<string, unknown>;
 }
 
 export interface PublishedJobAdmin {

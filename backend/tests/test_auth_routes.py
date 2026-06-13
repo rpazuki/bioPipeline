@@ -95,6 +95,47 @@ def test_admin_user_management_disable_only(tmp_path: Path):
     _reset()
 
 
+def test_change_password_self_service(tmp_path: Path):
+    client, runtime = _client(tmp_path)
+    runtime.auth.create_user(username="worker", password="password123", role=Role.USER)
+    assert _login(client, "worker").status_code == 200
+
+    # Unauthenticated callers cannot change a password.
+    fresh = TestClient(app)
+    assert fresh.post(
+        "/api/v1/auth/change-password",
+        json={"current_password": "password123", "new_password": "newpass123"},
+    ).status_code == 401
+
+    # A wrong current password is rejected without changing anything.
+    wrong = client.post(
+        "/api/v1/auth/change-password",
+        json={"current_password": "nope", "new_password": "newpass123"},
+    )
+    assert wrong.status_code == 400
+    assert "Current password is incorrect" in wrong.json()["detail"]
+
+    # Too-short new passwords are rejected by the shared hashing guard.
+    short = client.post(
+        "/api/v1/auth/change-password",
+        json={"current_password": "password123", "new_password": "short"},
+    )
+    assert short.status_code == 400
+
+    ok = client.post(
+        "/api/v1/auth/change-password",
+        json={"current_password": "password123", "new_password": "newpass123"},
+    )
+    assert ok.status_code == 200
+    # The current session stays valid — a self-service change must not sign you out.
+    assert client.get("/api/v1/auth/me").status_code == 200
+
+    assert client.post("/api/v1/auth/logout").status_code == 204
+    assert _login(client, "worker", "password123").status_code == 401
+    assert _login(client, "worker", "newpass123").status_code == 200
+    _reset()
+
+
 def test_cannot_remove_last_active_admin(tmp_path: Path):
     client, runtime = _client(tmp_path)
     runtime.auth.bootstrap_admin(username="admin", password="password123")
