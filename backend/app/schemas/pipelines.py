@@ -496,3 +496,15 @@ class TypeDefResponse(BaseModel):
 
 class TypeLibraryResponse(BaseModel):
     types: list[TypeDefResponse] = Field(default_factory=list)
+
+
+class TypeExtractRequest(BaseModel):
+    qualified_name: str
+
+
+class TypeExtractResponse(BaseModel):
+    # Raw library entries (name -> {description, fields}) ready to upsert, the root
+    # type's name, and any best-effort fallbacks the introspection had to make.
+    types: dict[str, Any] = Field(default_factory=dict)
+    root: str = ""
+    warnings: list[str] = Field(default_factory=list)

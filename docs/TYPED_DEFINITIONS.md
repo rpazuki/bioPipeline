@@ -1,6 +1,7 @@
 # Typed Definitions — Structured types for published-job fields
 
-Status: **Phase 1 (backend core) implemented**; later phases planned (see §10).
+Status: **Phases 1–2 implemented** (backend core + library/extractor on the Environment page);
+Phases 3–4 planned (see §10).
 
 Decisions locked with the user:
 
@@ -336,9 +337,14 @@ CustomReplicateRule:
     `schema_ref` / `container` / `type_schema`; TS contract updated.
   - Tests: `tests/unit/test_type_schema.py`, `test_type_library_store.py`,
     `test_published_typed_fields.py`, `backend/tests/test_type_library_routes.py`.
-- **Phase 2 — library management on the Environment page.** Extractor (`extract_type`
-  introspection + `POST /type-library/extract`), plus the Environment-page UI to list / edit /
-  delete types and run the extractor (paste a qualified class name → preview → upsert).
+- **Phase 2 — library management on the Environment page. ✅ Implemented.**
+  - `type_extract.py` — `extract_type(qualified_name)` introspects a TypedDict / dataclass /
+    Pydantic model into library entries (the mapping table above), recursing into nested types.
+  - `POST /type-library/extract` (admin-only) + `TypeExtract*` schemas; tests in
+    `tests/unit/test_type_extract.py` and `backend/tests/test_type_library_routes.py`.
+  - `TypeLibraryPanel.tsx` on the Environment page: list / create / edit / delete types, and an
+    **Extract from a Python class** box (paste a qualified name → preview the types + warnings →
+    upsert). API client + TS types added.
 - **Phase 3 — admin picker.** Type + container dropdowns (and the `schema_suggestion` "apply"
   affordance) in the Definable Fields panel (`published-jobs-admin/page.tsx`); add
   `schema_ref` / `container` to `CURATED_FIELD_KEYS`.

@@ -76,3 +76,33 @@ def test_get_missing_type_returns_404(tmp_path: Path):
     _login_admin(client, runtime)
     assert client.get("/api/v1/type-library/Nope").status_code == 404
     _reset()
+
+
+def test_extract_from_python_class_then_upsert(tmp_path: Path):
+    runtime = create_runtime(tmp_path)
+    client = _use(runtime)
+    _login_admin(client, runtime)
+
+    extracted = client.post(
+        "/api/v1/type-library/extract",
+        json={"qualified_name": "labUtils.media_bot.CustomReplicateRule"},
+    )
+    assert extracted.status_code == 200
+    payload = extracted.json()
+    assert payload["root"] == "CustomReplicateRule"
+    rule = payload["types"]["CustomReplicateRule"]
+
+    # The extracted entry upserts cleanly into the library.
+    put = client.put("/api/v1/type-library/CustomReplicateRule", json=rule)
+    assert put.status_code == 200
+    assert "direction" in put.json()["fields"]
+    _reset()
+
+
+def test_extract_non_structured_returns_400(tmp_path: Path):
+    runtime = create_runtime(tmp_path)
+    client = _use(runtime)
+    _login_admin(client, runtime)
+    bad = client.post("/api/v1/type-library/extract", json={"qualified_name": "math.sqrt"})
+    assert bad.status_code == 400
+    _reset()

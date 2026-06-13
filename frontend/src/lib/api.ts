@@ -28,6 +28,8 @@ import type {
   RuntimeInfo,
   SharedEntry,
   SharedRootInfo,
+  TypeDef,
+  TypeExtractResponse,
   AuthResponse,
   User,
   UserCreate,
@@ -561,6 +563,29 @@ export async function uninstallPackage(name: string) {
     method: "POST",
     body: JSON.stringify({ name }),
   }, 0);
+}
+
+// Type library (Environment page)
+export async function listTypeLibrary() {
+  return apiFetch<{ types: TypeDef[] }>("/type-library");
+}
+
+export async function upsertType(name: string, body: { description?: string; fields: Record<string, unknown> }) {
+  return apiFetch<TypeDef>(`/type-library/${encodeURIComponent(name)}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteType(name: string) {
+  return apiFetch<void>(`/type-library/${encodeURIComponent(name)}`, { method: "DELETE" });
+}
+
+export async function extractType(qualifiedName: string) {
+  return apiFetch<TypeExtractResponse>("/type-library/extract", {
+    method: "POST",
+    body: JSON.stringify({ qualified_name: qualifiedName }),
+  });
 }
 
 // AI Designer

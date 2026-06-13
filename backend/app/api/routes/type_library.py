@@ -5,8 +5,15 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.deps import get_runtime, require_admin
-from app.schemas.pipelines import TypeDefRequest, TypeDefResponse, TypeLibraryResponse
+from app.schemas.pipelines import (
+    TypeDefRequest,
+    TypeDefResponse,
+    TypeExtractRequest,
+    TypeExtractResponse,
+    TypeLibraryResponse,
+)
 from app.services.runtime import PipelineRuntime
+from bio_pipeline_manager.type_extract import TypeExtractError, extract_type
 from bio_pipeline_manager.type_schema import TypeSchemaError
 
 # The project-level type library is managed on the Environment page (admin-only),
@@ -26,6 +33,23 @@ def _response(name: str, type_def: dict[str, Any]) -> TypeDefResponse:
 async def list_types(runtime: Annotated[PipelineRuntime, Depends(get_runtime)]) -> TypeLibraryResponse:
     library = runtime.type_library.all()
     return TypeLibraryResponse(types=[_response(name, library[name]) for name in sorted(library)])
+
+
+@router.post("/extract", response_model=TypeExtractResponse)
+async def extract(
+    body: TypeExtractRequest,
+    _runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
+) -> TypeExtractResponse:
+    """Introspect a Python class (e.g. ``labUtils.media_bot.CustomReplicateRule``).
+
+    Returns library-ready type entries for preview; the caller upserts the ones it
+    wants via ``PUT /type-library/{name}``.
+    """
+    try:
+        result = extract_type(body.qualified_name)
+    except (TypeExtractError, TypeSchemaError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return TypeExtractResponse(**result)
 
 
 @router.get("/{name}", response_model=TypeDefResponse)

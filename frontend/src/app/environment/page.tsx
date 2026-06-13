@@ -1,6 +1,7 @@
 "use client";
 
 import EnvironmentPanel from "@/components/pipelines/EnvironmentPanel";
+import TypeLibraryPanel from "@/components/pipelines/TypeLibraryPanel";
 
 export default function EnvironmentPage() {
   return (
@@ -9,11 +10,12 @@ export default function EnvironmentPage() {
         <h2 className="text-sm font-semibold text-slate-900">Environment</h2>
         <p className="mt-1 text-xs text-slate-500">
           Install the science and pipeline packages your YAMLs import (e.g. <code>labUtils</code>)
-          into the backend&apos;s Python environment. This page is admin-only, and installs are refused
-          while jobs are running.
+          into the backend&apos;s Python environment, and manage the reusable type library. This page
+          is admin-only, and installs are refused while jobs are running.
         </p>
       </section>
       <EnvironmentPanel />
+      <TypeLibraryPanel />
     </div>
   );
 }

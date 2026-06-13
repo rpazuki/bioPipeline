@@ -234,7 +234,25 @@ export interface PublishedField {
 export interface TypeDef {
   name: string;
   description: string;
-  fields: Record<string, unknown>;
+  fields: Record<string, TypeFieldSpec>;
+}
+
+// One field spec as authored/stored in the library (pre-resolution). `type` is a
+// leaf primitive or the name of another library type.
+export interface TypeFieldSpec {
+  type: string;
+  container?: "single" | "list" | "map";
+  options?: unknown[];
+  required?: boolean;
+  default?: unknown;
+  help?: string;
+  example?: string;
+}
+
+export interface TypeExtractResponse {
+  types: Record<string, { description?: string; fields: Record<string, TypeFieldSpec> }>;
+  root: string;
+  warnings: string[];
 }
 
 export interface PublishedJobAdmin {
