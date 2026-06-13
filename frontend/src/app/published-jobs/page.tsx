@@ -13,6 +13,7 @@ import {
   type RunFileBinding,
 } from "@/lib/api";
 import ResizableSplitPane from "@/components/pipelines/ResizableSplitPane";
+import TypedValueEditor from "@/components/pipelines/TypedValueEditor";
 import type { PublishedField, PublishedJobPublicDetail, PublishedJobPublicSummary, SharedEntry, SharedRootInfo } from "@/types";
 
 type SharedSelection = { root: string; path: string; name: string };
@@ -25,6 +26,9 @@ function defaultValue(field: PublishedField) {
   }
   if (field.type === "boolean") return false;
   if (field.type === "multi_enum" || field.type === "list") return [];
+  // A typed field holds a native object/array, not a JSON string — the structured
+  // editor manages it. Start empty in the shape the container expects.
+  if (field.type === "typed") return field.container === "list" ? [] : {};
   if (field.type === "object" || field.type === "json") return "{}";
   return "";
 }
@@ -85,6 +89,9 @@ function readonlyText(field: PublishedField, value: unknown): string {
     });
     return labels.join(", ") || "—";
   }
+  if (field.type === "typed") {
+    return value == null ? "—" : JSON.stringify(value);
+  }
   return asInputValue(value) || "—";
 }
 
@@ -140,6 +147,9 @@ function FieldInput({
         })}
       </div>
     );
+  }
+  if (field.type === "typed" && field.type_schema) {
+    return <TypedValueEditor field={field} value={value} onChange={onChange} />;
   }
   if (field.type === "text" || field.type === "object" || field.type === "json" || field.type === "list") {
     return <textarea className="min-h-24 rounded-md border border-slate-300 p-3 font-mono text-xs" value={asInputValue(value)} onChange={(event) => onChange(event.target.value)} />;
@@ -464,32 +474,42 @@ export default function PublishedJobsPage() {
         {selected ? (
           <div className="grid gap-4">
             <div className="grid gap-3 md:grid-cols-2">
-              {selected.fields.map((field) => (
-                <label key={field.id} className="grid gap-1 text-xs font-semibold text-slate-600">
-                  <span className="flex items-center gap-2">
-                    {field.label}
-                    <FieldHelp field={field} />
-                  </span>
-                  {field.io_role === "output" ? (
-                    <OutputFieldHint field={field} />
-                  ) : field.io_role === "input" ? (
-                    <InputFieldControl
-                      field={field}
-                      files={files[field.id] ?? []}
-                      sharedSel={shared[field.id] ?? null}
-                      onPickFiles={(picked) => setFiles((current) => ({ ...current, [field.id]: picked }))}
-                      onOpenBrowser={() => setBrowseField(field)}
-                      onClearShared={() => setShared((current) => {
-                        const next = { ...current };
-                        delete next[field.id];
-                        return next;
-                      })}
-                    />
-                  ) : (
-                    <FieldInput field={field} value={values[field.id]} onChange={(value) => setValues((current) => ({ ...current, [field.id]: value }))} />
-                  )}
-                </label>
-              ))}
+              {selected.fields.map((field) => {
+                const inner = (
+                  <>
+                    <span className="flex items-center gap-2">
+                      {field.label}
+                      <FieldHelp field={field} />
+                    </span>
+                    {field.io_role === "output" ? (
+                      <OutputFieldHint field={field} />
+                    ) : field.io_role === "input" ? (
+                      <InputFieldControl
+                        field={field}
+                        files={files[field.id] ?? []}
+                        sharedSel={shared[field.id] ?? null}
+                        onPickFiles={(picked) => setFiles((current) => ({ ...current, [field.id]: picked }))}
+                        onOpenBrowser={() => setBrowseField(field)}
+                        onClearShared={() => setShared((current) => {
+                          const next = { ...current };
+                          delete next[field.id];
+                          return next;
+                        })}
+                      />
+                    ) : (
+                      <FieldInput field={field} value={values[field.id]} onChange={(value) => setValues((current) => ({ ...current, [field.id]: value }))} />
+                    )}
+                  </>
+                );
+                const className = "grid gap-1 text-xs font-semibold text-slate-600";
+                // A typed field renders a multi-control sub-form; a <label> would route
+                // every click to its first control, so wrap those in a <div> instead.
+                return field.type === "typed" && (field.io_role ?? "none") === "none" ? (
+                  <div key={field.id} className={className}>{inner}</div>
+                ) : (
+                  <label key={field.id} className={className}>{inner}</label>
+                );
+              })}
               <label className="grid gap-1 text-xs font-semibold text-slate-600">
                 <span className="flex items-center gap-2">
                   Run at

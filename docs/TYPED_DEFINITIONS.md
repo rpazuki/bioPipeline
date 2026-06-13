@@ -1,7 +1,7 @@
 # Typed Definitions — Structured types for published-job fields
 
-Status: **Phases 1–3 implemented** (backend core + library/extractor on the Environment page +
-admin type-picker); Phase 4 (researcher editor) planned (see §10).
+Status: **Implemented (Phases 1–4).** Backend core + project type library + Python-class extractor
+on the Environment page + admin type-picker + researcher structured editor. See §10.
 
 Decisions locked with the user:
 
@@ -351,8 +351,12 @@ CustomReplicateRule:
   `schema_suggestion`, and switching a field to file I/O clears any typed binding (mutually
   exclusive). `schema_ref` / `container` added to `CURATED_FIELD_KEYS`; `mergeFields` keeps a field
   `typed` across re-inspect when `schema_ref` is set; the library is loaded via `listTypeLibrary`.
-- **Phase 4 — researcher editor.** `TypedValueEditor` (single / list / map, recursive) wired into
-  the published-jobs page; e2e test on the OD600 `custom_rules` case.
+- **Phase 4 — researcher editor. ✅ Implemented.** `TypedValueEditor.tsx` (single = sub-form,
+  list = add/remove ordered rows, map = add/remove keyed rows, recursive into nested typed fields)
+  replaces the JSON textarea on the published-jobs page when `field.type === "typed"`; falls back to
+  JSON if a field's resolved schema is missing. Typed fields render in a `<div>` (not a `<label>`)
+  so clicks aren't mis-routed; the researcher detail exposes `type_schema` + `container` (bindings
+  stripped). Component tests in `TypedValueEditor.test.tsx` cover single/list/map.
 
 ---
 
