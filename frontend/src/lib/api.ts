@@ -27,6 +27,7 @@ import type {
   PipelineTemplateSummary,
   RecurrenceEndMode,
   RecurrenceUnit,
+  RecurringJob,
   RecurringSchedule,
   ResolvedType,
   RuntimeInfo,
@@ -280,6 +281,36 @@ export async function submitJob(payload: JobSubmit) {
   });
 }
 
+// Recurring jobs (admin) — repeat a plain job submission on an interval.
+export interface RecurringJobCreate {
+  job: JobSubmit;
+  every_n: number;
+  unit: RecurrenceUnit;
+  ends_mode: RecurrenceEndMode;
+  ends_count?: number;
+  ends_at?: string | null;
+  start_at?: string | null;
+}
+
+export async function createRecurringJob(payload: RecurringJobCreate) {
+  return apiFetch<RecurringJob>("/jobs/schedules", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listRecurringJobs() {
+  return apiFetch<RecurringJob[]>("/jobs/schedules");
+}
+
+export async function stopRecurringJob(id: string) {
+  return apiFetch<RecurringJob>(`/jobs/schedules/${encodeURIComponent(id)}/stop`, { method: "POST" });
+}
+
+export async function deleteRecurringJob(id: string) {
+  return apiFetch<void>(`/jobs/schedules/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
 export async function runDueJobs(parallel = 1) {
   // Runs jobs synchronously server-side; can outlast the default timeout.
   return apiFetch<Job[]>(`/jobs/run-due?parallel=${parallel}`, {
@@ -299,9 +330,10 @@ export async function deleteJob(jobId: string) {
   });
 }
 
-export async function rewindJob(jobId: string) {
+export async function rewindJob(jobId: string, scheduledAt: string | null = null) {
   return apiFetch<Job>(`/jobs/${jobId}/rewind`, {
     method: "POST",
+    body: JSON.stringify({ scheduled_at: scheduledAt }),
   });
 }
 

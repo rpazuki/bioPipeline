@@ -5,8 +5,8 @@ import { useEffect, useState } from "react";
 
 import ResizableSplitPane from "@/components/pipelines/ResizableSplitPane";
 import YamlTreeView from "@/components/pipelines/YamlTreeView";
-import { getPipelineYaml, getPipelineYamlTree, submitJob } from "@/lib/api";
-import type { YamlTreeNode } from "@/types";
+import { createRecurringJob, getPipelineYaml, getPipelineYamlTree, submitJob } from "@/lib/api";
+import type { RecurrenceEndMode, RecurrenceUnit, YamlTreeNode } from "@/types";
 
 interface Props {
   yamlName: string;
@@ -46,6 +46,12 @@ export default function SubmitPanel({ yamlName, pipelineNames, yamlIsValid, onYa
   const [outputDir, setOutputDir] = useState("./outputs/run-001");
   const [scheduledAt, setScheduledAt] = useState("");
   const [inputOverrides, setInputOverrides] = useState("");
+  const [repeat, setRepeat] = useState(false);
+  const [everyN, setEveryN] = useState(1);
+  const [unit, setUnit] = useState<RecurrenceUnit>("days");
+  const [endsMode, setEndsMode] = useState<RecurrenceEndMode>("never");
+  const [endsCount, setEndsCount] = useState(10);
+  const [endsAt, setEndsAt] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -98,13 +104,27 @@ export default function SubmitPanel({ yamlName, pipelineNames, yamlIsValid, onYa
   }
 
   async function submit() {
-    const job = await submitJob({
+    const jobPayload = {
       yaml_name: yamlName,
       pipeline_name: pipelineName || pipelineNames[0] || "",
       output_dir: outputDir,
       input_sources: parseOverrides(inputOverrides),
-      scheduled_at: scheduledAt || null,
-    });
+    };
+    if (repeat) {
+      const schedule = await createRecurringJob({
+        job: jobPayload,
+        every_n: everyN,
+        unit,
+        ends_mode: endsMode,
+        ends_count: endsCount,
+        ends_at: endsMode === "until" ? endsAt || null : null,
+        start_at: scheduledAt || null,
+      });
+      onStatus(`Recurring job created — every ${schedule.every_n} ${schedule.unit}. Track it on the Job Queue.`);
+      router.push("/");
+      return;
+    }
+    const job = await submitJob({ ...jobPayload, scheduled_at: scheduledAt || null });
     onStatus(`Submitted job ${job.id} — see the Job Queue`);
     router.push("/");
   }
@@ -151,7 +171,7 @@ export default function SubmitPanel({ yamlName, pipelineNames, yamlIsValid, onYa
                 onClick={() => submit().catch((cause: Error) => setError(cause.message))}
                 disabled={!canSubmit}
               >
-                Submit Job
+                {repeat ? "Create recurring job" : "Submit Job"}
               </button>
             </div>
 
@@ -184,6 +204,56 @@ export default function SubmitPanel({ yamlName, pipelineNames, yamlIsValid, onYa
                 Input overrides
                 <input className="h-9 rounded-md border border-slate-300 px-3 text-sm" placeholder="raw_data=./raw.csv, meta_data=./meta.csv" value={inputOverrides} onChange={(event) => setInputOverrides(event.target.value)} />
               </label>
+
+              <div className="grid gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 md:col-span-2">
+                <label className="flex items-center gap-2 font-semibold text-slate-700">
+                  <input type="checkbox" checked={repeat} onChange={(event) => setRepeat(event.target.checked)} />
+                  Repeat on a schedule
+                </label>
+                {repeat ? (
+                  <div className="grid gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span>Every</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={everyN}
+                        onChange={(event) => setEveryN(Math.max(1, Number(event.target.value) || 1))}
+                        className="h-8 w-16 rounded-md border border-slate-300 px-2"
+                      />
+                      <select value={unit} onChange={(event) => setUnit(event.target.value as RecurrenceUnit)} className="h-8 rounded-md border border-slate-300 px-2">
+                        <option value="minutes">minutes</option>
+                        <option value="hours">hours</option>
+                        <option value="days">days</option>
+                        <option value="weeks">weeks</option>
+                      </select>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span>Ends</span>
+                      <select value={endsMode} onChange={(event) => setEndsMode(event.target.value as RecurrenceEndMode)} className="h-8 rounded-md border border-slate-300 px-2">
+                        <option value="never">never</option>
+                        <option value="count">after N runs</option>
+                        <option value="until">on date</option>
+                      </select>
+                      {endsMode === "count" ? (
+                        <input
+                          type="number"
+                          min={1}
+                          value={endsCount}
+                          onChange={(event) => setEndsCount(Math.max(1, Number(event.target.value) || 1))}
+                          className="h-8 w-20 rounded-md border border-slate-300 px-2"
+                        />
+                      ) : null}
+                      {endsMode === "until" ? (
+                        <input type="datetime-local" value={endsAt} onChange={(event) => setEndsAt(event.target.value)} className="h-8 rounded-md border border-slate-300 px-2" />
+                      ) : null}
+                    </div>
+                    <span className="text-[11px] text-slate-400">
+                      The first run uses “Run at” above (or now if blank), then repeats. Manage and stop schedules on the Job Queue page.
+                    </span>
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
         }

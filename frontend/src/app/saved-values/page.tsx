@@ -107,6 +107,8 @@ export default function SavedValuesPage() {
               field={editorField(item)}
               value={drafts[item.id]}
               onChange={(value) => setDrafts((current) => ({ ...current, [item.id]: value }))}
+              // List/map saved values show two records per row for a denser overview.
+              columns={item.container === "single" ? 1 : 2}
             />
             <div className="flex flex-wrap gap-2">
               <button

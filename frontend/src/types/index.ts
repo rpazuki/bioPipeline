@@ -316,6 +316,22 @@ export interface RecurringSchedule {
   values: Record<string, unknown>;
 }
 
+export interface RecurringJob {
+  id: string;
+  name: string;
+  every_n: number;
+  unit: RecurrenceUnit;
+  ends_mode: RecurrenceEndMode;
+  ends_count: number;
+  ends_at: string | null;
+  next_run_at: string;
+  runs_done: number;
+  active: boolean;
+  created_at: string;
+  last_run_at: string | null;
+  payload: Record<string, unknown>;
+}
+
 export interface PublishedRunSummary {
   id: string;
   published_job_id: string;

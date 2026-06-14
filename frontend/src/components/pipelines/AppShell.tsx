@@ -23,8 +23,8 @@ const NAV = [
 
 const USER_NAV = [
   { href: "/published-jobs", label: "Published Jobs" },
-  { href: "/saved-values", label: "Saved Values" },
   { href: "/my-runs", label: "My Runs" },
+  { href: "/saved-values", label: "Saved Values" },
   { href: "/change-password", label: "Change Password" },
 ];
 

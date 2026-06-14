@@ -386,6 +386,34 @@ class RecurringScheduleResponse(BaseModel):
     values: dict[str, Any] = Field(default_factory=dict)
 
 
+class RecurringJobCreateRequest(BaseModel):
+    """Submit a plain job repeatedly on a fixed interval (admin side)."""
+
+    job: JobSubmitRequest
+    every_n: int = 1
+    unit: Literal["minutes", "hours", "days", "weeks"] = "days"
+    ends_mode: Literal["never", "count", "until"] = "never"
+    ends_count: int = 0
+    ends_at: datetime | None = None
+    start_at: datetime | None = None
+
+
+class RecurringJobResponse(BaseModel):
+    id: str
+    name: str
+    every_n: int
+    unit: str
+    ends_mode: str
+    ends_count: int
+    ends_at: datetime | None = None
+    next_run_at: datetime
+    runs_done: int
+    active: bool
+    created_at: datetime
+    last_run_at: datetime | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
 class PublishedRunSummary(BaseModel):
     id: str
     published_job_id: str

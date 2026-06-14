@@ -25,6 +25,7 @@ from app.api.routes import (
 )
 from app.core.config import settings
 from bio_pipeline_manager.published_runs import fire_recurring_schedule
+from bio_pipeline_manager.recurring_job import RecurringJobRecord, fire_recurring_job
 from bio_pipeline_manager.recurring_schedule import RecurringScheduleRecord, RecurringScheduler
 from bio_pipeline_manager.run_reaper import RunReaper
 from bio_pipeline_manager.worker import JobWorker
@@ -43,11 +44,22 @@ def _fire_recurring_schedule(schedule: RecurringScheduleRecord) -> None:
     )
 
 
+def _fire_recurring_job(record: RecurringJobRecord) -> None:
+    rt = get_runtime()
+    fire_recurring_job(
+        queue=rt.queue,
+        yaml_resolver=rt.yaml_store.resolve_name,
+        jobs=rt.recurring_jobs,
+        record=record,
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     worker: JobWorker | None = None
     reaper: RunReaper | None = None
     scheduler: RecurringScheduler | None = None
+    job_scheduler: RecurringScheduler | None = None
     if settings.worker_enabled:
         worker = JobWorker(
             get_runtime().queue,
@@ -64,6 +76,7 @@ async def lifespan(app: FastAPI):
             group_status=rt.queue.group_status,
             ttl_hours=settings.artifact_ttl_hours,
             interval=settings.reaper_interval,
+            recurring_schedules=rt.recurring_schedules,
         )
         reaper.start()
     if settings.worker_enabled:
@@ -73,6 +86,12 @@ async def lifespan(app: FastAPI):
             interval=settings.worker_interval,
         )
         scheduler.start()
+        job_scheduler = RecurringScheduler(
+            schedules=get_runtime().recurring_jobs,
+            fire=_fire_recurring_job,
+            interval=settings.worker_interval,
+        )
+        job_scheduler.start()
     try:
         yield
     finally:
@@ -82,6 +101,8 @@ async def lifespan(app: FastAPI):
             reaper.stop()
         if scheduler:
             scheduler.stop()
+        if job_scheduler:
+            job_scheduler.stop()
 
 
 app = FastAPI(

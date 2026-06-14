@@ -245,7 +245,8 @@ class JobQueue:
     def delete(self, job_id: str) -> None:
         self.store.delete_job(job_id)
 
-    def rewind(self, job_id: str) -> JobRecord:
+    def rewind(self, job_id: str, *, scheduled_at: datetime | None = None) -> JobRecord:
+        """Re-queue a copy of a job — now, or at ``scheduled_at`` (schedule again)."""
         job = self.store.get_job(job_id)
         spec = JobSpec(
             yaml_path=job.spec.yaml_path,
@@ -256,7 +257,7 @@ class JobQueue:
             process_arg_mapping=job.spec.process_arg_mapping,
             output_path_mapping=job.spec.output_path_mapping,
             backend=job.spec.backend,
-            scheduled_at=datetime.now(timezone.utc),
+            scheduled_at=scheduled_at or datetime.now(timezone.utc),
         )
         return self.submit(spec)
 

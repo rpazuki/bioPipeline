@@ -18,7 +18,9 @@ import threading
 from datetime import timedelta
 from typing import Callable
 
+from bio_pipeline_manager.models import utc_now
 from bio_pipeline_manager.published_jobs import PublishedJobStore
+from bio_pipeline_manager.recurring_schedule import RecurringScheduleStore
 from bio_pipeline_manager.run_workspace import RunWorkspaceStore
 from bio_pipeline_manager.shared_storage import SharedStorage
 
@@ -38,6 +40,7 @@ class RunReaper:
         group_status: Callable[[str], dict],
         ttl_hours: float = 24.0,
         interval: float = 5.0,
+        recurring_schedules: RecurringScheduleStore | None = None,
     ):
         self.published_jobs = published_jobs
         self.run_workspaces = run_workspaces
@@ -45,6 +48,7 @@ class RunReaper:
         self.group_status = group_status
         self.ttl = timedelta(hours=ttl_hours)
         self.interval = interval
+        self.recurring_schedules = recurring_schedules
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -72,29 +76,66 @@ class RunReaper:
             self._stop.wait(self.interval)
 
     def reap_once(self) -> None:
+        protected = self._protected_template_ids()
         for run in self.published_jobs.list_runs():
             workspace_id = run.workspace_id
             if not workspace_id or not self.run_workspaces.exists(workspace_id):
                 continue
             try:
-                self._process(run)
+                self._process(run, protected)
             except Exception:  # one bad run must not stall the rest
                 logger.exception("Run reaper failed for run %s", run.id)
+        self._reap_inactive_templates(protected)
 
-    def _process(self, run) -> None:
+    def _process(self, run, protected: set[str]) -> None:
         workspace_id = run.workspace_id
-        if self.run_workspaces.reaped_at(workspace_id) is not None:
-            return  # already delivered; inputs are retained for replay
-        summary = self.group_status(run.parent_job_id)
-        if summary.get("status") not in _TERMINAL:
-            return  # still queued/running
-        self.run_workspaces.package_outputs(workspace_id)
-        self._shared_write(run)
-        # Inputs are RETAINED (not cleared) so the run can be rewound or replayed by a
-        # recurring schedule; the workspace is removed only when its run/schedule is
-        # deleted. The raw outputs are dropped once captured in artifact.zip.
-        self.run_workspaces.clear_outputs(workspace_id)
-        self.run_workspaces.mark_reaped(workspace_id)
+        reaped_at = self.run_workspaces.reaped_at(workspace_id)
+        if reaped_at is None:
+            summary = self.group_status(run.parent_job_id)
+            if summary.get("status") not in _TERMINAL:
+                return  # still queued/running
+            self.run_workspaces.package_outputs(workspace_id)
+            self._shared_write(run)
+            # Inputs are RETAINED (not cleared) so the run can be rewound within the
+            # TTL window; raw outputs are dropped once captured in artifact.zip.
+            self.run_workspaces.clear_outputs(workspace_id)
+            self.run_workspaces.mark_reaped(workspace_id)
+            return
+        # Delivered already: free the whole workspace once past the TTL — unless it is
+        # an active recurring schedule's input template, which is kept (its TTL keeps
+        # resetting) until the schedule finishes.
+        if workspace_id in protected:
+            return
+        if utc_now() - reaped_at > self.ttl:
+            self.run_workspaces.delete(workspace_id)
+
+    def _protected_template_ids(self) -> set[str]:
+        """Input-template workspaces of active recurring schedules — never reaped."""
+        if self.recurring_schedules is None:
+            return set()
+        return {
+            schedule.template_workspace_id
+            for schedule in self.recurring_schedules.list()
+            if schedule.active and schedule.template_workspace_id
+        }
+
+    def _reap_inactive_templates(self, protected: set[str]) -> None:
+        """Once a schedule has finished, its retained input template gets the normal
+        TTL (clocked from its last run) and is then removed to reclaim disk."""
+        if self.recurring_schedules is None:
+            return
+        for schedule in self.recurring_schedules.list():
+            workspace_id = schedule.template_workspace_id
+            if not workspace_id or schedule.active or workspace_id in protected:
+                continue
+            if not self.run_workspaces.exists(workspace_id):
+                continue
+            reference = schedule.last_run_at or schedule.created_at
+            if utc_now() - reference > self.ttl:
+                try:
+                    self.run_workspaces.delete(workspace_id)
+                except Exception:  # noqa: BLE001 - one bad template must not stall the sweep
+                    logger.exception("Failed to reap template for schedule %s", schedule.id)
 
     def _shared_write(self, run) -> None:
         try:

@@ -81,6 +81,14 @@ def test_split_routes_storage_validation_templates_and_jobs(tmp_path: Path):
     assert rewind_response.json()["pipeline_name"] == "demo"
     assert rewind_response.json()["created_at"] >= job_response.json()["created_at"]
 
+    # Schedule again: rewinding with scheduled_at defers the new job to that time.
+    scheduled = client.post(
+        f"/api/v1/jobs/{job_response.json()['id']}/rewind",
+        json={"scheduled_at": "2099-01-01T00:00:00+00:00"},
+    )
+    assert scheduled.status_code == 201
+    assert scheduled.json()["scheduled_at"].startswith("2099-01-01")
+
     delete_job_response = client.delete(f"/api/v1/jobs/{job_response.json()['id']}")
     assert delete_job_response.status_code == 204
 

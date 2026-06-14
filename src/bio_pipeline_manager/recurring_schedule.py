@@ -23,7 +23,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 
 from bio_pipeline_manager.models import utc_now
 
@@ -48,6 +48,19 @@ def interval_delta(every_n: int, unit: str) -> timedelta:
     if every_n < 1:
         raise RecurringScheduleError("Interval must be at least 1")
     return timedelta(seconds=every_n * UNIT_SECONDS[unit])
+
+
+class Recurrable(Protocol):
+    """The recurrence fields :func:`advance` reads — shared by published-job and
+    plain-job schedules so both step forward and settle identically."""
+
+    every_n: int
+    unit: str
+    ends_mode: str
+    ends_count: int
+    ends_at: datetime | None
+    next_run_at: datetime
+    runs_done: int
 
 
 @dataclass(frozen=True)
@@ -218,7 +231,7 @@ class RecurringScheduleStore:
             conn.execute("DELETE FROM recurring_schedules WHERE id = ?", (record_id,))
 
 
-def advance(record: RecurringScheduleRecord, now: datetime) -> tuple[datetime, int, bool]:
+def advance(record: Recurrable, now: datetime) -> tuple[datetime, int, bool]:
     """Return ``(next_run_at, runs_done, still_active)`` after one firing.
 
     The next time steps from the later of the planned time and ``now`` so a
@@ -236,14 +249,24 @@ def advance(record: RecurringScheduleRecord, now: datetime) -> tuple[datetime, i
     return next_run_at, runs_done, still_active
 
 
+class DueSource(Protocol):
+    """Any store that can list its due schedules (published-job or plain-job)."""
+
+    def list_due(self, now: datetime) -> list: ...
+
+
 class RecurringScheduler:
-    """Background poller that fires due recurring schedules via a callback."""
+    """Background poller that fires due recurring schedules via a callback.
+
+    Store-agnostic: it only needs ``list_due`` and a ``fire`` callback, so one
+    instance drives published-job schedules and another drives plain-job ones.
+    """
 
     def __init__(
         self,
         *,
-        schedules: RecurringScheduleStore,
-        fire: Callable[[RecurringScheduleRecord], None],
+        schedules: DueSource,
+        fire: Callable[[Any], None],
         interval: float = 10.0,
     ):
         self.schedules = schedules

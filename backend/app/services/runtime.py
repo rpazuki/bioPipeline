@@ -9,6 +9,7 @@ from bio_pipeline_manager.job_definition_store import JobDefinitionStore
 from bio_pipeline_manager.job_queue import JobQueue
 from bio_pipeline_manager.packages import InstallStore, PackageManager
 from bio_pipeline_manager.published_jobs import PublishedJobStore
+from bio_pipeline_manager.recurring_job import RecurringJobStore
 from bio_pipeline_manager.recurring_schedule import RecurringScheduleStore
 from bio_pipeline_manager.run_workspace import RunWorkspaceStore
 from bio_pipeline_manager.shared_storage import SharedStorage
@@ -28,6 +29,7 @@ class PipelineRuntime:
     definition_store: JobDefinitionStore
     published_jobs: PublishedJobStore
     recurring_schedules: RecurringScheduleStore
+    recurring_jobs: RecurringJobStore
     run_workspaces: RunWorkspaceStore
     shared_storage: SharedStorage
     type_library: TypeLibraryStore
@@ -63,6 +65,7 @@ def create_runtime(
         definition_store=JobDefinitionStore(root / "job_defs", root / "job_defs_archive"),
         published_jobs=PublishedJobStore(root / "state.sqlite"),
         recurring_schedules=RecurringScheduleStore(root / "state.sqlite"),
+        recurring_jobs=RecurringJobStore(root / "state.sqlite"),
         run_workspaces=(
             RunWorkspaceStore(root / "runs", max_bytes=upload_max_bytes)
             if upload_max_bytes

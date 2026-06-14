@@ -102,15 +102,17 @@ function ListEditor({
   schema,
   value,
   onChange,
+  columns = 1,
 }: {
   schema: ResolvedType;
   value: unknown;
   onChange: (value: unknown) => void;
+  columns?: 1 | 2;
 }) {
   const items = Array.isArray(value) ? value : [];
   return (
     <div className="grid gap-2">
-      <div className="grid max-h-72 gap-2 overflow-y-auto pr-1">
+      <div className={`grid max-h-96 gap-2 overflow-y-auto pr-1 ${columns === 2 ? "md:grid-cols-2" : ""}`}>
         {items.map((item, index) => (
           <div key={index} className="grid gap-1 rounded-md border border-slate-200 bg-slate-50 p-2">
             <div className="flex items-center justify-between">
@@ -148,10 +150,12 @@ function MapEditor({
   schema,
   value,
   onChange,
+  columns = 1,
 }: {
   schema: ResolvedType;
   value: unknown;
   onChange: (value: unknown) => void;
+  columns?: 1 | 2;
 }) {
   // Stable row ids so editing a key doesn't lose input focus (the map key alone is
   // not a stable identity). Initial ids come from position; the counter (read only in
@@ -175,7 +179,7 @@ function MapEditor({
 
   return (
     <div className="grid gap-2">
-      <div className="grid max-h-72 gap-2 overflow-y-auto pr-1">
+      <div className={`grid max-h-96 gap-2 overflow-y-auto pr-1 ${columns === 2 ? "md:grid-cols-2" : ""}`}>
         {rows.map((row, index) => (
           <div key={row.id} className="grid gap-1 rounded-md border border-slate-200 bg-slate-50 p-2">
             <div className="flex items-center gap-2">
@@ -214,14 +218,16 @@ function ContainerEditor({
   container,
   value,
   onChange,
+  columns = 1,
 }: {
   schema: ResolvedType;
   container: "single" | "list" | "map";
   value: unknown;
   onChange: (value: unknown) => void;
+  columns?: 1 | 2;
 }) {
-  if (container === "list") return <ListEditor schema={schema} value={value} onChange={onChange} />;
-  if (container === "map") return <MapEditor schema={schema} value={value} onChange={onChange} />;
+  if (container === "list") return <ListEditor schema={schema} value={value} onChange={onChange} columns={columns} />;
+  if (container === "map") return <MapEditor schema={schema} value={value} onChange={onChange} columns={columns} />;
   return <ObjectEditor schema={schema} value={value} onChange={onChange} />;
 }
 
@@ -229,10 +235,14 @@ export default function TypedValueEditor({
   field,
   value,
   onChange,
+  columns = 1,
 }: {
   field: PublishedField;
   value: unknown;
   onChange: (value: unknown) => void;
+  // List/map containers lay their entries out in this many columns (the Saved
+  // Values page uses 2 to show two records per row).
+  columns?: 1 | 2;
 }) {
   if (!field.type_schema) {
     // No resolved schema (e.g. its library type was deleted) — fall back to JSON so
@@ -245,5 +255,5 @@ export default function TypedValueEditor({
       />
     );
   }
-  return <ContainerEditor schema={field.type_schema} container={field.container ?? "single"} value={value} onChange={onChange} />;
+  return <ContainerEditor schema={field.type_schema} container={field.container ?? "single"} value={value} onChange={onChange} columns={columns} />;
 }
