@@ -50,6 +50,30 @@ export default function MyRunsPage() {
   const [openTaskLogs, setOpenTaskLogs] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("Ready");
+  const [colWidths, setColWidths] = useState<number[]>([44, 160, 110, 300, 80, 165]);
+
+  function handleResizeStart(colIndex: number, e: React.MouseEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = colWidths[colIndex];
+
+    function onMouseMove(ev: MouseEvent) {
+      const newWidth = Math.max(44, startWidth + ev.clientX - startX);
+      setColWidths((prev) => {
+        const next = [...prev];
+        next[colIndex] = newWidth;
+        return next;
+      });
+    }
+
+    function onMouseUp() {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    }
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  }
 
   async function refresh() {
     const [next, nextSchedules] = await Promise.all([listMyPublishedRuns(), listMyRecurringSchedules()]);
@@ -229,92 +253,112 @@ export default function MyRunsPage() {
       ) : null}
 
       <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
-        <table className="min-w-full border-collapse text-left text-sm">
-          <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-500">
-            <tr>
-              <th className="w-[4%] px-3 py-2">
-                <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} title="Select all" className="cursor-pointer" />
-              </th>
-              <th className="w-[16%] px-3 py-2">Actions</th>
-              <th className="px-3 py-2">Job</th>
-              <th className="w-[12%] px-3 py-2">Status</th>
-              <th className="w-[8%] px-3 py-2">Tasks</th>
-              <th className="w-[18%] px-3 py-2">Created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {runs.length === 0 ? (
+        <div className="overflow-x-auto">
+          <table
+            className="table-fixed border-collapse text-left text-sm"
+            style={{ width: colWidths.reduce((a, b) => a + b, 0) }}
+          >
+            <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-500">
               <tr>
-                <td colSpan={6} className="px-3 py-4 text-slate-500">
-                  No runs yet.
-                </td>
+                <th style={{ width: colWidths[0] }} className="relative px-3 py-2">
+                  <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} title="Select all" className="cursor-pointer" />
+                  <div role="separator" onMouseDown={(e) => handleResizeStart(0, e)} className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-slate-400/60" />
+                </th>
+                <th style={{ width: colWidths[1] }} className="relative px-3 py-2">
+                  Actions
+                  <div role="separator" onMouseDown={(e) => handleResizeStart(1, e)} className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-slate-400/60" />
+                </th>
+                <th style={{ width: colWidths[2] }} className="relative px-3 py-2">
+                  Status
+                  <div role="separator" onMouseDown={(e) => handleResizeStart(2, e)} className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-slate-400/60" />
+                </th>
+                <th style={{ width: colWidths[3] }} className="relative px-3 py-2">
+                  Job
+                  <div role="separator" onMouseDown={(e) => handleResizeStart(3, e)} className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-slate-400/60" />
+                </th>
+                <th style={{ width: colWidths[4] }} className="relative px-3 py-2">
+                  Tasks
+                  <div role="separator" onMouseDown={(e) => handleResizeStart(4, e)} className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-slate-400/60" />
+                </th>
+                <th style={{ width: colWidths[5] }} className="relative px-3 py-2">
+                  Created
+                  <div role="separator" onMouseDown={(e) => handleResizeStart(5, e)} className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-slate-400/60" />
+                </th>
               </tr>
-            ) : null}
-            {runs.map((run) => {
-              const expanded = expandedRunId === run.id;
-              const detail = detailFor(run.id);
-              const active = run.status === "queued" || run.status === "running";
-              return (
-                <Fragment key={run.id}>
-                  <tr className="border-t border-slate-200 align-top">
-                    <td className="px-3 py-3">
-                      <input type="checkbox" checked={selectedIds.has(run.id)} onChange={() => toggleSelect(run.id)} className="cursor-pointer" />
-                    </td>
-                    <td className="px-3 py-3">
-                      <div className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap">
-                        <button
-                          className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold leading-none"
-                          title={expanded ? "Hide tasks" : "Show tasks"}
-                          onClick={() => toggleExpand(run.id).catch((cause: Error) => setError(cause.message))}
-                        >
-                          {loadingRunId === run.id ? "…" : expanded ? "▾" : "▸"}
-                        </button>
-                        {active ? (
+            </thead>
+            <tbody>
+              {runs.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-3 py-4 text-slate-500">
+                    No runs yet.
+                  </td>
+                </tr>
+              ) : null}
+              {runs.map((run) => {
+                const expanded = expandedRunId === run.id;
+                const detail = detailFor(run.id);
+                const active = run.status === "queued" || run.status === "running";
+                return (
+                  <Fragment key={run.id}>
+                    <tr className="border-t border-slate-200 align-top">
+                      <td className="px-3 py-3">
+                        <input type="checkbox" checked={selectedIds.has(run.id)} onChange={() => toggleSelect(run.id)} className="cursor-pointer" />
+                      </td>
+                      <td className="px-3 py-3">
+                        <div className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap">
+                          <button
+                            className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold leading-none"
+                            title={expanded ? "Hide tasks" : "Show tasks"}
+                            onClick={() => toggleExpand(run.id).catch((cause: Error) => setError(cause.message))}
+                          >
+                            {loadingRunId === run.id ? "…" : expanded ? "▾" : "▸"}
+                          </button>
+                          {active ? (
+                            <button
+                              className="rounded-md border border-red-200 px-2 py-1 text-xs font-semibold leading-none text-red-700"
+                              onClick={() => cancelRun(run.id).catch((cause: Error) => setError(cause.message))}
+                            >
+                              Cancel
+                            </button>
+                          ) : null}
+                          <button
+                            className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold leading-none"
+                            title="Rewind run (run again now)"
+                            onClick={() => rewindRun(run.id).catch((cause: Error) => setError(cause.message))}
+                          >
+                            ↻
+                          </button>
+                          <button
+                            className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold leading-none"
+                            title="Schedule again (run at a chosen time)"
+                            onClick={() => { setScheduleAgainRunId(run.id); setScheduleAgainAt(""); }}
+                          >
+                            🗓
+                          </button>
                           <button
                             className="rounded-md border border-red-200 px-2 py-1 text-xs font-semibold leading-none text-red-700"
-                            onClick={() => cancelRun(run.id).catch((cause: Error) => setError(cause.message))}
+                            title="Delete run"
+                            onClick={() => deleteRun(run.id).catch((cause: Error) => setError(cause.message))}
                           >
-                            Cancel
+                            -
                           </button>
-                        ) : null}
-                        <button
-                          className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold leading-none"
-                          title="Rewind run (run again now)"
-                          onClick={() => rewindRun(run.id).catch((cause: Error) => setError(cause.message))}
-                        >
-                          ↻
+                        </div>
+                      </td>
+                      <td className="px-3 py-3">
+                        <span className={`rounded-full px-2 py-1 text-xs font-semibold ${statusClasses(run.status)}`}>{run.status}</span>
+                      </td>
+                      <td className="px-3 py-3">
+                        <button type="button" className="font-semibold text-slate-950 hover:underline" onClick={() => toggleExpand(run.id).catch((cause: Error) => setError(cause.message))}>
+                          {run.published_job_name}
                         </button>
-                        <button
-                          className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold leading-none"
-                          title="Schedule again (run at a chosen time)"
-                          onClick={() => { setScheduleAgainRunId(run.id); setScheduleAgainAt(""); }}
-                        >
-                          🗓
-                        </button>
-                        <button
-                          className="rounded-md border border-red-200 px-2 py-1 text-xs font-semibold leading-none text-red-700"
-                          title="Delete run"
-                          onClick={() => deleteRun(run.id).catch((cause: Error) => setError(cause.message))}
-                        >
-                          -
-                        </button>
-                      </div>
-                    </td>
-                    <td className="px-3 py-3">
-                      <button type="button" className="font-semibold text-slate-950 hover:underline" onClick={() => toggleExpand(run.id).catch((cause: Error) => setError(cause.message))}>
-                        {run.published_job_name}
-                      </button>
-                      <div className="text-xs text-slate-500">{run.id}</div>
-                    </td>
-                    <td className="px-3 py-3">
-                      <span className={`rounded-full px-2 py-1 text-xs font-semibold ${statusClasses(run.status)}`}>{run.status}</span>
-                    </td>
-                    <td className="px-3 py-3 text-xs text-slate-600">{run.total}</td>
-                    <td className="px-3 py-3 text-xs text-slate-500">{run.created_at}</td>
-                  </tr>
-                  {expanded && detail ? (
-                    <tr className="border-b border-slate-200 bg-slate-50">
-                      <td colSpan={6} className="px-4 pb-4 pt-2">
+                        <div className="text-xs text-slate-500">{run.id}</div>
+                      </td>
+                      <td className="px-3 py-3 text-xs text-slate-600">{run.total}</td>
+                      <td className="px-3 py-3 text-xs text-slate-500">{run.created_at}</td>
+                    </tr>
+                    {expanded && detail ? (
+                      <tr className="border-b border-slate-200 bg-slate-50">
+                        <td colSpan={6} className="px-4 pb-4 pt-2">
                         <div className="grid gap-3">
                           {detail.artifact_available ? (
                             <a href={runArtifactUrl(run.id)} download className="w-fit rounded-md bg-emerald-700 px-3 py-2 text-xs font-semibold text-white">
@@ -356,8 +400,9 @@ export default function MyRunsPage() {
                 </Fragment>
               );
             })}
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {scheduleAgainRunId ? (

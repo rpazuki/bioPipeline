@@ -8,13 +8,34 @@ import {
   deleteRecurringJob,
   getJobLogs,
   getRuntimeInfo,
+  listAdminPublishedRuns,
   listJobs,
   listRecurringJobs,
   rewindJob,
   runDueJobs,
   stopRecurringJob,
 } from "@/lib/api";
-import type { Job, RecurringJob, RuntimeInfo } from "@/types";
+import type { Job, PublishedRunSummary, RecurringJob, RuntimeInfo } from "@/types";
+
+// Index published runs by the parent job they spawned so a queued job can be
+// matched back to the researcher who launched the run.
+export function indexRunsByParent(runs: PublishedRunSummary[]): Map<string, PublishedRunSummary> {
+  const map = new Map<string, PublishedRunSummary>();
+  for (const run of runs) {
+    map.set(run.parent_job_id, run);
+  }
+  return map;
+}
+
+// Child tasks reference their group via parent_job_id; the group parent row
+// matches on its own id. Admin-submitted jobs match nothing → no researcher.
+export function researcherForJob(job: Job, runByParentId: Map<string, PublishedRunSummary>): string {
+  const run = (job.parent_job_id ? runByParentId.get(job.parent_job_id) : undefined) ?? runByParentId.get(job.id);
+  if (!run) {
+    return "—";
+  }
+  return run.user_display_name || run.username || run.user_id;
+}
 
 function recurringEndsLabel(schedule: RecurringJob): string {
   if (schedule.ends_mode === "count") return `ends after ${schedule.ends_count} runs`;
@@ -95,6 +116,31 @@ export default function JobQueuePanel({ onStatus }: Props) {
   const [scheduleAgainJobId, setScheduleAgainJobId] = useState<string | null>(null);
   const [scheduleAgainAt, setScheduleAgainAt] = useState("");
   const [recurring, setRecurring] = useState<RecurringJob[]>([]);
+  const [runs, setRuns] = useState<PublishedRunSummary[]>([]);
+  const [colWidths, setColWidths] = useState<number[]>([44, 180, 110, 140, 160, 200, 165, 150]);
+
+  function handleResizeStart(colIndex: number, e: React.MouseEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = colWidths[colIndex];
+
+    function onMouseMove(ev: MouseEvent) {
+      const newWidth = Math.max(44, startWidth + ev.clientX - startX);
+      setColWidths((prev) => {
+        const next = [...prev];
+        next[colIndex] = newWidth;
+        return next;
+      });
+    }
+
+    function onMouseUp() {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    }
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  }
 
   const rowsPerPage = 20;
 
@@ -102,9 +148,17 @@ export default function JobQueuePanel({ onStatus }: Props) {
     setJobs(await listJobs());
   }
 
+  // Published-job runs carry the researcher who launched them; the raw job
+  // records do not. Pull them alongside the jobs so the queue can attribute
+  // each job to its researcher.
+  async function refreshRuns() {
+    setRuns(await listAdminPublishedRuns());
+  }
+
   async function refreshAll() {
     await Promise.all([
       refreshJobs(),
+      refreshRuns(),
       getRuntimeInfo().then(setRuntimeInfo),
       listRecurringJobs().then(setRecurring),
     ]);
@@ -136,10 +190,14 @@ export default function JobQueuePanel({ onStatus }: Props) {
       refreshJobs().catch(() => {
         // Keep the table responsive even if a background refresh fails once.
       });
+      refreshRuns().catch(() => {
+        // Researcher attribution is best-effort; a missed poll just keeps the
+        // previous mapping until the next tick.
+      });
     }, 3000);
 
     return () => window.clearInterval(timer);
-     
+
   }, []);
 
   useEffect(() => {
@@ -243,6 +301,10 @@ export default function JobQueuePanel({ onStatus }: Props) {
       setLoadingLogJobId(null);
     }
   }
+
+  // Index runs by the parent job they spawned so each queued job can be matched
+  // back to the researcher who launched the published-job run.
+  const runByParentId = useMemo(() => indexRunsByParent(runs), [runs]);
 
   const totalPages = Math.max(1, Math.ceil(jobs.length / rowsPerPage));
   const pagedJobs = useMemo(() => {
@@ -406,10 +468,13 @@ export default function JobQueuePanel({ onStatus }: Props) {
 
       <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
         <div className="overflow-x-auto">
-          <table className="min-w-full table-fixed border-collapse text-left text-sm">
+          <table
+            className="table-fixed border-collapse text-left text-sm"
+            style={{ width: colWidths.reduce((a, b) => a + b, 0) }}
+          >
             <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="w-[4%] px-3 py-2">
+                <th style={{ width: colWidths[0] }} className="relative px-3 py-2">
                   <input
                     type="checkbox"
                     checked={allPageSelected}
@@ -417,19 +482,42 @@ export default function JobQueuePanel({ onStatus }: Props) {
                     title="Select all on this page"
                     className="cursor-pointer"
                   />
+                  <div role="separator" onMouseDown={(e) => handleResizeStart(0, e)} className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-slate-400/60" />
                 </th>
-                <th className="w-[11%] px-3 py-2">Actions</th>
-                <th className="w-[21%] px-3 py-2">YAML Path</th>
-                <th className="w-[17%] px-3 py-2">Pipeline</th>
-                <th className="w-[10%] px-3 py-2">Status</th>
-                <th className="w-[17%] px-3 py-2">Created</th>
-                <th className="w-[20%] px-3 py-2">Last Refreshed</th>
+                <th style={{ width: colWidths[1] }} className="relative px-3 py-2">
+                  Actions
+                  <div role="separator" onMouseDown={(e) => handleResizeStart(1, e)} className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-slate-400/60" />
+                </th>
+                <th style={{ width: colWidths[2] }} className="relative px-3 py-2">
+                  Status
+                  <div role="separator" onMouseDown={(e) => handleResizeStart(2, e)} className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-slate-400/60" />
+                </th>
+                <th style={{ width: colWidths[3] }} className="relative px-3 py-2">
+                  Researcher
+                  <div role="separator" onMouseDown={(e) => handleResizeStart(3, e)} className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-slate-400/60" />
+                </th>
+                <th style={{ width: colWidths[4] }} className="relative px-3 py-2">
+                  Pipeline
+                  <div role="separator" onMouseDown={(e) => handleResizeStart(4, e)} className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-slate-400/60" />
+                </th>
+                <th style={{ width: colWidths[5] }} className="relative px-3 py-2">
+                  YAML Path
+                  <div role="separator" onMouseDown={(e) => handleResizeStart(5, e)} className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-slate-400/60" />
+                </th>
+                <th style={{ width: colWidths[6] }} className="relative px-3 py-2">
+                  Created
+                  <div role="separator" onMouseDown={(e) => handleResizeStart(6, e)} className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-slate-400/60" />
+                </th>
+                <th style={{ width: colWidths[7] }} className="relative px-3 py-2">
+                  Last Refreshed
+                  <div role="separator" onMouseDown={(e) => handleResizeStart(7, e)} className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-slate-400/60" />
+                </th>
               </tr>
             </thead>
             <tbody>
               {pagedJobs.length === 0 ? (
                 <tr>
-                  <td className="px-3 py-4 text-sm text-slate-500" colSpan={7}>
+                  <td className="px-3 py-4 text-sm text-slate-500" colSpan={8}>
                     No jobs yet.
                   </td>
                 </tr>
@@ -488,21 +576,22 @@ export default function JobQueuePanel({ onStatus }: Props) {
                           ) : null}
                         </div>
                       </td>
-                      <td className="px-3 py-3 text-xs text-slate-600">
-                        {formatRelativeYamlPath(job.yaml_path, runtimeInfo?.yaml_root ?? null)}
-                      </td>
-                      <td className="px-3 py-3 font-semibold text-slate-950">{job.pipeline_name}</td>
                       <td className="px-3 py-3">
                         <span className={`rounded-full px-2 py-1 text-xs font-semibold ${statusClasses(job.status)}`}>
                           {job.status}
                         </span>
+                      </td>
+                      <td className="px-3 py-3 text-xs text-slate-600">{researcherForJob(job, runByParentId)}</td>
+                      <td className="px-3 py-3 font-semibold text-slate-950">{job.pipeline_name}</td>
+                      <td className="px-3 py-3 text-xs text-slate-600">
+                        {formatRelativeYamlPath(job.yaml_path, runtimeInfo?.yaml_root ?? null)}
                       </td>
                       <td className="px-3 py-3 text-xs text-slate-500">{job.created_at}</td>
                       <td className="px-3 py-3 text-xs text-slate-500">{formatRelativeTime(job.updated_at)}</td>
                     </tr>
                     {expanded ? (
                       <tr key={`${job.id}-log`} className="border-b border-slate-200">
-                        <td className="px-3 pb-3 text-left" colSpan={7}>
+                        <td className="px-3 pb-3 text-left" colSpan={8}>
                           <div className="w-full rounded-md bg-black p-3 text-xs leading-6 text-emerald-300">
                             <div className="grid gap-1 text-slate-100">
                               <div className="font-semibold">Log for {job.id}</div>
