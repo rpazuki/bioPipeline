@@ -25,7 +25,12 @@ import type {
   PublishedRunSummary,
   PipelineTemplate,
   PipelineTemplateSummary,
+  RecurrenceEndMode,
+  RecurrenceUnit,
+  RecurringSchedule,
+  ResolvedType,
   RuntimeInfo,
+  SavedTypedValue,
   SharedEntry,
   SharedRootInfo,
   TypeDef,
@@ -507,8 +512,43 @@ export async function deleteMyPublishedRun(id: string) {
   return apiFetch<void>(`/published-jobs/my-runs/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
-export async function rewindMyPublishedRun(id: string) {
-  return apiFetch<PublishedRunDetail>(`/published-jobs/my-runs/${encodeURIComponent(id)}/rewind`, { method: "POST" });
+export async function rewindMyPublishedRun(id: string, scheduledAt: string | null = null) {
+  return apiFetch<PublishedRunDetail>(`/published-jobs/my-runs/${encodeURIComponent(id)}/rewind`, {
+    method: "POST",
+    body: JSON.stringify({ scheduled_at: scheduledAt }),
+  });
+}
+
+// Recurring schedules (researcher)
+export interface RecurringScheduleCreate {
+  values: Record<string, unknown>;
+  file_bindings?: Record<string, RunFileBinding>;
+  workspace_id?: string | null;
+  every_n: number;
+  unit: RecurrenceUnit;
+  ends_mode: RecurrenceEndMode;
+  ends_count?: number;
+  ends_at?: string | null;
+  start_at?: string | null;
+}
+
+export async function createRecurringSchedule(id: string, payload: RecurringScheduleCreate) {
+  return apiFetch<RecurringSchedule>(`/published-jobs/catalog/${encodeURIComponent(id)}/schedules`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listMyRecurringSchedules() {
+  return apiFetch<RecurringSchedule[]>("/published-jobs/my-schedules");
+}
+
+export async function stopRecurringSchedule(id: string) {
+  return apiFetch<RecurringSchedule>(`/published-jobs/my-schedules/${encodeURIComponent(id)}/stop`, { method: "POST" });
+}
+
+export async function deleteRecurringSchedule(id: string) {
+  return apiFetch<void>(`/published-jobs/my-schedules/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 // Job Definition store (saved/archived reusable definitions)
@@ -586,6 +626,35 @@ export async function extractType(qualifiedName: string) {
     method: "POST",
     body: JSON.stringify({ qualified_name: qualifiedName }),
   });
+}
+
+// Saved typed values (per-researcher, reusable across published jobs)
+export async function listSavedTypedValues() {
+  return apiFetch<SavedTypedValue[]>("/saved-typed-values");
+}
+
+export async function saveTypedValue(payload: {
+  type_key: string;
+  container: "single" | "list" | "map";
+  label?: string;
+  type_schema: ResolvedType | null;
+  value: unknown;
+}) {
+  return apiFetch<SavedTypedValue>("/saved-typed-values", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateSavedTypedValue(id: string, payload: { value?: unknown; label?: string }) {
+  return apiFetch<SavedTypedValue>(`/saved-typed-values/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteSavedTypedValue(id: string) {
+  return apiFetch<void>(`/saved-typed-values/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 // AI Designer

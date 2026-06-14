@@ -14,8 +14,8 @@ export default function EnvironmentPage() {
           is admin-only, and installs are refused while jobs are running.
         </p>
       </section>
-      <EnvironmentPanel />
       <TypeLibraryPanel />
+      <EnvironmentPanel />
     </div>
   );
 }

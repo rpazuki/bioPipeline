@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { deleteType, extractType, listTypeLibrary, upsertType } from "@/lib/api";
 import type { TypeDef, TypeExtractResponse, TypeFieldSpec } from "@/types";
@@ -98,6 +98,12 @@ export default function TypeLibraryPanel() {
       setBusy(false);
     }
   }, []);
+
+  // Load the library as soon as the page shows, so the types are visible without
+  // an extra click. The Reload button stays for an explicit refresh afterwards.
+  useEffect(() => {
+    run(refresh);
+  }, [run, refresh]);
 
   function startNew() {
     setEditing(true);
@@ -228,9 +234,9 @@ export default function TypeLibraryPanel() {
         ) : null}
       </div>
 
-      {/* Existing types */}
+      {/* Existing types — past 6 the list scrolls so the panel stays compact. */}
       {loaded ? (
-        <ul className="grid gap-1">
+        <ul className={`grid gap-1 ${types.length > 6 ? "max-h-72 overflow-y-auto pr-1" : ""}`}>
           {types.length === 0 ? <li className="text-xs text-slate-500">No types defined yet.</li> : null}
           {types.map((type) => (
             <li key={type.name} className="flex items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-1.5 text-xs">

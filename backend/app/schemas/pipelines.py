@@ -349,6 +349,43 @@ class PublishedJobRunRequest(BaseModel):
     file_bindings: dict[str, FileBinding] = Field(default_factory=dict)
 
 
+class PublishedRunRewindRequest(BaseModel):
+    """Re-run an existing run now, or (schedule-again) at a chosen time."""
+
+    scheduled_at: datetime | None = None
+
+
+class RecurringScheduleCreateRequest(BaseModel):
+    values: dict[str, Any] = Field(default_factory=dict)
+    file_bindings: dict[str, FileBinding] = Field(default_factory=dict)
+    workspace_id: str | None = None
+    every_n: int = 1
+    unit: Literal["minutes", "hours", "days", "weeks"] = "days"
+    ends_mode: Literal["never", "count", "until"] = "never"
+    ends_count: int = 0
+    ends_at: datetime | None = None
+    # First occurrence; defaults to "as soon as the scheduler next ticks".
+    start_at: datetime | None = None
+
+
+class RecurringScheduleResponse(BaseModel):
+    id: str
+    published_job_id: str
+    published_job_name: str = ""
+    published_version: int
+    every_n: int
+    unit: str
+    ends_mode: str
+    ends_count: int
+    ends_at: datetime | None = None
+    next_run_at: datetime
+    runs_done: int
+    active: bool
+    created_at: datetime
+    last_run_at: datetime | None = None
+    values: dict[str, Any] = Field(default_factory=dict)
+
+
 class PublishedRunSummary(BaseModel):
     id: str
     published_job_id: str
@@ -508,3 +545,34 @@ class TypeExtractResponse(BaseModel):
     types: dict[str, Any] = Field(default_factory=dict)
     root: str = ""
     warnings: list[str] = Field(default_factory=list)
+
+
+# --- Saved typed values (per-researcher reusable structured field values) ---- #
+class SavedTypedValueResponse(BaseModel):
+    id: str
+    type_key: str
+    container: Literal["single", "list", "map"] = "single"
+    label: str = ""
+    type_schema: dict[str, Any] = Field(default_factory=dict)
+    value: Any = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SavedTypedValueUpsertRequest(BaseModel):
+    """Save (create or replace) a researcher's value for a type + container.
+
+    Keyed server-side by the authenticated user plus ``type_key``/``container``,
+    so re-saving the same type overwrites the previous value.
+    """
+
+    type_key: str
+    container: Literal["single", "list", "map"] = "single"
+    label: str = ""
+    type_schema: dict[str, Any] = Field(default_factory=dict)
+    value: Any = None
+
+
+class SavedTypedValueUpdateRequest(BaseModel):
+    value: Any = None
+    label: str | None = None

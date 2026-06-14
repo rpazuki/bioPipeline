@@ -607,9 +607,10 @@ def test_directory_upload_resolves_to_input_dir(tmp_path: Path):
     get_runtime.cache_clear()
 
 
-def test_admin_lists_roots_and_rewind_rejects_workspace_run(tmp_path: Path):
+def test_admin_lists_roots_and_rewind_replays_upload_run(tmp_path: Path):
     (tmp_path / "share").mkdir()
     client = _client(tmp_path, shared_roots=[{"id": "ecoli", "label": "E. coli data", "path": str(tmp_path / "share")}])
+    runtime = app.dependency_overrides[get_runtime]()
     client.post("/api/v1/pipeline-yamls", json={"name": "demo.yaml", "content": PIPELINE_YAML, "overwrite": True})
 
     roots = client.get("/api/v1/published-jobs/admin/shared-roots")
@@ -638,8 +639,15 @@ def test_admin_lists_roots_and_rewind_rejects_workspace_run(tmp_path: Path):
         json={"values": {"raw_data": ""}, "workspace_id": workspace_id, "file_bindings": {"raw_data": {"kind": "upload", "path": "inputs/raw_data/in.csv"}}},
     ).json()["id"]
 
+    # An upload run now rewinds: its retained inputs are cloned into a fresh
+    # workspace and the run is replayed (no need to re-upload the file).
     rewind = client.post(f"/api/v1/published-jobs/my-runs/{run_id}/rewind")
-    assert rewind.status_code == 400
+    assert rewind.status_code == 201, rewind.text
+    new_run = rewind.json()
+    assert new_run["id"] != run_id
+    assert new_run["workspace_id"] and new_run["workspace_id"] != workspace_id
+    cloned = runtime.run_workspaces.input_abspath(new_run["workspace_id"], "inputs/raw_data/in.csv")
+    assert cloned.read_bytes() == b"x"
 
     app.dependency_overrides.clear()
     get_runtime.cache_clear()

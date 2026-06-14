@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -18,7 +19,10 @@ from app.schemas.pipelines import (
     PublishedJobSaveRequest,
     PublishedJobUpdateRequest,
     PublishedRunDetail,
+    PublishedRunRewindRequest,
     PublishedRunSummary,
+    RecurringScheduleCreateRequest,
+    RecurringScheduleResponse,
     RunUploadResponse,
     SharedBrowseResponse,
     SharedEntryResponse,
@@ -42,10 +46,20 @@ from bio_pipeline_manager.published_jobs import (
     resolve_io,
     resolve_typed_fields,
 )
+from bio_pipeline_manager.published_runs import execute_published_run, run_needs_workspace
+from bio_pipeline_manager.recurring_schedule import (
+    RecurringScheduleError,
+    RecurringScheduleRecord,
+    interval_delta,
+)
+from bio_pipeline_manager.models import utc_now
 from bio_pipeline_manager.run_workspace import RunWorkspaceError
 from bio_pipeline_manager.shared_storage import SharedStorageError
+from bio_pipeline_manager.typed_value_store import typed_value_key
 
 router = APIRouter(prefix="/published-jobs", tags=["published-jobs"])
+
+logger = logging.getLogger(__name__)
 
 
 @router.post("/admin/inspect", response_model=PublishedJobInspectResponse)
@@ -392,33 +406,61 @@ async def submit_published_job_run(
     try:
         if body.workspace_id:
             runtime.run_workspaces.require_owner(body.workspace_id, user.id)
-        resolved_values = resolve_io(
-            record,
-            body.values,
-            file_bindings=file_bindings,
-            workspaces=runtime.run_workspaces,
-            workspace_id=body.workspace_id,
+        run = execute_published_run(
+            published_jobs=runtime.published_jobs,
+            queue=runtime.queue,
+            run_workspaces=runtime.run_workspaces,
             shared=runtime.shared_storage,
-        )
-        rendered = render_definition(record, resolved_values)
-        parent_id, _records = runtime.queue.submit_definition(
-            rendered,
             yaml_resolver=runtime.yaml_store.resolve_name,
-            scheduled_at=body.scheduled_at,
-        )
-        run = runtime.published_jobs.create_run(
-            published_job_id=record.id,
-            published_version=record.version,
-            user_id=user.id,
+            record=record,
             values=body.values,
-            rendered_definition=rendered,
-            parent_job_id=parent_id,
-            workspace_id=body.workspace_id or "",
             file_bindings=file_bindings,
+            workspace_id=body.workspace_id,
+            scheduled_at=body.scheduled_at,
+            user_id=user.id,
         )
     except (RunWorkspaceError, PublishedJobError, JobDefinitionError, ValueError) as exc:
+        # Surface the reason in the server log — the access log only shows "400", so
+        # without this the cause (missing input, invalid typed value, …) is invisible.
+        logger.warning("Published run rejected for job %s: %s", published_job_id, exc)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    # Auto-save each typed field's value the FIRST time it is run, so the next run of
+    # any job using the same type pre-fills it. An already-saved value is left
+    # untouched here — only the explicit Save button may overwrite it. Best-effort: a
+    # save hiccup must not fail an already-submitted run.
+    _autosave_new_typed_values(runtime, record, body.values, user.id)
     return _run_detail(runtime, run)
+
+
+def _autosave_new_typed_values(
+    runtime: PipelineRuntime,
+    record: PublishedJobRecord,
+    values: dict,
+    user_id: str,
+) -> None:
+    for field_def in record.fields:
+        key = typed_value_key(field_def)
+        if key is None:
+            continue
+        type_key, container = key
+        value = values.get(field_def["id"])
+        if not value:  # skip empty {} / [] — nothing worth remembering yet
+            continue
+        try:
+            # Only create a saved value that does not exist yet; never overwrite an
+            # existing one on execute (the Save button is the only update path).
+            if runtime.typed_values.get_by_key(user_id, type_key, container) is not None:
+                continue
+            runtime.typed_values.upsert(
+                user_id=user_id,
+                type_key=type_key,
+                container=container,
+                label=type_key,
+                type_schema=field_def.get("type_schema") or {},
+                value=value,
+            )
+        except Exception:  # noqa: BLE001 - saving a convenience value is never fatal
+            pass
 
 
 @router.get("/my-runs", response_model=list[PublishedRunSummary])
@@ -504,32 +546,134 @@ async def rewind_my_published_run(
     run_id: str,
     runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
     user: Annotated[UserRecord, Depends(require_authenticated_user)],
+    body: PublishedRunRewindRequest | None = None,
 ) -> PublishedRunDetail:
+    """Re-run a previous run — immediately, or (schedule-again) at ``scheduled_at``.
+
+    A run that used uploaded files is replayed by cloning its retained inputs into
+    a fresh workspace; a file-less run replays its frozen rendered definition.
+    """
     run = _get_owned_run(runtime, run_id, user.id)
-    if run.workspace_id:
-        # The rendered definition points at this run's workspace (uploaded inputs
-        # and/or output dirs), which is cleaned up after completion — replaying it
-        # would reference files that no longer exist. Start a fresh run instead.
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This run used uploaded or downloaded files. Start a new run from the published job to provide them again.",
-        )
+    scheduled_at = body.scheduled_at if body else None
     try:
-        parent_id, _records = runtime.queue.submit_definition(
-            run.rendered_definition,
-            yaml_resolver=runtime.yaml_store.resolve_name,
-        )
-        new_run = runtime.published_jobs.create_run(
-            published_job_id=run.published_job_id,
-            published_version=run.published_version,
-            user_id=user.id,
-            values=run.values,
-            rendered_definition=run.rendered_definition,
-            parent_job_id=parent_id,
-        )
-    except (JobDefinitionError, ValueError) as exc:
+        if run.workspace_id:
+            if not runtime.run_workspaces.exists(run.workspace_id):
+                raise PublishedJobError("This run's inputs are no longer available to replay.")
+            record = _get_published_job(runtime, run.published_job_id)
+            clone = runtime.run_workspaces.clone_inputs(
+                run.workspace_id, owner_user_id=user.id, published_job_id=record.id
+            )
+            new_run = execute_published_run(
+                published_jobs=runtime.published_jobs,
+                queue=runtime.queue,
+                run_workspaces=runtime.run_workspaces,
+                shared=runtime.shared_storage,
+                yaml_resolver=runtime.yaml_store.resolve_name,
+                record=record,
+                values=run.values,
+                file_bindings=run.file_bindings,
+                workspace_id=clone.workspace_id,
+                scheduled_at=scheduled_at,
+                user_id=user.id,
+            )
+        else:
+            parent_id, _records = runtime.queue.submit_definition(
+                run.rendered_definition,
+                yaml_resolver=runtime.yaml_store.resolve_name,
+                scheduled_at=scheduled_at,
+            )
+            new_run = runtime.published_jobs.create_run(
+                published_job_id=run.published_job_id,
+                published_version=run.published_version,
+                user_id=user.id,
+                values=run.values,
+                rendered_definition=run.rendered_definition,
+                parent_job_id=parent_id,
+            )
+    except (RunWorkspaceError, PublishedJobError, JobDefinitionError, ValueError) as exc:
+        logger.warning("Rewind rejected for run %s: %s", run_id, exc)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return _run_detail(runtime, new_run)
+
+
+@router.post(
+    "/catalog/{published_job_id}/schedules",
+    response_model=RecurringScheduleResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_recurring_schedule(
+    published_job_id: str,
+    body: RecurringScheduleCreateRequest,
+    runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
+    user: Annotated[UserRecord, Depends(require_authenticated_user)],
+) -> RecurringScheduleResponse:
+    """Set up a published job to run again on a fixed interval until its end rule.
+
+    The provided workspace (with any uploaded inputs) becomes the schedule's input
+    template; the values/bindings are dry-run validated against a throwaway clone so
+    a schedule that could never run is rejected up front rather than failing silently.
+    """
+    record = _get_published_job(runtime, published_job_id)
+    if record.status != "published":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Published job not found")
+    file_bindings = {field_id: binding.model_dump() for field_id, binding in body.file_bindings.items()}
+    template_workspace_id = body.workspace_id or ""
+    try:
+        if template_workspace_id:
+            runtime.run_workspaces.require_owner(template_workspace_id, user.id)
+        interval_delta(body.every_n, body.unit)  # validate the period early
+        _validate_schedule_runnable(runtime, record, body.values, file_bindings, template_workspace_id, user.id)
+        schedule = runtime.recurring_schedules.create(
+            user_id=user.id,
+            published_job_id=record.id,
+            published_version=record.version,
+            values=body.values,
+            file_bindings=file_bindings,
+            template_workspace_id=template_workspace_id,
+            every_n=body.every_n,
+            unit=body.unit,
+            ends_mode=body.ends_mode,
+            ends_count=body.ends_count,
+            ends_at=body.ends_at,
+            first_run_at=body.start_at or utc_now(),
+        )
+    except (RunWorkspaceError, PublishedJobError, JobDefinitionError, RecurringScheduleError, ValueError) as exc:
+        logger.warning("Recurring schedule rejected for job %s: %s", published_job_id, exc)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return _schedule_response(runtime, schedule)
+
+
+@router.get("/my-schedules", response_model=list[RecurringScheduleResponse])
+async def list_my_recurring_schedules(
+    runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
+    user: Annotated[UserRecord, Depends(require_authenticated_user)],
+) -> list[RecurringScheduleResponse]:
+    return [_schedule_response(runtime, s) for s in runtime.recurring_schedules.list(user_id=user.id)]
+
+
+@router.post("/my-schedules/{schedule_id}/stop", response_model=RecurringScheduleResponse)
+async def stop_my_recurring_schedule(
+    schedule_id: str,
+    runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
+    user: Annotated[UserRecord, Depends(require_authenticated_user)],
+) -> RecurringScheduleResponse:
+    _get_owned_schedule(runtime, schedule_id, user.id)
+    return _schedule_response(runtime, runtime.recurring_schedules.set_active(schedule_id, False))
+
+
+@router.delete("/my-schedules/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_my_recurring_schedule(
+    schedule_id: str,
+    runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
+    user: Annotated[UserRecord, Depends(require_authenticated_user)],
+) -> None:
+    schedule = _get_owned_schedule(runtime, schedule_id, user.id)
+    if schedule.template_workspace_id:
+        try:
+            runtime.run_workspaces.delete(schedule.template_workspace_id)
+        except RunWorkspaceError:
+            pass
+    runtime.recurring_schedules.delete(schedule_id)
 
 
 def _get_published_job(runtime: PipelineRuntime, published_job_id: str) -> PublishedJobRecord:
@@ -537,6 +681,75 @@ def _get_published_job(runtime: PipelineRuntime, published_job_id: str) -> Publi
         return runtime.published_jobs.get(published_job_id)
     except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+def _validate_schedule_runnable(
+    runtime: PipelineRuntime,
+    record: PublishedJobRecord,
+    values: dict,
+    file_bindings: dict,
+    template_workspace_id: str,
+    user_id: str,
+) -> None:
+    """Dry-run a schedule against a throwaway workspace so a never-runnable one is
+    rejected at creation. Mirrors exactly what the scheduler will do at fire time."""
+    probe = ""
+    if template_workspace_id and runtime.run_workspaces.exists(template_workspace_id):
+        probe = runtime.run_workspaces.clone_inputs(
+            template_workspace_id, owner_user_id=user_id, published_job_id=record.id
+        ).workspace_id
+    elif run_needs_workspace(record):
+        probe = runtime.run_workspaces.create(owner_user_id=user_id, published_job_id=record.id).workspace_id
+    try:
+        resolved = resolve_io(
+            record,
+            values,
+            file_bindings=file_bindings,
+            workspaces=runtime.run_workspaces,
+            workspace_id=probe or None,
+            shared=runtime.shared_storage,
+        )
+        render_definition(record, resolved)
+    finally:
+        if probe:
+            try:
+                runtime.run_workspaces.delete(probe)
+            except RunWorkspaceError:
+                pass
+
+
+def _get_owned_schedule(runtime: PipelineRuntime, schedule_id: str, user_id: str) -> RecurringScheduleRecord:
+    try:
+        schedule = runtime.recurring_schedules.get(schedule_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    if schedule.user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recurring schedule not found")
+    return schedule
+
+
+def _schedule_response(runtime: PipelineRuntime, schedule: RecurringScheduleRecord) -> RecurringScheduleResponse:
+    try:
+        name = runtime.published_jobs.get(schedule.published_job_id).name
+    except KeyError:
+        name = schedule.published_job_id
+    return RecurringScheduleResponse(
+        id=schedule.id,
+        published_job_id=schedule.published_job_id,
+        published_job_name=name,
+        published_version=schedule.published_version,
+        every_n=schedule.every_n,
+        unit=schedule.unit,
+        ends_mode=schedule.ends_mode,
+        ends_count=schedule.ends_count,
+        ends_at=schedule.ends_at,
+        next_run_at=schedule.next_run_at,
+        runs_done=schedule.runs_done,
+        active=schedule.active,
+        created_at=schedule.created_at,
+        last_run_at=schedule.last_run_at,
+        values=schedule.values,
+    )
 
 
 def _require_upload_field(record: PublishedJobRecord, field_id: str) -> dict:

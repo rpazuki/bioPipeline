@@ -43,6 +43,36 @@ describe("PublishedJobsPage", () => {
     await waitFor(() => expect(screen.queryByText("submit failed")).not.toBeInTheDocument());
   });
 
+  it("starts a typed field as an empty container even when its default is a scalar", async () => {
+    // Regression: a typed field whose admin default is a scalar (e.g. the type name)
+    // must NOT submit that scalar — the backend then rejects it ("must be a map of …").
+    const typedField = {
+      id: "rules", label: "Rules", type: "typed", required: true,
+      default: "CustomReplicateRule", help: "", example: "", options: [],
+      container: "map",
+
+      type_schema: { name: "CustomReplicateRule", fields: [
+        { name: "sample_size", type: "integer", container: "single", required: false, options: [] },
+      ] },
+    };
+
+    mocked.listPublishedJobs.mockResolvedValue([{ id: "J", name: "Typed Job", description: "", version: 1 }] as any);
+
+    mocked.getPublishedJob.mockResolvedValue(detail("J", "Typed Job", [typedField]) as any);
+
+    mocked.listSavedTypedValues.mockResolvedValue([] as any); // no saved value → default path
+
+    mocked.submitPublishedJobRun.mockResolvedValue({ id: "run1" } as any);
+
+    render(<PublishedJobsPage />);
+    fireEvent.click(await screen.findByRole("button", { name: /Typed Job/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Execute Job" }));
+
+    await waitFor(() => expect(mocked.submitPublishedJobRun).toHaveBeenCalledTimes(1));
+    const submittedValues = mocked.submitPublishedJobRun.mock.calls[0][1] as Record<string, unknown>;
+    expect(submittedValues.rules).toEqual({}); // empty map, not the "CustomReplicateRule" string
+  });
+
   it("keeps the uploaded file across submits so a re-run still binds it", async () => {
     const fileField = {
       id: "f1", label: "Data File", type: "file", required: true, io_role: "input",

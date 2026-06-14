@@ -5,12 +5,15 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   cancelMyPublishedRun,
   deleteMyPublishedRun,
+  deleteRecurringSchedule,
   getMyPublishedRun,
   listMyPublishedRuns,
+  listMyRecurringSchedules,
   rewindMyPublishedRun,
   runArtifactUrl,
+  stopRecurringSchedule,
 } from "@/lib/api";
-import type { PublishedRunDetail, PublishedRunSummary } from "@/types";
+import type { PublishedRunDetail, PublishedRunSummary, RecurringSchedule } from "@/types";
 
 function statusClasses(status: string): string {
   switch (status) {
@@ -29,8 +32,17 @@ function statusClasses(status: string): string {
   }
 }
 
+function endsLabel(s: RecurringSchedule): string {
+  if (s.ends_mode === "count") return `ends after ${s.ends_count} runs`;
+  if (s.ends_mode === "until" && s.ends_at) return `until ${new Date(s.ends_at).toLocaleString()}`;
+  return "no end";
+}
+
 export default function MyRunsPage() {
   const [runs, setRuns] = useState<PublishedRunSummary[]>([]);
+  const [schedules, setSchedules] = useState<RecurringSchedule[]>([]);
+  const [scheduleAgainRunId, setScheduleAgainRunId] = useState<string | null>(null);
+  const [scheduleAgainAt, setScheduleAgainAt] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, PublishedRunDetail>>({});
@@ -40,8 +52,9 @@ export default function MyRunsPage() {
   const [status, setStatus] = useState("Ready");
 
   async function refresh() {
-    const next = await listMyPublishedRuns();
+    const [next, nextSchedules] = await Promise.all([listMyPublishedRuns(), listMyRecurringSchedules()]);
     setRuns(next);
+    setSchedules(nextSchedules);
     if (expandedRunId && next.some((run) => run.id === expandedRunId)) {
       const detail = await getMyPublishedRun(expandedRunId);
       setDetails((current) => ({ ...current, [expandedRunId]: detail }));
@@ -109,6 +122,29 @@ export default function MyRunsPage() {
     await refresh();
   }
 
+  async function confirmScheduleAgain() {
+    if (!scheduleAgainRunId) return;
+    const at = scheduleAgainAt ? scheduleAgainAt : null;
+    const detail = await rewindMyPublishedRun(scheduleAgainRunId, at);
+    setScheduleAgainRunId(null);
+    setScheduleAgainAt("");
+    setStatus(at ? `Scheduled again as ${detail.id} for ${at}` : `Re-ran as ${detail.id}`);
+    await refresh();
+  }
+
+  async function stopSchedule(scheduleId: string) {
+    await stopRecurringSchedule(scheduleId);
+    setStatus(`Stopped schedule ${scheduleId}`);
+    await refresh();
+  }
+
+  async function removeSchedule(scheduleId: string) {
+    if (!window.confirm("Delete this recurring schedule? Its retained input template is removed; runs it already created are kept.")) return;
+    await deleteRecurringSchedule(scheduleId);
+    setStatus(`Deleted schedule ${scheduleId}`);
+    await refresh();
+  }
+
   async function deleteRun(runId: string) {
     if (!window.confirm("Delete this run? Its tasks, logs and uploaded/result files are removed.")) return;
     await deleteMyPublishedRun(runId);
@@ -153,6 +189,44 @@ export default function MyRunsPage() {
         <span className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">{status}</span>
       </div>
       {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
+
+      {schedules.length > 0 ? (
+        <div className="grid gap-2 rounded-md border border-slate-200 bg-white p-4">
+          <h3 className="text-sm font-semibold text-slate-900">Recurring schedules</h3>
+          <ul className="grid gap-2">
+            {schedules.map((schedule) => (
+              <li key={schedule.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-2 text-xs">
+                <span className="grid gap-0.5">
+                  <span className="font-semibold text-slate-900">{schedule.published_job_name}</span>
+                  <span className="text-slate-500">
+                    every {schedule.every_n} {schedule.unit} · {endsLabel(schedule)} · {schedule.runs_done} run(s) so far
+                    {schedule.active ? ` · next ${new Date(schedule.next_run_at).toLocaleString()}` : " · stopped"}
+                  </span>
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className={`rounded-full px-2 py-0.5 font-semibold ${schedule.active ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"}`}>
+                    {schedule.active ? "active" : "stopped"}
+                  </span>
+                  {schedule.active ? (
+                    <button
+                      className="rounded-md border border-amber-200 px-2 py-1 font-semibold text-amber-700"
+                      onClick={() => stopSchedule(schedule.id).catch((cause: Error) => setError(cause.message))}
+                    >
+                      Stop
+                    </button>
+                  ) : null}
+                  <button
+                    className="rounded-md border border-red-200 px-2 py-1 font-semibold text-red-700"
+                    onClick={() => removeSchedule(schedule.id).catch((cause: Error) => setError(cause.message))}
+                  >
+                    Delete
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
         <table className="min-w-full border-collapse text-left text-sm">
@@ -203,15 +277,20 @@ export default function MyRunsPage() {
                             Cancel
                           </button>
                         ) : null}
-                        {run.workspace_id ? null : (
-                          <button
-                            className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold leading-none"
-                            title="Rewind run"
-                            onClick={() => rewindRun(run.id).catch((cause: Error) => setError(cause.message))}
-                          >
-                            ↻
-                          </button>
-                        )}
+                        <button
+                          className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold leading-none"
+                          title="Rewind run (run again now)"
+                          onClick={() => rewindRun(run.id).catch((cause: Error) => setError(cause.message))}
+                        >
+                          ↻
+                        </button>
+                        <button
+                          className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold leading-none"
+                          title="Schedule again (run at a chosen time)"
+                          onClick={() => { setScheduleAgainRunId(run.id); setScheduleAgainAt(""); }}
+                        >
+                          🗓
+                        </button>
                         <button
                           className="rounded-md border border-red-200 px-2 py-1 text-xs font-semibold leading-none text-red-700"
                           title="Delete run"
@@ -280,6 +359,37 @@ export default function MyRunsPage() {
           </tbody>
         </table>
       </div>
+
+      {scheduleAgainRunId ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4" onClick={() => setScheduleAgainRunId(null)}>
+          <div className="grid w-full max-w-sm gap-3 rounded-md border border-slate-200 bg-white p-4" onClick={(event) => event.stopPropagation()}>
+            <h4 className="text-sm font-semibold text-slate-900">Schedule this run again</h4>
+            <label className="grid gap-1 text-xs font-semibold text-slate-600">
+              Run at (leave blank to run now)
+              <input
+                type="datetime-local"
+                value={scheduleAgainAt}
+                onChange={(event) => setScheduleAgainAt(event.target.value)}
+                className="h-9 rounded-md border border-slate-300 px-3 text-sm font-normal text-slate-900"
+              />
+            </label>
+            <div className="flex gap-2">
+              <button
+                className="rounded-md bg-cyan-700 px-3 py-1.5 text-xs font-semibold text-white"
+                onClick={() => confirmScheduleAgain().catch((cause: Error) => setError(cause.message))}
+              >
+                {scheduleAgainAt ? "Schedule" : "Run now"}
+              </button>
+              <button
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600"
+                onClick={() => setScheduleAgainRunId(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

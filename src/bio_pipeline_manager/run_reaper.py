@@ -18,7 +18,6 @@ import threading
 from datetime import timedelta
 from typing import Callable
 
-from bio_pipeline_manager.models import utc_now
 from bio_pipeline_manager.published_jobs import PublishedJobStore
 from bio_pipeline_manager.run_workspace import RunWorkspaceStore
 from bio_pipeline_manager.shared_storage import SharedStorage
@@ -84,17 +83,18 @@ class RunReaper:
 
     def _process(self, run) -> None:
         workspace_id = run.workspace_id
-        reaped_at = self.run_workspaces.reaped_at(workspace_id)
-        if reaped_at is None:
-            summary = self.group_status(run.parent_job_id)
-            if summary.get("status") not in _TERMINAL:
-                return  # still queued/running
-            self.run_workspaces.package_outputs(workspace_id)
-            self._shared_write(run)
-            self.run_workspaces.clear_inputs(workspace_id)
-            self.run_workspaces.mark_reaped(workspace_id)
-        elif utc_now() - reaped_at > self.ttl:
-            self.run_workspaces.delete(workspace_id)
+        if self.run_workspaces.reaped_at(workspace_id) is not None:
+            return  # already delivered; inputs are retained for replay
+        summary = self.group_status(run.parent_job_id)
+        if summary.get("status") not in _TERMINAL:
+            return  # still queued/running
+        self.run_workspaces.package_outputs(workspace_id)
+        self._shared_write(run)
+        # Inputs are RETAINED (not cleared) so the run can be rewound or replayed by a
+        # recurring schedule; the workspace is removed only when its run/schedule is
+        # deleted. The raw outputs are dropped once captured in artifact.zip.
+        self.run_workspaces.clear_outputs(workspace_id)
+        self.run_workspaces.mark_reaped(workspace_id)
 
     def _shared_write(self, run) -> None:
         try:

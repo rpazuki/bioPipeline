@@ -78,7 +78,10 @@ function AuthGateInner({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const userPathAllowed =
-      pathname === "/published-jobs" || pathname === "/my-runs" || pathname === "/change-password";
+      pathname === "/published-jobs" ||
+      pathname === "/saved-values" ||
+      pathname === "/my-runs" ||
+      pathname === "/change-password";
     if (status === "unauthenticated" && pathname !== "/login") {
       router.replace("/login");
     }

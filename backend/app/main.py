@@ -16,6 +16,7 @@ from app.api.routes import (
     packages,
     published_jobs,
     runtime,
+    saved_typed_values,
     storage,
     templates,
     type_library,
@@ -23,14 +24,30 @@ from app.api.routes import (
     validation,
 )
 from app.core.config import settings
+from bio_pipeline_manager.published_runs import fire_recurring_schedule
+from bio_pipeline_manager.recurring_schedule import RecurringScheduleRecord, RecurringScheduler
 from bio_pipeline_manager.run_reaper import RunReaper
 from bio_pipeline_manager.worker import JobWorker
+
+
+def _fire_recurring_schedule(schedule: RecurringScheduleRecord) -> None:
+    rt = get_runtime()
+    fire_recurring_schedule(
+        published_jobs=rt.published_jobs,
+        queue=rt.queue,
+        run_workspaces=rt.run_workspaces,
+        shared=rt.shared_storage,
+        yaml_resolver=rt.yaml_store.resolve_name,
+        schedules=rt.recurring_schedules,
+        schedule=schedule,
+    )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     worker: JobWorker | None = None
     reaper: RunReaper | None = None
+    scheduler: RecurringScheduler | None = None
     if settings.worker_enabled:
         worker = JobWorker(
             get_runtime().queue,
@@ -49,6 +66,13 @@ async def lifespan(app: FastAPI):
             interval=settings.reaper_interval,
         )
         reaper.start()
+    if settings.worker_enabled:
+        scheduler = RecurringScheduler(
+            schedules=get_runtime().recurring_schedules,
+            fire=_fire_recurring_schedule,
+            interval=settings.worker_interval,
+        )
+        scheduler.start()
     try:
         yield
     finally:
@@ -56,6 +80,8 @@ async def lifespan(app: FastAPI):
             worker.stop()
         if reaper:
             reaper.stop()
+        if scheduler:
+            scheduler.stop()
 
 
 app = FastAPI(
@@ -92,6 +118,7 @@ app.include_router(job_definition_templates.router, prefix=PREFIX, dependencies=
 app.include_router(packages.router, prefix=PREFIX, dependencies=ADMIN_ONLY)
 app.include_router(type_library.router, prefix=PREFIX)
 app.include_router(published_jobs.router, prefix=PREFIX)
+app.include_router(saved_typed_values.router, prefix=PREFIX)
 app.include_router(runtime.router, prefix=PREFIX, dependencies=ADMIN_ONLY)
 
 

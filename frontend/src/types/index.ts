@@ -255,6 +255,19 @@ export interface TypeExtractResponse {
   warnings: string[];
 }
 
+// A researcher's reusable saved value for a structured ("typed") field, keyed by
+// type + container so it can pre-fill any published job that uses the same type.
+export interface SavedTypedValue {
+  id: string;
+  type_key: string;
+  container: "single" | "list" | "map";
+  label: string;
+  type_schema: ResolvedType | null;
+  value: unknown;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface PublishedJobAdmin {
   id: string;
   name: string;
@@ -280,6 +293,27 @@ export interface PublishedJobPublicSummary {
 
 export interface PublishedJobPublicDetail extends PublishedJobPublicSummary {
   fields: PublishedField[];
+}
+
+export type RecurrenceUnit = "minutes" | "hours" | "days" | "weeks";
+export type RecurrenceEndMode = "never" | "count" | "until";
+
+export interface RecurringSchedule {
+  id: string;
+  published_job_id: string;
+  published_job_name: string;
+  published_version: number;
+  every_n: number;
+  unit: RecurrenceUnit;
+  ends_mode: RecurrenceEndMode;
+  ends_count: number;
+  ends_at: string | null;
+  next_run_at: string;
+  runs_done: number;
+  active: boolean;
+  created_at: string;
+  last_run_at: string | null;
+  values: Record<string, unknown>;
 }
 
 export interface PublishedRunSummary {

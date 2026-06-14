@@ -188,6 +188,35 @@ class RunWorkspaceStore:
         shutil.rmtree(inputs, ignore_errors=True)
         inputs.mkdir(parents=True, exist_ok=True)
 
+    def clear_outputs(self, workspace_id: str) -> None:
+        """Drop the raw ``outputs`` subtree (kept in ``artifact.zip`` after packaging)."""
+        outputs = self._workspace_dir(workspace_id) / "outputs"
+        shutil.rmtree(outputs, ignore_errors=True)
+        outputs.mkdir(parents=True, exist_ok=True)
+
+    def clone_inputs(self, source_workspace_id: str, *, owner_user_id: str, published_job_id: str) -> WorkspaceManifest:
+        """Create a fresh workspace seeded with a copy of another's ``inputs`` subtree.
+
+        Used to replay a run (rewind) or fire a recurring schedule: each occurrence
+        gets its own output space while reusing the originally-provided inputs, whose
+        upload handles (``inputs/<field>/<file>``) are preserved by the copy so the
+        stored ``file_bindings`` still resolve.
+        """
+        source = self._workspace_dir(source_workspace_id)
+        manifest = self.create(owner_user_id=owner_user_id, published_job_id=published_job_id)
+        dest = self.root / manifest.workspace_id
+        source_inputs = source / "inputs"
+        if source_inputs.is_dir():
+            shutil.copytree(source_inputs, dest / "inputs", dirs_exist_ok=True)
+        return manifest
+
+    def has_inputs(self, workspace_id: str) -> bool:
+        try:
+            inputs = self._workspace_dir(workspace_id) / "inputs"
+        except RunWorkspaceError:
+            return False
+        return inputs.is_dir() and any(inputs.rglob("*"))
+
     def mark_reaped(self, workspace_id: str) -> None:
         (self._workspace_dir(workspace_id) / ".reaped").write_text(utc_now().isoformat(), encoding="utf-8")
 

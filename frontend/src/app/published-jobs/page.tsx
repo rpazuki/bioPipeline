@@ -5,20 +5,44 @@ import { useEffect, useRef, useState } from "react";
 import {
   browseSharedRoot,
   createDraftRun,
+  createRecurringSchedule,
   getPublishedJob,
   listJobSharedRoots,
   listPublishedJobs,
+  listSavedTypedValues,
+  saveTypedValue,
   submitPublishedJobRun,
   uploadRunInput,
   type RunFileBinding,
 } from "@/lib/api";
 import ResizableSplitPane from "@/components/pipelines/ResizableSplitPane";
 import TypedValueEditor from "@/components/pipelines/TypedValueEditor";
-import type { PublishedField, PublishedJobPublicDetail, PublishedJobPublicSummary, SharedEntry, SharedRootInfo } from "@/types";
+import type { PublishedField, PublishedJobPublicDetail, PublishedJobPublicSummary, RecurrenceEndMode, RecurrenceUnit, SavedTypedValue, SharedEntry, SharedRootInfo } from "@/types";
+
+// A typed field's reusable identity: its library type name (or inline schema name)
+// plus container shape. Saved values are keyed by this, so the same value pre-fills
+// any published job whose typed field uses the same type + container.
+function typedFieldKey(field: PublishedField): string | null {
+  if (field.type !== "typed") return null;
+  const typeKey = (field.schema_ref || field.type_schema?.name || "").trim();
+  if (!typeKey) return null;
+  return `${typeKey}::${field.container ?? "single"}`;
+}
 
 type SharedSelection = { root: string; path: string; name: string };
 
 function defaultValue(field: PublishedField) {
+  // A typed field holds a native object/array the structured editor manages. Its
+  // admin-set `default` may be a scalar (e.g. the type's name) that is NOT a valid
+  // value for the container — submitting it verbatim fails coercion ("must be a
+  // map/list of …"). So accept the default only when it already matches the
+  // container shape; otherwise start with an empty container. This must run before
+  // the generic default branch below, which would otherwise return that scalar.
+  if (field.type === "typed") {
+    const preset = field.default;
+    if (field.container === "list") return Array.isArray(preset) ? preset : [];
+    return preset && typeof preset === "object" && !Array.isArray(preset) ? preset : {};
+  }
   // A $WILL_PROVIDE$ placeholder is not a real default — start the field empty so
   // the researcher fills it in rather than submitting the placeholder verbatim.
   if (field.default !== undefined && field.default !== null && !String(field.default).includes("$WILL_PROVIDE$")) {
@@ -26,9 +50,6 @@ function defaultValue(field: PublishedField) {
   }
   if (field.type === "boolean") return false;
   if (field.type === "multi_enum" || field.type === "list") return [];
-  // A typed field holds a native object/array, not a JSON string — the structured
-  // editor manages it. Start empty in the shape the container expects.
-  if (field.type === "typed") return field.container === "list" ? [] : {};
   if (field.type === "object" || field.type === "json") return "{}";
   return "";
 }
@@ -338,12 +359,21 @@ export default function PublishedJobsPage() {
   const [filterText, setFilterText] = useState("");
   const [selected, setSelected] = useState<PublishedJobPublicDetail | null>(null);
   const [values, setValues] = useState<Record<string, unknown>>({});
+  // Researcher's reusable saved typed values, keyed by `${type_key}::${container}`.
+  const [savedTyped, setSavedTyped] = useState<Record<string, SavedTypedValue>>({});
   const [files, setFiles] = useState<Record<string, File[]>>({});
   const [shared, setShared] = useState<Record<string, SharedSelection>>({});
   const [sharedRoots, setSharedRoots] = useState<SharedRootInfo[]>([]);
   const [browseField, setBrowseField] = useState<PublishedField | null>(null);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [scheduledAt, setScheduledAt] = useState("");
+  // Recurring-schedule controls (off by default — a plain run otherwise).
+  const [repeat, setRepeat] = useState(false);
+  const [everyN, setEveryN] = useState(1);
+  const [unit, setUnit] = useState<RecurrenceUnit>("days");
+  const [endsMode, setEndsMode] = useState<RecurrenceEndMode>("never");
+  const [endsCount, setEndsCount] = useState(10);
+  const [endsAt, setEndsAt] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("Choose a published job");
   const paneWrapRef = useRef<HTMLDivElement>(null);
@@ -351,6 +381,11 @@ export default function PublishedJobsPage() {
 
   async function refresh() {
     setJobs(await listPublishedJobs());
+  }
+
+  async function refreshSavedTyped() {
+    const items = await listSavedTypedValues();
+    setSavedTyped(Object.fromEntries(items.map((item) => [`${item.type_key}::${item.container}`, item])));
   }
 
   const normalizedFilter = filterText.trim().toLowerCase();
@@ -364,6 +399,7 @@ export default function PublishedJobsPage() {
 
   useEffect(() => {
     refresh().catch((cause: Error) => setError(cause.message));
+    refreshSavedTyped().catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -381,7 +417,15 @@ export default function PublishedJobsPage() {
     const job = await getPublishedJob(id);
     setError(null); // a stale error from a previous job must not linger on the new one
     setSelected(job);
-    setValues(Object.fromEntries(job.fields.map((field) => [field.id, defaultValue(field)])));
+    // Start from each field's default, then pre-fill any typed field that has a
+    // matching saved value so the researcher edits their last value, not a blank.
+    const initial = Object.fromEntries(job.fields.map((field) => [field.id, defaultValue(field)]));
+    for (const field of job.fields) {
+      const key = typedFieldKey(field);
+      const saved = key ? savedTyped[key] : undefined;
+      if (saved && saved.value != null) initial[field.id] = saved.value;
+    }
+    setValues(initial);
     setFiles({});
     setShared({});
     setBrowseField(null);
@@ -426,9 +470,31 @@ export default function PublishedJobsPage() {
         fileBindings[field.id] = { kind: "upload", path: uploaded.handle };
       }
     }
+    if (repeat) {
+      setStatus("Creating schedule…");
+      const schedule = await createRecurringSchedule(selected.id, {
+        values,
+        file_bindings: fileBindings,
+        workspace_id: wsId,
+        every_n: everyN,
+        unit,
+        ends_mode: endsMode,
+        ends_count: endsCount,
+        ends_at: endsMode === "until" ? endsAt || null : null,
+        start_at: scheduledAt || null,
+      });
+      setStatus(`Recurring schedule created — every ${schedule.every_n} ${schedule.unit}`);
+      // The schedule's workspace is now its input template; drop the local handle so a
+      // later plain run makes its own.
+      setWorkspaceId(null);
+      return;
+    }
     setStatus("Submitting…");
     const run = await submitPublishedJobRun(selected.id, values, scheduledAt || null, { workspaceId: wsId, fileBindings });
     setStatus(`Submitted run ${run.id}`);
+    // The backend persists each typed field's value on execute; reflect that here so
+    // the "saved" hints update without a reload.
+    refreshSavedTyped().catch(() => {});
     // Each execution gets a fresh workspace, so drop the spent workspace id. Keep
     // the file/shared selections, though: a researcher often re-runs the same job
     // with a tweaked option (e.g. a different averaging method) and the same data.
@@ -436,6 +502,21 @@ export default function PublishedJobsPage() {
     // even after the file was re-picked (re-selecting the same file fires no change
     // event). The selections re-upload into the new workspace on the next submit.
     setWorkspaceId(null);
+  }
+
+  async function saveTypedField(field: PublishedField) {
+    const typeKey = (field.schema_ref || field.type_schema?.name || "").trim();
+    if (!typeKey) return;
+    const container = field.container ?? "single";
+    const saved = await saveTypedValue({
+      type_key: typeKey,
+      container,
+      label: typeKey,
+      type_schema: field.type_schema ?? null,
+      value: values[field.id],
+    });
+    setSavedTyped((current) => ({ ...current, [`${typeKey}::${container}`]: saved }));
+    setStatus(`Saved your ${typeKey} value`);
   }
 
   return (
@@ -485,7 +566,6 @@ export default function PublishedJobsPage() {
             <p className="mt-1 text-xs text-slate-500 whitespace-pre-line">{selected?.description ?? status}</p>
           </div>
         </div>
-        {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
         {selected ? (
           <div className="grid gap-4">
             <div className="grid gap-3 md:grid-cols-2">
@@ -511,6 +591,28 @@ export default function PublishedJobsPage() {
                           return next;
                         })}
                       />
+                    ) : field.type === "typed" ? (
+                      <div className="grid gap-1.5">
+                        <FieldInput field={field} value={values[field.id]} onChange={(value) => setValues((current) => ({ ...current, [field.id]: value }))} />
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => saveTypedField(field).catch((cause: Error) => setError(cause.message))}
+                            className="w-fit rounded-md border border-cyan-300 bg-cyan-50 px-2.5 py-1 text-xs font-semibold text-cyan-800 hover:bg-cyan-100"
+                          >
+                            Save
+                          </button>
+                          {typedFieldKey(field) && savedTyped[typedFieldKey(field) as string] ? (
+                            <span className="text-[11px] font-normal text-emerald-700">
+                              Your saved value is loaded — edit and Save to update it.
+                            </span>
+                          ) : (
+                            <span className="text-[11px] font-normal text-slate-400">
+                              Save to reuse this value across jobs that use this type.
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     ) : (
                       <FieldInput field={field} value={values[field.id]} onChange={(value) => setValues((current) => ({ ...current, [field.id]: value }))} />
                     )}
@@ -527,17 +629,68 @@ export default function PublishedJobsPage() {
               })}
               <label className="grid gap-1 text-xs font-semibold text-slate-600">
                 <span className="flex items-center gap-2">
-                  Run at
+                  {repeat ? "First run at" : "Run at"}
                   <FieldHelp field={{ id: "scheduled_at", label: "Run at", type: "datetime", required: false, help: "Optional time to queue the run for later execution.", example: "2026-06-07T18:30", options: [] }} />
                 </span>
                 <input className="h-9 rounded-md border border-slate-300 px-3 text-sm" type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} />
               </label>
             </div>
+            {/* Recurring schedule controls */}
+            <div className="grid gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+              <label className="flex items-center gap-2 font-semibold text-slate-700">
+                <input type="checkbox" checked={repeat} onChange={(event) => setRepeat(event.target.checked)} />
+                Repeat on a schedule
+              </label>
+              {repeat ? (
+                <div className="grid gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span>Every</span>
+                    <input
+                      type="number"
+                      min={1}
+                      value={everyN}
+                      onChange={(event) => setEveryN(Math.max(1, Number(event.target.value) || 1))}
+                      className="h-8 w-16 rounded-md border border-slate-300 px-2"
+                    />
+                    <select value={unit} onChange={(event) => setUnit(event.target.value as RecurrenceUnit)} className="h-8 rounded-md border border-slate-300 px-2">
+                      <option value="minutes">minutes</option>
+                      <option value="hours">hours</option>
+                      <option value="days">days</option>
+                      <option value="weeks">weeks</option>
+                    </select>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span>Ends</span>
+                    <select value={endsMode} onChange={(event) => setEndsMode(event.target.value as RecurrenceEndMode)} className="h-8 rounded-md border border-slate-300 px-2">
+                      <option value="never">never</option>
+                      <option value="count">after N runs</option>
+                      <option value="until">on date</option>
+                    </select>
+                    {endsMode === "count" ? (
+                      <input
+                        type="number"
+                        min={1}
+                        value={endsCount}
+                        onChange={(event) => setEndsCount(Math.max(1, Number(event.target.value) || 1))}
+                        className="h-8 w-20 rounded-md border border-slate-300 px-2"
+                      />
+                    ) : null}
+                    {endsMode === "until" ? (
+                      <input type="datetime-local" value={endsAt} onChange={(event) => setEndsAt(event.target.value)} className="h-8 rounded-md border border-slate-300 px-2" />
+                    ) : null}
+                  </div>
+                  <span className="text-[11px] text-slate-400">
+                    The first run uses “First run at” above (or now if blank), then repeats. Uploaded inputs are kept and reused each time.
+                  </span>
+                </div>
+              ) : null}
+            </div>
             <div className="grid gap-2">
               <button type="button" className="w-fit rounded-md bg-cyan-700 px-4 py-2 text-sm font-semibold text-white" onClick={() => submit().catch((cause: Error) => setError(cause.message))}>
-                Execute Job
+                {repeat ? "Create recurring schedule" : "Execute Job"}
               </button>
               <span className="w-fit rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">{status}</span>
+              {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
             </div>
           </div>
         ) : (

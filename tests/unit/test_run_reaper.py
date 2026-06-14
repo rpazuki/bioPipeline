@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from datetime import timedelta
 from pathlib import Path
 
-from bio_pipeline_manager.models import utc_now
 from bio_pipeline_manager.published_jobs import PublishedJobStore
 from bio_pipeline_manager.run_reaper import RunReaper
 from bio_pipeline_manager.run_workspace import RunWorkspaceStore
@@ -14,12 +12,12 @@ def _terminal(_parent_job_id: str) -> dict:
     return {"status": "succeeded"}
 
 
-def test_reaper_packages_outputs_clears_inputs_then_ttl_deletes(tmp_path: Path):
+def test_reaper_packages_outputs_retains_inputs_and_keeps_workspace(tmp_path: Path):
     store = PublishedJobStore(tmp_path / "state.sqlite")
     workspaces = RunWorkspaceStore(tmp_path / "runs")
     manifest = workspaces.create(owner_user_id="u1", published_job_id="missing-job")
     wid = manifest.workspace_id
-    # one input (should be cleared) and one output (should be packaged)
+    # one input (now RETAINED for replay) and one output (packaged then raw-cleared)
     dest, _ = workspaces.prepare_input(wid, "raw", "in.csv")
     dest.write_bytes(b"in")
     (workspaces.output_dir(wid, "result") / "out.csv").write_text("done", encoding="utf-8")
@@ -43,14 +41,18 @@ def test_reaper_packages_outputs_clears_inputs_then_ttl_deletes(tmp_path: Path):
     reaper.reap_once()
 
     assert workspaces.has_artifact(wid)
-    assert not any((tmp_path / "runs" / wid / "inputs").iterdir())  # inputs cleared
+    # Inputs are retained so the run can be rewound / replayed by a recurring schedule.
+    assert (tmp_path / "runs" / wid / "inputs" / "raw" / "in.csv").is_file()
+    assert workspaces.has_inputs(wid)
+    # Raw outputs are dropped (captured in artifact.zip) but the workspace survives.
+    assert not any((tmp_path / "runs" / wid / "outputs").iterdir())
     assert workspaces.reaped_at(wid) is not None
 
-    # Backdate the reaped marker beyond the TTL → workspace removed next pass.
-    (tmp_path / "runs" / wid / ".reaped").write_text((utc_now() - timedelta(hours=25)).isoformat(), encoding="utf-8")
+    # A second pass is a no-op: already delivered, workspace + inputs still present.
     reaper.reap_once()
-    assert not workspaces.exists(wid)
-    _ = run  # run row persists; the workspace is what gets reaped
+    assert workspaces.exists(wid)
+    assert workspaces.has_inputs(wid)
+    _ = run  # run row persists; its workspace is retained until the run is deleted
 
 
 def test_reaper_shared_writes_output_to_allowlisted_root(tmp_path: Path):
