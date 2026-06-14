@@ -582,8 +582,11 @@ export default function JobQueuePanel({ onStatus }: Props) {
                         </span>
                       </td>
                       <td className="px-3 py-3 text-xs text-slate-600">{researcherForJob(job, runByParentId)}</td>
-                      <td className="px-3 py-3 font-semibold text-slate-950">{job.pipeline_name}</td>
-                      <td className="px-3 py-3 text-xs text-slate-600">
+                      <td className="max-w-0 truncate px-3 py-3 font-semibold text-slate-950" title={job.pipeline_name}>{job.pipeline_name}</td>
+                      <td
+                        className="max-w-0 truncate px-3 py-3 text-xs text-slate-600"
+                        title={formatRelativeYamlPath(job.yaml_path, runtimeInfo?.yaml_root ?? null)}
+                      >
                         {formatRelativeYamlPath(job.yaml_path, runtimeInfo?.yaml_root ?? null)}
                       </td>
                       <td className="px-3 py-3 text-xs text-slate-500">{job.created_at}</td>
