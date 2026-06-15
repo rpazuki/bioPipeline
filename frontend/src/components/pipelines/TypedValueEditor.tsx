@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 
 import type { PublishedField, ResolvedType, ResolvedTypeField } from "@/types";
 
@@ -103,11 +103,13 @@ function ListEditor({
   value,
   onChange,
   columns = 1,
+  actions,
 }: {
   schema: ResolvedType;
   value: unknown;
   onChange: (value: unknown) => void;
   columns?: 1 | 2;
+  actions?: ReactNode;
 }) {
   const items = Array.isArray(value) ? value : [];
   return (
@@ -129,13 +131,18 @@ function ListEditor({
           </div>
         ))}
       </div>
-      <button
-        type="button"
-        className="w-fit rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-600"
-        onClick={() => onChange([...items, {}])}
-      >
-        + Add {schema.name}
-      </button>
+      {/* The add button and any caller-supplied actions (e.g. a Save button) share one
+          row so they sit side by side rather than stacking. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          className="w-fit rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-600"
+          onClick={() => onChange([...items, {}])}
+        >
+          + Add {schema.name}
+        </button>
+        {actions}
+      </div>
     </div>
   );
 }
@@ -151,11 +158,13 @@ function MapEditor({
   value,
   onChange,
   columns = 1,
+  actions,
 }: {
   schema: ResolvedType;
   value: unknown;
   onChange: (value: unknown) => void;
   columns?: 1 | 2;
+  actions?: ReactNode;
 }) {
   // Stable row ids so editing a key doesn't lose input focus (the map key alone is
   // not a stable identity). Initial ids come from position; the counter (read only in
@@ -202,13 +211,18 @@ function MapEditor({
           </div>
         ))}
       </div>
-      <button
-        type="button"
-        className="w-fit rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-600"
-        onClick={() => commit([...rows, { id: `add-${counter.current++}`, key: "", value: {} }])}
-      >
-        + Add entry
-      </button>
+      {/* The add button and any caller-supplied actions (e.g. a Save button) share one
+          row so they sit side by side rather than stacking. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          className="w-fit rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-600"
+          onClick={() => commit([...rows, { id: `add-${counter.current++}`, key: "", value: {} }])}
+        >
+          + Add entry
+        </button>
+        {actions}
+      </div>
     </div>
   );
 }
@@ -219,16 +233,26 @@ function ContainerEditor({
   value,
   onChange,
   columns = 1,
+  actions,
 }: {
   schema: ResolvedType;
   container: "single" | "list" | "map";
   value: unknown;
   onChange: (value: unknown) => void;
   columns?: 1 | 2;
+  actions?: ReactNode;
 }) {
-  if (container === "list") return <ListEditor schema={schema} value={value} onChange={onChange} columns={columns} />;
-  if (container === "map") return <MapEditor schema={schema} value={value} onChange={onChange} columns={columns} />;
-  return <ObjectEditor schema={schema} value={value} onChange={onChange} />;
+  if (container === "list") return <ListEditor schema={schema} value={value} onChange={onChange} columns={columns} actions={actions} />;
+  if (container === "map") return <MapEditor schema={schema} value={value} onChange={onChange} columns={columns} actions={actions} />;
+  // A single object has no add button to align against, so any actions render on their
+  // own row below the editor.
+  if (!actions) return <ObjectEditor schema={schema} value={value} onChange={onChange} />;
+  return (
+    <div className="grid gap-2">
+      <ObjectEditor schema={schema} value={value} onChange={onChange} />
+      <div className="flex flex-wrap items-center gap-2">{actions}</div>
+    </div>
+  );
 }
 
 export default function TypedValueEditor({
@@ -236,6 +260,7 @@ export default function TypedValueEditor({
   value,
   onChange,
   columns = 1,
+  actions,
 }: {
   field: PublishedField;
   value: unknown;
@@ -243,6 +268,9 @@ export default function TypedValueEditor({
   // List/map containers lay their entries out in this many columns (the Saved
   // Values page uses 2 to show two records per row).
   columns?: 1 | 2;
+  // Optional controls (e.g. a Save button) rendered alongside the editor's own add
+  // button so they sit on one aligned action row.
+  actions?: ReactNode;
 }) {
   if (!field.type_schema) {
     // No resolved schema (e.g. its library type was deleted) — fall back to JSON so
@@ -255,5 +283,5 @@ export default function TypedValueEditor({
       />
     );
   }
-  return <ContainerEditor schema={field.type_schema} container={field.container ?? "single"} value={value} onChange={onChange} columns={columns} />;
+  return <ContainerEditor schema={field.type_schema} container={field.container ?? "single"} value={value} onChange={onChange} columns={columns} actions={actions} />;
 }

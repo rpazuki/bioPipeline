@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import {
   browseSharedRoot,
@@ -120,10 +120,13 @@ function FieldInput({
   field,
   value,
   onChange,
+  actions,
 }: {
   field: PublishedField;
   value: unknown;
   onChange: (value: unknown) => void;
+  // Forwarded to the typed editor so a Save button can sit beside its add-entry button.
+  actions?: ReactNode;
 }) {
   const base = "h-9 rounded-md border border-slate-300 px-3 text-sm text-slate-950";
   if (field.readonly) {
@@ -170,7 +173,7 @@ function FieldInput({
     );
   }
   if (field.type === "typed" && field.type_schema) {
-    return <TypedValueEditor field={field} value={value} onChange={onChange} />;
+    return <TypedValueEditor field={field} value={value} onChange={onChange} actions={actions} />;
   }
   if (field.type === "text" || field.type === "object" || field.type === "json" || field.type === "list") {
     return <textarea className="min-h-24 rounded-md border border-slate-300 p-3 font-mono text-xs" value={asInputValue(value)} onChange={(event) => onChange(event.target.value)} />;
@@ -519,14 +522,94 @@ export default function PublishedJobsPage() {
     setStatus(`Saved your ${typeKey} value`);
   }
 
+  // Render one published field as a keyed form node. Extracted from the JSX so the
+  // fields can be distributed across two independent columns below.
+  function renderFieldNode(field: PublishedField) {
+    // Persist-this-typed-value button + its hint, shared between the two typed layouts
+    // below (inline beside an editor's add button, or on its own footer row).
+    const saveButton = (
+      <button
+        type="button"
+        onClick={() => saveTypedField(field).catch((cause: Error) => setError(cause.message))}
+        className="w-fit rounded-md border border-cyan-300 bg-cyan-50 px-2.5 py-1 text-xs font-semibold text-cyan-800 hover:bg-cyan-100"
+      >
+        Save
+      </button>
+    );
+    const saveHint = typedFieldKey(field) && savedTyped[typedFieldKey(field) as string] ? (
+      <span className="text-[11px] font-normal text-emerald-700">
+        Your saved value is loaded — edit and Save to update it.
+      </span>
+    ) : (
+      <span className="text-[11px] font-normal text-slate-400">
+        Save to reuse this value across jobs that use this type.
+      </span>
+    );
+    // Map/list editors render an "+ Add entry" button the Save button can ride beside;
+    // a single object has none, so its Save stays on its own row.
+    const inlineSave = field.container === "list" || field.container === "map";
+    const inner = (
+      <>
+        <span className="flex items-center gap-2">
+          {field.label}
+          <FieldHelp field={field} />
+        </span>
+        {field.io_role === "output" ? (
+          <OutputFieldHint field={field} />
+        ) : field.io_role === "input" ? (
+          <InputFieldControl
+            field={field}
+            files={files[field.id] ?? []}
+            sharedSel={shared[field.id] ?? null}
+            onPickFiles={(picked) => setFiles((current) => ({ ...current, [field.id]: picked }))}
+            onOpenBrowser={() => setBrowseField(field)}
+            onClearShared={() => setShared((current) => {
+              const next = { ...current };
+              delete next[field.id];
+              return next;
+            })}
+          />
+        ) : field.type === "typed" ? (
+          <div className="grid gap-1.5">
+            <FieldInput
+              field={field}
+              value={values[field.id]}
+              onChange={(value) => setValues((current) => ({ ...current, [field.id]: value }))}
+              actions={inlineSave ? saveButton : undefined}
+            />
+            {inlineSave ? (
+              saveHint
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                {saveButton}
+                {saveHint}
+              </div>
+            )}
+          </div>
+        ) : (
+          <FieldInput field={field} value={values[field.id]} onChange={(value) => setValues((current) => ({ ...current, [field.id]: value }))} />
+        )}
+      </>
+    );
+    const className = "grid gap-1 text-xs font-semibold text-slate-600";
+    // A typed field renders a multi-control sub-form; a <label> would route
+    // every click to its first control, so wrap those in a <div> instead.
+    return field.type === "typed" && (field.io_role ?? "none") === "none" ? (
+      <div key={field.id} className={className}>{inner}</div>
+    ) : (
+      <label key={field.id} className={className}>{inner}</label>
+    );
+  }
+
   return (
     <section className="p-5">
-      <div ref={paneWrapRef} style={{ height: paneHeight }}>
+      <div ref={paneWrapRef}>
       <ResizableSplitPane
-        defaultSplit={50}
+        defaultSplit={30}
         minLeft={20}
         minRight={30}
-        className="h-full"
+        autoHeight
+        minHeight={paneHeight}
         left={
         <aside className="grid content-start gap-3 rounded-md border border-slate-200 bg-white p-4 h-full">
         <div>
@@ -568,75 +651,33 @@ export default function PublishedJobsPage() {
         </div>
         {selected ? (
           <div className="grid gap-4">
-            <div className="grid gap-3 md:grid-cols-2">
-              {selected.fields.map((field) => {
-                const inner = (
-                  <>
-                    <span className="flex items-center gap-2">
-                      {field.label}
-                      <FieldHelp field={field} />
-                    </span>
-                    {field.io_role === "output" ? (
-                      <OutputFieldHint field={field} />
-                    ) : field.io_role === "input" ? (
-                      <InputFieldControl
-                        field={field}
-                        files={files[field.id] ?? []}
-                        sharedSel={shared[field.id] ?? null}
-                        onPickFiles={(picked) => setFiles((current) => ({ ...current, [field.id]: picked }))}
-                        onOpenBrowser={() => setBrowseField(field)}
-                        onClearShared={() => setShared((current) => {
-                          const next = { ...current };
-                          delete next[field.id];
-                          return next;
-                        })}
-                      />
-                    ) : field.type === "typed" ? (
-                      <div className="grid gap-1.5">
-                        <FieldInput field={field} value={values[field.id]} onChange={(value) => setValues((current) => ({ ...current, [field.id]: value }))} />
-                        <div className="flex flex-wrap items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => saveTypedField(field).catch((cause: Error) => setError(cause.message))}
-                            className="w-fit rounded-md border border-cyan-300 bg-cyan-50 px-2.5 py-1 text-xs font-semibold text-cyan-800 hover:bg-cyan-100"
-                          >
-                            Save
-                          </button>
-                          {typedFieldKey(field) && savedTyped[typedFieldKey(field) as string] ? (
-                            <span className="text-[11px] font-normal text-emerald-700">
-                              Your saved value is loaded — edit and Save to update it.
-                            </span>
-                          ) : (
-                            <span className="text-[11px] font-normal text-slate-400">
-                              Save to reuse this value across jobs that use this type.
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      <FieldInput field={field} value={values[field.id]} onChange={(value) => setValues((current) => ({ ...current, [field.id]: value }))} />
-                    )}
-                  </>
-                );
-                const className = "grid gap-1 text-xs font-semibold text-slate-600";
-                // A typed field renders a multi-control sub-form; a <label> would route
-                // every click to its first control, so wrap those in a <div> instead.
-                return field.type === "typed" && (field.io_role ?? "none") === "none" ? (
-                  <div key={field.id} className={className}>{inner}</div>
-                ) : (
-                  <label key={field.id} className={className}>{inner}</label>
-                );
-              })}
-              <label className="grid gap-1 text-xs font-semibold text-slate-600">
+            {(() => {
+              // Lay the fields out in two independent columns instead of a row-coupled
+              // grid. In a `grid-cols-2` grid each row is as tall as its tallest cell, so
+              // a short field (a checkbox) sitting beside a tall typed field was stretched
+              // to match it, leaving a badly shaped gap. Here each column is its own
+              // vertical stack, so every field takes only the height it needs. Fields fill
+              // the left column top-to-bottom first, then the right — which preserves the
+              // published field order, and keeps that order when the two columns collapse
+              // to one on narrow screens. ("Run at" lives in the schedule box below.)
+              const elements = selected.fields.map(renderFieldNode);
+              const half = Math.ceil(elements.length / 2);
+              return (
+                <div className="grid items-start gap-4 md:grid-cols-2">
+                  <div className="grid content-start gap-3">{elements.slice(0, half)}</div>
+                  <div className="grid content-start gap-3">{elements.slice(half)}</div>
+                </div>
+              );
+            })()}
+            {/* Scheduling: when to (first) run, plus optional recurrence */}
+            <div className="grid gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+              <label className="grid gap-1 font-semibold text-slate-700">
                 <span className="flex items-center gap-2">
                   {repeat ? "First run at" : "Run at"}
                   <FieldHelp field={{ id: "scheduled_at", label: "Run at", type: "datetime", required: false, help: "Optional time to queue the run for later execution.", example: "2026-06-07T18:30", options: [] }} />
                 </span>
-                <input className="h-9 rounded-md border border-slate-300 px-3 text-sm" type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} />
+                <input className="h-9 w-full rounded-md border border-slate-300 px-3 text-sm font-normal text-slate-900" type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} />
               </label>
-            </div>
-            {/* Recurring schedule controls */}
-            <div className="grid gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
               <label className="flex items-center gap-2 font-semibold text-slate-700">
                 <input type="checkbox" checked={repeat} onChange={(event) => setRepeat(event.target.checked)} />
                 Repeat on a schedule

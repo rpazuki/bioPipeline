@@ -9,6 +9,11 @@ interface Props {
   minLeft?: number;
   minRight?: number;
   className?: string;
+  // When true the panes grow with their content (the page scrolls) instead of each
+  // pane scrolling internally. `minHeight` keeps the split filling the viewport when
+  // content is short. Defaults preserve the original fixed-height, inner-scroll layout.
+  autoHeight?: boolean;
+  minHeight?: number;
 }
 
 export default function ResizableSplitPane({
@@ -18,6 +23,8 @@ export default function ResizableSplitPane({
   minLeft = 20,
   minRight = 20,
   className = "",
+  autoHeight = false,
+  minHeight,
 }: Props) {
   const [split, setSplit] = useState(defaultSplit);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -54,9 +61,13 @@ export default function ResizableSplitPane({
   }, [minLeft, minRight]);
 
   return (
-    <div ref={containerRef} className={`flex min-h-0 ${className}`}>
+    <div
+      ref={containerRef}
+      className={`flex ${autoHeight ? "" : "min-h-0"} ${className}`}
+      style={autoHeight && minHeight != null ? { minHeight } : undefined}
+    >
       {/* Left pane */}
-      <div style={{ width: `${split}%` }} className="min-w-0 overflow-auto">
+      <div style={{ width: `${split}%` }} className={`min-w-0 ${autoHeight ? "" : "overflow-auto"}`}>
         {left}
       </div>
 
@@ -77,7 +88,7 @@ export default function ResizableSplitPane({
       </div>
 
       {/* Right pane */}
-      <div style={{ width: `${100 - split}%` }} className="min-w-0 overflow-auto">
+      <div style={{ width: `${100 - split}%` }} className={`min-w-0 ${autoHeight ? "" : "overflow-auto"}`}>
         {right}
       </div>
     </div>
