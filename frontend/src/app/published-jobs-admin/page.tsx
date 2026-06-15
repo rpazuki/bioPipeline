@@ -313,6 +313,27 @@ export default function PublishedJobsAdminPage() {
     setFieldEdits((current) => ({ ...current, [fieldId]: { ...current[fieldId], ...patch } }));
   }
 
+  // Reorder a selected field within the selected set. `fieldOrder` only ever holds
+  // selected ids, so "bottom" lands after the last *selected* field (not after the
+  // unselected candidates listed below them).
+  function moveField(fieldId: string, where: "top" | "up" | "down" | "bottom") {
+    setFieldOrder((prev) => {
+      const idx = prev.indexOf(fieldId);
+      if (idx === -1) return prev;
+      const next = prev.filter((id) => id !== fieldId);
+      const target =
+        where === "top"
+          ? 0
+          : where === "bottom"
+            ? next.length
+            : where === "up"
+              ? Math.max(0, idx - 1)
+              : Math.min(next.length, idx + 1);
+      next.splice(target, 0, fieldId);
+      return next;
+    });
+  }
+
   async function save(publishNow: boolean) {
     setError(null);
     const payload = {
@@ -475,6 +496,9 @@ export default function PublishedJobsAdminPage() {
             {orderedCandidates.map((field) => {
               const edit = fieldEdits[field.id] ?? field;
               const selected = selectedIds.has(field.id);
+              const orderPos = fieldOrder.indexOf(field.id);
+              const isFirst = orderPos <= 0;
+              const isLast = orderPos === fieldOrder.length - 1;
               return (
                 <div
                   key={field.id}
@@ -501,25 +525,35 @@ export default function PublishedJobsAdminPage() {
                         : "border-slate-200"
                   }`}
                 >
-                  <label className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-                    <span
-                      draggable={selected}
-                      onDragStart={selected ? () => setDraggingId(field.id) : undefined}
-                      onDragEnd={selected ? () => { setDraggingId(null); setDragOverId(null); } : undefined}
-                      onClick={(e) => e.stopPropagation()}
-                      className={`shrink-0 select-none ${selected ? "cursor-grab text-slate-300 active:cursor-grabbing" : "cursor-default text-slate-200"}`}
-                      aria-hidden
-                    >
-                      <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
-                        <circle cx="3" cy="2" r="1.5" /><circle cx="7" cy="2" r="1.5" />
-                        <circle cx="3" cy="7" r="1.5" /><circle cx="7" cy="7" r="1.5" />
-                        <circle cx="3" cy="12" r="1.5" /><circle cx="7" cy="12" r="1.5" />
-                      </svg>
-                    </span>
-                    <input type="checkbox" checked={selected} onChange={() => toggleField(field)} />
-                    <span className="font-mono text-xs text-slate-700">{fieldOrigin(field)}</span>
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">{field.type}</span>
-                  </label>
+                  <div className="flex items-center gap-2">
+                    <label className="flex min-w-0 flex-1 items-center gap-2 text-sm font-semibold text-slate-900">
+                      <span
+                        draggable={selected}
+                        onDragStart={selected ? () => setDraggingId(field.id) : undefined}
+                        onDragEnd={selected ? () => { setDraggingId(null); setDragOverId(null); } : undefined}
+                        onClick={(e) => e.stopPropagation()}
+                        className={`shrink-0 select-none ${selected ? "cursor-grab text-slate-300 active:cursor-grabbing" : "cursor-default text-slate-200"}`}
+                        aria-hidden
+                      >
+                        <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
+                          <circle cx="3" cy="2" r="1.5" /><circle cx="7" cy="2" r="1.5" />
+                          <circle cx="3" cy="7" r="1.5" /><circle cx="7" cy="7" r="1.5" />
+                          <circle cx="3" cy="12" r="1.5" /><circle cx="7" cy="12" r="1.5" />
+                        </svg>
+                      </span>
+                      <input type="checkbox" checked={selected} onChange={() => toggleField(field)} />
+                      <span className="truncate font-mono text-xs text-slate-700">{fieldOrigin(field)}</span>
+                      <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">{field.type}</span>
+                    </label>
+                    {selected ? (
+                      <span className="flex shrink-0 items-center gap-0.5 text-slate-300">
+                        <ReorderButton title="Move to bottom" disabled={isLast} onClick={() => moveField(field.id, "bottom")} variant="bottom" />
+                        <ReorderButton title="Move down" disabled={isLast} onClick={() => moveField(field.id, "down")} variant="down" />
+                        <ReorderButton title="Move up" disabled={isFirst} onClick={() => moveField(field.id, "up")} variant="up" />
+                        <ReorderButton title="Move to top" disabled={isFirst} onClick={() => moveField(field.id, "top")} variant="top" />
+                      </span>
+                    ) : null}
+                  </div>
                   {selected ? (
                     <div className="grid gap-2">
                       <label className="grid gap-1 text-xs text-slate-600">
@@ -733,5 +767,44 @@ export default function PublishedJobsAdminPage() {
         }
       />
     </section>
+  );
+}
+
+// Small order-control button sized to match the drag handle. `variant` chooses a
+// single/double chevron pointing up or down for move-up/down/to-top/to-bottom.
+const REORDER_PATHS: Record<"top" | "up" | "down" | "bottom", string> = {
+  top: "M2 6 L6 3 L10 6 M2 9.5 L6 6.5 L10 9.5",
+  up: "M2 8 L6 4.5 L10 8",
+  down: "M2 4 L6 7.5 L10 4",
+  bottom: "M2 6 L6 9 L10 6 M2 2.5 L6 5.5 L10 2.5",
+};
+
+function ReorderButton({
+  title,
+  variant,
+  disabled,
+  onClick,
+}: {
+  title: string;
+  variant: "top" | "up" | "down" | "bottom";
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      disabled={disabled}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
+      className="rounded p-0.5 text-slate-400 hover:text-slate-700 disabled:cursor-default disabled:opacity-25 disabled:hover:text-slate-400"
+    >
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+        <path d={REORDER_PATHS[variant]} />
+      </svg>
+    </button>
   );
 }

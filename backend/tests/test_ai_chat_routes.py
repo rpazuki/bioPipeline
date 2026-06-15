@@ -162,6 +162,15 @@ def test_ai_tools_validate_save_preview_and_confirmation(tmp_path: Path, monkeyp
     assert preview.status_code == 200
     assert preview.json()["result"]["task_count"] == 1
 
+    inspect = client.post(
+        "/api/v1/ai-chat/tools/execute",
+        json={"name": "inspect_published_job_fields", "arguments": {"content": JOB_DEF}},
+    )
+    assert inspect.status_code == 200
+    assert inspect.json()["status"] == "succeeded"
+    assert inspect.json()["result"]["job_name"] == "ai_demo"
+    assert isinstance(inspect.json()["result"]["candidates"], list)
+
     blocked_submit = client.post(
         "/api/v1/ai-chat/tools/execute",
         json={"name": "submit_job_definition", "arguments": {"content": JOB_DEF}},
@@ -184,20 +193,39 @@ def test_ai_tools_validate_save_preview_and_confirmation(tmp_path: Path, monkeyp
     _reset()
 
 
-def test_ai_publishing_tools_are_removed(tmp_path: Path, monkeypatch):
+def test_ai_save_tools_hidden_from_model_but_executable(tmp_path: Path, monkeypatch):
     _set_fake_ai_config(monkeypatch)
     client = _client(tmp_path)
 
     context = client.get("/api/v1/ai-chat/context")
     tool_names = {tool["name"] for tool in context.json()["tools"]}
-    for removed in (
-        "inspect_published_job_fields",
+
+    # The AI can design a Published Job by inspecting its fields ...
+    assert "inspect_published_job_fields" in tool_names
+    # ... but it never saves or publishes: the save tools and any
+    # create/publish tools are not advertised to the model.
+    for hidden in (
+        "save_pipeline_yaml",
+        "save_job_definition",
         "create_published_job_draft",
         "publish_published_job",
         "list_published_jobs_admin",
     ):
-        assert removed not in tool_names
+        assert hidden not in tool_names
 
+    # Save tools remain reachable through the explicit admin execute path (the UI
+    # Save button), so admins can still persist a reviewed draft.
+    saved = client.post(
+        "/api/v1/ai-chat/tools/execute",
+        json={
+            "name": "save_pipeline_yaml",
+            "arguments": {"name": "demo.yaml", "content": PIPELINE_YAML, "overwrite": True},
+        },
+    )
+    assert saved.status_code == 200
+    assert saved.json()["status"] == "succeeded"
+
+    # A genuinely unknown tool still fails.
     blocked = client.post(
         "/api/v1/ai-chat/tools/execute",
         json={"name": "create_published_job_draft", "arguments": {}},

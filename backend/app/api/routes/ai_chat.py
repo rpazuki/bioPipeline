@@ -147,6 +147,7 @@ def _run_chat_turn(
             confirmations=body.confirmations,
             active_pipeline_yaml=body.active_pipeline_yaml,
             active_job_definition=body.active_job_definition,
+            active_published_job=body.active_published_job,
         )
     except AIProviderError as exc:
         message = redact_provider_error(str(exc), settings.ai)

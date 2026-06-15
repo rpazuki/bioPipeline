@@ -53,7 +53,7 @@ class AIToolCallRecord(BaseModel):
 
 
 class AIArtifactDraft(BaseModel):
-    kind: Literal["pipeline_yaml", "job_definition"]
+    kind: Literal["pipeline_yaml", "job_definition", "published_job"]
     name: str = ""
     content: str | dict[str, Any] | list[Any]
     source: Literal["model", "tool"] = "model"
@@ -64,6 +64,7 @@ class AIChatRequest(BaseModel):
     messages: list[AIChatMessage]
     active_pipeline_yaml: str = ""
     active_job_definition: str = ""
+    active_published_job: str = ""
     confirmations: dict[str, bool] = Field(default_factory=dict)
     requested_tools: list[AIToolExecuteRequest] = Field(default_factory=list)
 

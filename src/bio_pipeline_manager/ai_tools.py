@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
 
-from bio_pipeline_manager.job_definition import expand
+from bio_pipeline_manager.job_definition import expand, fanout_warnings, parse_job_definition
+from bio_pipeline_manager.published_jobs import inspect_definition
 from bio_pipeline_manager.yaml_validation import validate_labutils_yaml
 
 
@@ -17,6 +18,12 @@ class AIToolDefinition:
     input_schema: dict[str, Any]
     read_only: bool = True
     requires_confirmation: bool = False
+    # When False, the tool is hidden from the model's advertised tool list (so the
+    # agent can never call it) but is still reachable through the registry's
+    # ``execute`` path — i.e. only an explicit admin UI action can run it. The save
+    # tools use this so the AI drafts artifacts but never persists them; the admin
+    # saves via the Save button in each draft box.
+    model_callable: bool = True
 
 
 @dataclass(frozen=True)
@@ -43,7 +50,17 @@ class AIToolRegistry:
         self._tools = self._build_tools()
 
     def definitions(self) -> list[dict[str, Any]]:
-        return [asdict(tool.definition) for tool in self._tools.values()]
+        """Tool definitions advertised to the model.
+
+        Only model-callable tools are exposed, so the agent's tool loop can never
+        request a non-model-callable tool (e.g. the save tools). The full set,
+        including admin-UI-only tools, is still reachable through :meth:`execute`.
+        """
+        return [
+            asdict(tool.definition)
+            for tool in self._tools.values()
+            if tool.definition.model_callable
+        ]
 
     def execute(
         self,
@@ -157,6 +174,26 @@ class AIToolRegistry:
             ),
             _Tool(
                 AIToolDefinition(
+                    name="inspect_published_job_fields",
+                    description=(
+                        "Derive the definable input/output fields of a Published Job from a "
+                        "Job Definition. Use this to design a user-facing Published Job draft; "
+                        "the admin saves it from the Published Job box (you never save it)."
+                    ),
+                    input_schema=_object_schema(
+                        {
+                            "content": {"type": "string"},
+                            "name": {"type": "string"},
+                            "description": {"type": "string"},
+                            "definition_name": {"type": "string"},
+                        },
+                        required=["content"],
+                    ),
+                ),
+                self._inspect_published_job_fields,
+            ),
+            _Tool(
+                AIToolDefinition(
                     name="save_pipeline_yaml",
                     description="Save Pipeline YAML into the YAML store.",
                     input_schema=_object_schema(
@@ -168,6 +205,7 @@ class AIToolRegistry:
                         required=["name", "content"],
                     ),
                     read_only=False,
+                    model_callable=False,
                 ),
                 self._save_pipeline_yaml,
             ),
@@ -184,6 +222,7 @@ class AIToolRegistry:
                         required=["name", "content"],
                     ),
                     read_only=False,
+                    model_callable=False,
                 ),
                 self._save_job_definition,
             ),
@@ -291,6 +330,24 @@ class AIToolRegistry:
             "job_name": tasks[0].job_name if tasks else "",
             "task_count": len(tasks),
             "tasks": [_serialize(task) for task in tasks],
+        }
+
+    def _inspect_published_job_fields(self, args: dict[str, Any]) -> dict[str, Any]:
+        content = _required_str(args, "content")
+        job_def = parse_job_definition(content)
+        candidates = inspect_definition(
+            content,
+            yaml_loader=self.runtime.yaml_store.load,
+            type_library=self.runtime.type_library.all(),
+        )
+        return {
+            "job_name": job_def.name,
+            "name": str(args.get("name") or job_def.name),
+            "description": str(args.get("description") or ""),
+            "definition_name": str(args.get("definition_name") or ""),
+            "definition_content": content,
+            "candidates": candidates,
+            "warnings": fanout_warnings(job_def),
         }
 
     def _save_pipeline_yaml(self, args: dict[str, Any]) -> dict[str, Any]:

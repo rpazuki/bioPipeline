@@ -5,22 +5,29 @@ import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { executeAITool, getAIContext, sendAIChatMessage, testAIProvider } from "@/lib/api";
+import {
+  createPublishedJob,
+  executeAITool,
+  getAIContext,
+  listAdminPublishedJobs,
+  listPipelineYamls,
+  listSavedDefinitions,
+  saveDefinition,
+  savePipelineYaml,
+  sendAIChatMessage,
+  testAIProvider,
+  updatePublishedJob,
+} from "@/lib/api";
 import ResizableSplitPane from "@/components/pipelines/ResizableSplitPane";
 import type {
   AIChatMessage,
   AIContextResponse,
   AIProviderStatus,
   AIToolCallRecord,
+  PublishedJobAdmin,
 } from "@/types";
 
 type DeepLink = { href: string; label: string };
-
-// Saved artifacts map to the admin page that manages them.
-const ARTIFACT_LINKS: Record<string, { href: string; label: (result: Record<string, unknown>) => string }> = {
-  save_pipeline_yaml: { href: "/storage", label: (r) => `Pipeline Storage: ${r.name ?? ""}` },
-  save_job_definition: { href: "/job-storage", label: (r) => `Job Storage: ${r.name ?? ""}` },
-};
 
 // Tailwind-styled renderers so GitHub-flavored Markdown (tables, lists, code)
 // reads well in the assistant bubble.
@@ -66,9 +73,22 @@ const MARKDOWN_COMPONENTS: Components = {
 type Drafts = {
   pipeline_yaml: string;
   job_definition: string;
+  published_job: string;
 };
 
-const EMPTY_DRAFTS: Drafts = { pipeline_yaml: "", job_definition: "" };
+const EMPTY_DRAFTS: Drafts = { pipeline_yaml: "", job_definition: "", published_job: "" };
+
+// The AI never saves; it only suggests a name per draft. The admin saves from each
+// box's Save button, which uses this to decide whether a save overwrites an existing
+// artifact (confirm) or creates a new one (name prompt).
+type DraftNames = { pipeline_yaml: string; job_definition: string; published_job: string };
+const EMPTY_DRAFT_NAMES: DraftNames = { pipeline_yaml: "", job_definition: "", published_job: "" };
+
+const SAVE_LABELS: Record<keyof Drafts, string> = {
+  pipeline_yaml: "Pipeline YAML",
+  job_definition: "Job Definition",
+  published_job: "published job",
+};
 
 function asText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -113,6 +133,8 @@ type PersistedState = {
   input: string;
   toolCalls: AIToolCallRecord[];
   drafts: Drafts;
+  draftNames: DraftNames;
+  savedLinks: DeepLink[];
   pendingConfirmation: AIToolCallRecord | null;
   confirmations: Record<string, boolean>;
 };
@@ -133,7 +155,16 @@ export default function AIChatPage() {
   const [messages, setMessages] = useState<AIChatMessage[]>(persisted.messages ?? []);
   const [input, setInput] = useState(persisted.input ?? "");
   const [toolCalls, setToolCalls] = useState<AIToolCallRecord[]>(persisted.toolCalls ?? []);
-  const [drafts, setDrafts] = useState<Drafts>(persisted.drafts ?? EMPTY_DRAFTS);
+  const [drafts, setDrafts] = useState<Drafts>({ ...EMPTY_DRAFTS, ...(persisted.drafts ?? {}) });
+  const [draftNames, setDraftNames] = useState<DraftNames>({
+    ...EMPTY_DRAFT_NAMES,
+    ...(persisted.draftNames ?? {}),
+  });
+  const [savedLinks, setSavedLinks] = useState<DeepLink[]>(persisted.savedLinks ?? []);
+  // Existing artifacts, so a save can tell "overwrite this" from "create new".
+  const [existingPipelines, setExistingPipelines] = useState<Set<string>>(new Set());
+  const [existingDefinitions, setExistingDefinitions] = useState<Set<string>>(new Set());
+  const [publishedJobs, setPublishedJobs] = useState<PublishedJobAdmin[]>([]);
   const [pendingConfirmation, setPendingConfirmation] = useState<AIToolCallRecord | null>(
     persisted.pendingConfirmation ?? null,
   );
@@ -148,22 +179,6 @@ export default function AIChatPage() {
     () => context?.providers.find((item) => item.provider === provider),
     [context, provider],
   );
-
-  const deepLinks: DeepLink[] = useMemo(() => {
-    const seen = new Set<string>();
-    const links: DeepLink[] = [];
-    for (const call of toolCalls) {
-      if (call.status !== "succeeded" || !call.result) continue;
-      const spec = ARTIFACT_LINKS[call.name];
-      if (!spec) continue;
-      const label = spec.label(call.result);
-      const key = `${spec.href}:${label}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      links.push({ href: spec.href, label });
-    }
-    return links;
-  }, [toolCalls]);
 
   const validation = useMemo(() => {
     let pipeline: boolean | null = null;
@@ -190,6 +205,7 @@ export default function AIChatPage() {
         setError(cause.message);
         setStatus("Provider configuration unavailable");
       });
+    void refreshExisting();
   }, []);
 
   // Persist conversation state across navigation/reload.
@@ -201,17 +217,33 @@ export default function AIChatPage() {
       input,
       toolCalls,
       drafts,
+      draftNames,
+      savedLinks,
       pendingConfirmation,
       confirmations,
     };
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  }, [provider, messages, input, toolCalls, drafts, pendingConfirmation, confirmations]);
+  }, [provider, messages, input, toolCalls, drafts, draftNames, savedLinks, pendingConfirmation, confirmations]);
+
+  // Snapshot existing artifact names so a Save can distinguish overwrite vs. create.
+  async function refreshExisting() {
+    const [pipes, defs, pubs] = await Promise.all([
+      listPipelineYamls().catch(() => []),
+      listSavedDefinitions().catch(() => []),
+      listAdminPublishedJobs().catch(() => []),
+    ]);
+    setExistingPipelines(new Set(pipes.map((item) => item.name)));
+    setExistingDefinitions(new Set(defs.map((item) => item.name)));
+    setPublishedJobs(pubs);
+  }
 
   function resetConversation() {
     setMessages([]);
     setInput("");
     setToolCalls([]);
     setDrafts(EMPTY_DRAFTS);
+    setDraftNames(EMPTY_DRAFT_NAMES);
+    setSavedLinks([]);
     setPendingConfirmation(null);
     setConfirmations({});
     setError(null);
@@ -219,13 +251,103 @@ export default function AIChatPage() {
     if (typeof window !== "undefined") window.localStorage.removeItem(STORAGE_KEY);
   }
 
-  function applyDrafts(updates: { kind: keyof Drafts; content: unknown }[]) {
+  function applyDrafts(updates: { kind: keyof Drafts; name?: string; content: unknown }[]) {
     if (updates.length === 0) return;
     setDrafts((current) => {
       const next = { ...current };
       for (const draft of updates) next[draft.kind] = asText(draft.content);
       return next;
     });
+    setDraftNames((current) => {
+      const next = { ...current };
+      for (const draft of updates) if (draft.name) next[draft.kind] = draft.name;
+      return next;
+    });
+  }
+
+  // Save a draft on explicit admin action (never automatically). Updating an
+  // existing artifact asks for confirmation; a new one asks the admin to confirm
+  // a name. Returns the resolved name, or null if the admin cancelled.
+  function resolveSaveName(kindLabel: string, suggested: string, existing: Set<string>): string | null {
+    const trimmed = suggested.trim();
+    if (trimmed && existing.has(trimmed)) {
+      return window.confirm(`A ${kindLabel} named "${trimmed}" already exists. Save over it?`)
+        ? trimmed
+        : null;
+    }
+    const entered = window.prompt(`Name for the new ${kindLabel}:`, trimmed);
+    if (entered == null) return null;
+    const name = entered.trim();
+    if (!name) return null;
+    if (existing.has(name) && !window.confirm(`A ${kindLabel} named "${name}" already exists. Save over it?`)) {
+      return null;
+    }
+    return name;
+  }
+
+  function recordSaved(name: string, link: DeepLink) {
+    setStatus(`Saved "${name}"`);
+    setSavedLinks((prev) => {
+      const key = link.href + link.label;
+      return [...prev.filter((item) => item.href + item.label !== key), link];
+    });
+  }
+
+  async function saveArtifact(kind: keyof Drafts) {
+    setError(null);
+    const content = drafts[kind];
+    if (!content.trim()) return;
+    try {
+      if (kind === "pipeline_yaml") {
+        const name = resolveSaveName(SAVE_LABELS.pipeline_yaml, draftNames.pipeline_yaml, existingPipelines);
+        if (!name) return;
+        await savePipelineYaml(name, content, true);
+        setDraftNames((current) => ({ ...current, pipeline_yaml: name }));
+        recordSaved(name, { href: "/storage", label: `Pipeline Storage: ${name}` });
+      } else if (kind === "job_definition") {
+        const name = resolveSaveName(SAVE_LABELS.job_definition, draftNames.job_definition, existingDefinitions);
+        if (!name) return;
+        await saveDefinition(name, content, true);
+        setDraftNames((current) => ({ ...current, job_definition: name }));
+        recordSaved(name, { href: "/job-storage", label: `Job Storage: ${name}` });
+      } else {
+        await savePublishedDraft(content);
+      }
+      await refreshExisting();
+    } catch (cause) {
+      setError((cause as Error).message);
+      setStatus("Save failed");
+    }
+  }
+
+  async function savePublishedDraft(content: string) {
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(content) as Record<string, unknown>;
+    } catch {
+      setError("The Published Job draft must be valid JSON.");
+      return;
+    }
+    const byName = new Map(publishedJobs.map((job) => [job.name, job]));
+    const name = resolveSaveName(SAVE_LABELS.published_job, String(parsed.name ?? ""), new Set(byName.keys()));
+    if (!name) return;
+    const existing = byName.get(name);
+    const payload = {
+      name,
+      description: String(parsed.description ?? ""),
+      definition_name: String(parsed.definition_name ?? ""),
+      definition_content: String(parsed.definition_content ?? ""),
+      fields: Array.isArray(parsed.fields) ? (parsed.fields as PublishedJobAdmin["fields"]) : [],
+    };
+    const saved = existing
+      ? await updatePublishedJob(existing.id, payload)
+      : await createPublishedJob({ ...payload, status: "draft" });
+    setDrafts((current) => ({
+      ...current,
+      published_job: JSON.stringify({ ...parsed, name: saved.name }, null, 2),
+    }));
+    setDraftNames((current) => ({ ...current, published_job: saved.name }));
+    recordSaved(saved.name, { href: "/published-jobs-admin", label: `Job Publishing: ${saved.name}` });
   }
 
   async function send(extraConfirmations: Record<string, boolean> = {}) {
@@ -245,10 +367,13 @@ export default function AIChatPage() {
         confirmations: mergedConfirmations,
         active_pipeline_yaml: drafts.pipeline_yaml,
         active_job_definition: drafts.job_definition,
+        active_published_job: drafts.published_job,
       });
       setMessages((current) => [...current, response.message]);
       if (response.tool_calls.length) setToolCalls((current) => [...current, ...response.tool_calls]);
-      applyDrafts(response.drafts.map((draft) => ({ kind: draft.kind, content: draft.content })));
+      applyDrafts(
+        response.drafts.map((draft) => ({ kind: draft.kind, name: draft.name, content: draft.content })),
+      );
       setPendingConfirmation(response.needs_confirmation ?? null);
       setStatus(
         response.needs_confirmation
@@ -311,9 +436,10 @@ export default function AIChatPage() {
         <div>
           <h2 className="text-lg font-semibold text-slate-950">AI Designer</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Describe a workflow in natural language. The agent inspects storage, drafts Pipeline and
-            Job Definition YAML, validates and previews it, and saves the result. Publishing a
-            user-facing job is done manually on the Job Publishing page.
+            Describe a workflow in natural language. The agent inspects storage and drafts Pipeline
+            YAML, Job Definition YAML, and a Published Job, validating and previewing as it goes. It
+            never saves anything — review each draft below and click <strong>Save</strong> in its
+            box to persist it.
           </p>
         </div>
         <span className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
@@ -377,7 +503,7 @@ export default function AIChatPage() {
                 if (messages.length && !window.confirm("Reset the conversation and clear drafts?")) return;
                 resetConversation();
               }}
-              disabled={busy || (messages.length === 0 && !drafts.pipeline_yaml && !drafts.job_definition)}
+              disabled={busy || (messages.length === 0 && !drafts.pipeline_yaml && !drafts.job_definition && !drafts.published_job)}
             >
               Reset
             </button>
@@ -475,7 +601,7 @@ export default function AIChatPage() {
       </section>
 
       {/* Results strip: validation badges + deep links to artifact pages */}
-      {validation.pipeline !== null || validation.taskCount !== null || deepLinks.length ? (
+      {validation.pipeline !== null || validation.taskCount !== null || savedLinks.length ? (
         <section className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-white p-3">
           {validation.pipeline !== null ? (
             <span
@@ -491,7 +617,7 @@ export default function AIChatPage() {
               Preview: {validation.taskCount} task{validation.taskCount === 1 ? "" : "s"}
             </span>
           ) : null}
-          {deepLinks.map((link) => (
+          {savedLinks.map((link) => (
             <Link
               key={link.href + link.label}
               href={link.href}
@@ -512,6 +638,7 @@ export default function AIChatPage() {
             filename="pipeline.yaml"
             value={drafts.pipeline_yaml}
             onChange={(value) => setDrafts((current) => ({ ...current, pipeline_yaml: value }))}
+            onSave={() => void saveArtifact("pipeline_yaml")}
           />
         }
         right={
@@ -520,8 +647,19 @@ export default function AIChatPage() {
             filename="job_definition.yaml"
             value={drafts.job_definition}
             onChange={(value) => setDrafts((current) => ({ ...current, job_definition: value }))}
+            onSave={() => void saveArtifact("job_definition")}
           />
         }
+      />
+
+      {/* Published Job draft — full width, saved to the Job Publishing page */}
+      <DraftPanel
+        title="Published Job"
+        filename="published_job.json"
+        value={drafts.published_job}
+        onChange={(value) => setDrafts((current) => ({ ...current, published_job: value }))}
+        onSave={() => void saveArtifact("published_job")}
+        hint="JSON draft. Save creates a draft on the Job Publishing page; refine fields there."
       />
     </section>
   );
@@ -555,11 +693,15 @@ function DraftPanel({
   filename,
   value,
   onChange,
+  onSave,
+  hint,
 }: {
   title: string;
   filename: string;
   value: string;
   onChange: (value: string) => void;
+  onSave?: () => void;
+  hint?: string;
 }) {
   const [copied, setCopied] = useState(false);
 
@@ -587,6 +729,16 @@ function DraftPanel({
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
         <div className="flex gap-1.5">
+          {onSave ? (
+            <button
+              type="button"
+              className="rounded-md border border-cyan-300 bg-cyan-50 px-2.5 py-1 text-[11px] font-semibold text-cyan-800 hover:bg-cyan-100 disabled:opacity-40"
+              onClick={onSave}
+              disabled={!value.trim()}
+            >
+              Save
+            </button>
+          ) : null}
           <button
             type="button"
             className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
@@ -612,6 +764,7 @@ function DraftPanel({
         placeholder={`${title} drafted by the agent will appear here.`}
         spellCheck={false}
       />
+      {hint ? <p className="text-[11px] text-slate-400">{hint}</p> : null}
     </section>
   );
 }

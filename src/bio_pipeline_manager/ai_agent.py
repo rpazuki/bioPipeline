@@ -17,13 +17,17 @@ from bio_pipeline_manager.ai_tools import AIToolExecution, AIToolRegistry
 
 BASE_SYSTEM_PROMPT = (
     "You are the Bio Pipeline Manager AI Designer.\n"
-    "You help admins design and save pipeline YAML and Job Definition YAML.\n"
-    "Use tools to inspect existing YAML, validate pipeline YAML, and preview Job "
-    "Definitions before claiming success.\n"
+    "You help admins design three artifacts: Pipeline YAML, Job Definition YAML, "
+    "and user-facing Published Jobs.\n"
+    "Use tools to inspect existing YAML, validate Pipeline YAML, preview Job "
+    "Definitions, and inspect Published Job fields before claiming success.\n"
+    "You never save or publish anything. Present each artifact as a draft in its "
+    "box; the admin saves it with the Save button there. Do not say an artifact "
+    "has been saved or published.\n"
+    "To design a Published Job, start from a valid Job Definition and call "
+    "inspect_published_job_fields to derive its fields.\n"
     "Never submit a Job Definition to the queue without explicit admin "
     "confirmation.\n"
-    "Publishing user-facing jobs is handled manually outside this chat; do not "
-    "design, create, or publish Published Jobs.\n"
     "Treat the schema bundle as authoritative when it conflicts with older "
     "prose examples.\n"
     "Keep responses short and operational. Format replies in concise Markdown; "
@@ -31,8 +35,11 @@ BASE_SYSTEM_PROMPT = (
 )
 
 # Draft kind for each tool whose result should surface a draft artifact in the UI.
+# The save tools stay listed so an admin-triggered save through /tools/execute also
+# refreshes the draft box, even though the model itself can no longer call them.
 _PIPELINE_DRAFT_TOOLS = {"save_pipeline_yaml", "get_pipeline_yaml", "validate_pipeline_yaml"}
 _DEFINITION_DRAFT_TOOLS = {"save_job_definition", "get_job_definition", "preview_job_definition"}
+_PUBLISHED_DRAFT_TOOLS = {"inspect_published_job_fields"}
 
 
 class _MessageLike(Protocol):
@@ -95,6 +102,7 @@ class AIChatAgent:
         confirmations: dict[str, bool] | None = None,
         active_pipeline_yaml: str = "",
         active_job_definition: str = "",
+        active_published_job: str = "",
     ) -> AIChatOutcome:
         confirmations = confirmations or {}
         config = self._resolve_config(selection)
@@ -106,7 +114,9 @@ class AIChatAgent:
         system_prompt = self._system_prompt()
         tools = self.registry.definitions()
 
-        workspace = self._workspace_block(active_pipeline_yaml, active_job_definition)
+        workspace = self._workspace_block(
+            active_pipeline_yaml, active_job_definition, active_published_job
+        )
         conversation = self._build_conversation(messages, workspace)
 
         max_iterations = int(self.ai_config.get("max_tool_iterations", 8))
@@ -226,12 +236,14 @@ class AIChatAgent:
         return conversation
 
     @staticmethod
-    def _workspace_block(pipeline_yaml: str, job_definition: str) -> str:
+    def _workspace_block(pipeline_yaml: str, job_definition: str, published_job: str = "") -> str:
         sections: list[str] = []
         if pipeline_yaml.strip():
             sections.append(f"<pipeline_yaml>\n{pipeline_yaml}\n</pipeline_yaml>")
         if job_definition.strip():
             sections.append(f"<job_definition>\n{job_definition}\n</job_definition>")
+        if published_job.strip():
+            sections.append(f"<published_job>\n{published_job}\n</published_job>")
         if not sections:
             return ""
         body = "\n".join(sections)
@@ -322,6 +334,24 @@ def _model_tool_result(name: str, result: Any) -> Any:
             "is_valid": result.get("is_valid"),
             "error": result.get("error"),
         }
+    elif name == "inspect_published_job_fields":
+        candidates = result.get("candidates") or []
+        out = {
+            "job_name": result.get("job_name"),
+            "field_count": len(candidates),
+            # Just enough for the model to discuss/curate fields; the full field
+            # objects (bindings, options, schema) live in the editor draft.
+            "fields": [
+                {
+                    "id": c.get("id"),
+                    "label": c.get("label"),
+                    "type": c.get("type"),
+                    "io_role": c.get("io_role"),
+                }
+                for c in candidates[:_MAX_LIST_ITEMS]
+            ],
+            "warnings": result.get("warnings", []),
+        }
     elif name == "get_runtime_info":
         out = {
             "yaml_count": result.get("yaml_count"),
@@ -373,6 +403,26 @@ def _drafts_from(
                 "kind": "job_definition",
                 "name": str(result.get("name", arguments.get("name", ""))),
                 "content": result.get("content", arguments.get("content", "")),
+                "source": "tool",
+            }
+        ]
+    if name in _PUBLISHED_DRAFT_TOOLS:
+        published_name = str(result.get("name") or result.get("job_name") or "")
+        return [
+            {
+                "kind": "published_job",
+                "name": published_name,
+                # A structured draft (not YAML): the admin edits/saves it from the
+                # Published Job box. Carries everything createPublishedJob needs.
+                "content": {
+                    "name": published_name,
+                    "description": result.get("description", ""),
+                    "definition_name": result.get("definition_name", ""),
+                    "definition_content": result.get(
+                        "definition_content", arguments.get("content", "")
+                    ),
+                    "fields": result.get("candidates", []),
+                },
                 "source": "tool",
             }
         ]
