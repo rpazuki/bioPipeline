@@ -730,7 +730,7 @@ export default function PublishedJobsPage() {
               <button type="button" className="w-fit rounded-md bg-cyan-700 px-4 py-2 text-sm font-semibold text-white" onClick={() => submit().catch((cause: Error) => setError(cause.message))}>
                 {repeat ? "Create recurring schedule" : "Execute Job"}
               </button>
-              <span className="w-fit rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">{status}</span>
+              <span className="w-fit rounded-md border border-yellow-300 bg-yellow-100 px-3 py-2 text-xs text-yellow-800">{status}</span>
               {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
             </div>
           </div>

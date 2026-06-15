@@ -478,7 +478,7 @@ export default function PublishedJobsAdminPage() {
               </>
             ) : null}
           </div>
-          <span className="w-fit rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">{status}</span>
+          <span className="w-fit rounded-md border border-yellow-300 bg-yellow-100 px-3 py-2 text-xs text-yellow-800">{status}</span>
           {warnings.length || placeholderWarnings.length ? (
             <div className="grid gap-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
               {[...warnings, ...placeholderWarnings].map((warning, index) => (

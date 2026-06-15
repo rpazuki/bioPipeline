@@ -442,7 +442,7 @@ export default function AIChatPage() {
             box to persist it.
           </p>
         </div>
-        <span className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+        <span className="rounded-md border border-yellow-300 bg-yellow-100 px-3 py-2 text-xs text-yellow-800">
           {status}
         </span>
       </div>

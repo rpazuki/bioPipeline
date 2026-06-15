@@ -594,7 +594,7 @@ export default function JobDefinitionPanel() {
             Run due
           </button>
         </div>
-        <span className="w-fit rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">{status}</span>
+        <span className="w-fit rounded-md border border-yellow-300 bg-yellow-100 px-3 py-2 text-xs text-yellow-800">{status}</span>
         {previewError ? (
           <p className="rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-700">{previewError}</p>
         ) : (

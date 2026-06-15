@@ -210,7 +210,7 @@ export default function MyRunsPage() {
             Delete selected{someSelected ? ` (${selectedIds.size})` : ""}
           </button>
         </div>
-        <span className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">{status}</span>
+        <span className="rounded-md border border-yellow-300 bg-yellow-100 px-3 py-2 text-xs text-yellow-800">{status}</span>
       </div>
       {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
 

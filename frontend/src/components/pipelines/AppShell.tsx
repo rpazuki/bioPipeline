@@ -100,8 +100,8 @@ function Header() {
       )}
 
       {/* Status bar — always visible, full width */}
-      <div className="border-t border-slate-100 bg-slate-50 px-5 py-1.5 text-xs text-slate-600">
-        <span className="font-semibold text-slate-400 uppercase tracking-wide mr-2">Last action:</span>
+      <div className="border-t border-yellow-300 bg-yellow-100 px-5 py-1.5 text-xs text-yellow-800">
+        <span className="font-semibold text-yellow-700 uppercase tracking-wide mr-2">Last action:</span>
         {status}
       </div>
     </header>
