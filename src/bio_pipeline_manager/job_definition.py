@@ -179,6 +179,16 @@ def _render(template: Any, context: dict[str, str], *, lenient: bool = False) ->
     (used for preview of deferred stages, whose item fields are not yet known).
     """
     if isinstance(template, str):
+        # If the entire string is a single {token}, return context[key] as-is so
+        # dict/list values are preserved rather than coerced to their str() repr.
+        m = re.fullmatch(r"\{([a-zA-Z0-9_.]+)\}", template)
+        if m:
+            key = m.group(1)
+            if key in context:
+                return context[key]
+            if lenient:
+                return template
+            raise JobDefinitionError(f"unresolved template variable '{{{key}}}'")
 
         def replace(match: re.Match) -> str:
             key = match.group(1)
@@ -190,6 +200,14 @@ def _render(template: Any, context: dict[str, str], *, lenient: bool = False) ->
 
         return _TOKEN_RE.sub(replace, template)
     if isinstance(template, dict):
+        # YAML parses a bare `{varname}` flow-mapping placeholder as {varname: null}.
+        # Detect this: a single-entry dict whose key matches a context variable and
+        # whose value is None means the author wrote `param: {varname}` intending
+        # whole-value substitution, not a literal one-key dict.
+        if len(template) == 1:
+            (sole_key, sole_val) = next(iter(template.items()))
+            if sole_val is None and sole_key in context:
+                return context[sole_key]
         return {k: _render(v, context, lenient=lenient) for k, v in template.items()}
     if isinstance(template, list):
         return [_render(v, context, lenient=lenient) for v in template]
