@@ -27,7 +27,7 @@ backend:
     docs_url: /api/docs
     redoc_url: /api/redoc
     auth_session_cookie_name: bio_pipeline_session
-    auth_session_ttl_hours: 24
+    auth_session_ttl_hours: 168 # 7 days
     auth_secure_cookies: false
     # Allowlisted shared-storage roots a researcher may browse for published-job
     # inputs (instead of uploading). Each root is a server-mounted path; only

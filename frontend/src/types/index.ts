@@ -211,6 +211,8 @@ export interface PublishedField {
   required: boolean;
   readonly?: boolean;
   saveable?: boolean;
+  // When true, an empty researcher entry is submitted as null (Python None).
+  nullable?: boolean;
   default?: unknown;
   help: string;
   example: string;

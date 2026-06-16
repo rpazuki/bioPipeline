@@ -68,6 +68,13 @@ function asInputValue(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
+// The catalog list shows only the first non-empty line of a job's description so a
+// long multi-line blurb doesn't blow out the row height.
+function firstLine(text: string | undefined | null): string {
+  if (!text) return "";
+  return text.split("\n").map((line) => line.trim()).find((line) => line.length > 0) ?? "";
+}
+
 function FieldHelp({ field }: { field: PublishedField }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
@@ -368,6 +375,7 @@ function OutputFieldHint({ field }: { field: PublishedField }) {
 
 export default function PublishedJobsPage() {
   const [jobs, setJobs] = useState<PublishedJobPublicSummary[]>([]);
+  const [jobsCollapsed, setJobsCollapsed] = useState(false);
   const [filterText, setFilterText] = useState("");
   const [selected, setSelected] = useState<PublishedJobPublicDetail | null>(null);
   const [values, setValues] = useState<Record<string, unknown>>({});
@@ -630,11 +638,42 @@ export default function PublishedJobsPage() {
         minRight={30}
         autoHeight
         minHeight={paneHeight}
+        collapsed={jobsCollapsed}
         left={
+        jobsCollapsed ? (
+        // Collapsed: a narrow rail with just an expand control, so the form panel
+        // beside it gains the freed width.
+        <aside className="flex h-full flex-col items-center gap-3 rounded-md border border-slate-200 bg-white p-2">
+          <button
+            type="button"
+            aria-expanded={false}
+            aria-label="Expand published jobs"
+            title={`Show published jobs (${jobs.length})`}
+            onClick={() => setJobsCollapsed(false)}
+            className="rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+          >
+            ▸
+          </button>
+          <span className="text-xs font-semibold text-slate-500" style={{ writingMode: "vertical-rl" }}>
+            Published Jobs
+          </span>
+        </aside>
+        ) : (
         <aside className="grid content-start gap-3 rounded-md border border-slate-200 bg-white p-4 h-full">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-950">Published Jobs</h2>
-          <p className="mt-1 text-sm text-slate-500">Run admin-published workflows without seeing job or pipeline YAML.</p>
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-950">Published Jobs</h2>
+            <p className="mt-1 text-sm text-slate-500">Run admin-published workflows without seeing job or pipeline YAML.</p>
+          </div>
+          <button
+            type="button"
+            aria-expanded
+            aria-label="Collapse published jobs"
+            onClick={() => setJobsCollapsed(true)}
+            className="shrink-0 rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+          >
+            ◂ Hide
+          </button>
         </div>
         <label className="grid gap-1 text-xs font-semibold text-slate-600">
           Filter jobs
@@ -656,10 +695,11 @@ export default function PublishedJobsPage() {
             onClick={() => selectJob(job.id).catch((cause: Error) => setError(cause.message))}
           >
             <span className="block text-sm font-semibold text-slate-950">{job.name}</span>
-            <span className="mt-1 block text-xs text-slate-500 whitespace-pre-line">{job.description || `Version ${job.version}`}</span>
+            <span className="mt-1 block truncate text-xs text-slate-500">{firstLine(job.description) || `Version ${job.version}`}</span>
           </button>
         ))}
       </aside>
+        )
         }
         right={
         <main className="grid content-start gap-3 rounded-md border border-slate-200 bg-white p-4 h-full">
@@ -672,20 +712,22 @@ export default function PublishedJobsPage() {
         {selected ? (
           <div className="grid gap-4">
             {(() => {
-              // Lay the fields out in two independent columns instead of a row-coupled
-              // grid. In a `grid-cols-2` grid each row is as tall as its tallest cell, so
+              // Lay the fields out in three independent columns instead of a row-coupled
+              // grid. In a `grid-cols-3` grid each row is as tall as its tallest cell, so
               // a short field (a checkbox) sitting beside a tall typed field was stretched
               // to match it, leaving a badly shaped gap. Here each column is its own
               // vertical stack, so every field takes only the height it needs. Fields fill
-              // the left column top-to-bottom first, then the right — which preserves the
-              // published field order, and keeps that order when the two columns collapse
-              // to one on narrow screens. ("Run at" lives in the schedule box below.)
+              // the left column top-to-bottom first, then the middle, then the right —
+              // which preserves the published field order, and keeps that order when the
+              // columns collapse to one on narrow screens. ("Run at" lives in the schedule
+              // box below.)
               const elements = selected.fields.map(renderFieldNode);
-              const half = Math.ceil(elements.length / 2);
+              const perColumn = Math.ceil(elements.length / 3);
               return (
-                <div className="grid items-start gap-4 md:grid-cols-2">
-                  <div className="grid content-start gap-3">{elements.slice(0, half)}</div>
-                  <div className="grid content-start gap-3">{elements.slice(half)}</div>
+                <div className="grid items-start gap-4 md:grid-cols-3">
+                  <div className="grid content-start gap-3">{elements.slice(0, perColumn)}</div>
+                  <div className="grid content-start gap-3">{elements.slice(perColumn, perColumn * 2)}</div>
+                  <div className="grid content-start gap-3">{elements.slice(perColumn * 2)}</div>
                 </div>
               );
             })()}

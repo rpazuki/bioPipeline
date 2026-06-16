@@ -887,10 +887,21 @@ def _coerce_values(fields: list[dict[str, Any]], values: dict[str, Any]) -> dict
             raise PublishedJobError(
                 f"Field '{field.get('label', field_id)}' must be provided (it is marked {PROVIDED_LATER} in the job)."
             )
+        # A nullable field left empty passes through as Python None (YAML null) rather
+        # than an empty string — so the scientific function receives None, not "".
+        # Nullable implies optional, so this takes precedence over the required check.
+        if field.get("nullable") and _is_empty_value(raw):
+            coerced[field_id] = None
+            continue
         if raw in (None, "") and field.get("required", True):
             raise PublishedJobError(f"Field '{field.get('label', field_id)}' is required")
         coerced[field_id] = _coerce_value(raw, field)
     return coerced
+
+
+def _is_empty_value(value: Any) -> bool:
+    """True for the 'nothing entered' cases: None, blank string, empty list/dict."""
+    return value is None or value == "" or value == [] or value == {}
 
 
 def _coerce_value(value: Any, field: dict[str, Any]) -> Any:

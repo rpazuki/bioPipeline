@@ -29,6 +29,7 @@ interface FieldRow {
   container: (typeof CONTAINERS)[number];
   required: boolean;
   options: string; // comma-separated, for enum
+  default: string; // optional default; "" means none
 }
 
 function rowsFromType(type: TypeDef): FieldRow[] {
@@ -38,7 +39,30 @@ function rowsFromType(type: TypeDef): FieldRow[] {
     container: spec.container ?? "single",
     required: spec.required ?? true,
     options: (spec.options ?? []).map((option) => String(option)).join(", "),
+    default: spec.default === undefined || spec.default === null ? "" : String(spec.default),
   }));
+}
+
+// A default is optional. When present, parse it into the field's primitive type so
+// it is stored as the right kind (e.g. 5 not "5") — the backend assigns it verbatim
+// when a researcher leaves the field empty, without re-coercing.
+function parseDefault(raw: string, type: string): unknown {
+  const text = raw.trim();
+  if (!text) return undefined;
+  if (type === "integer") {
+    const value = Number.parseInt(text, 10);
+    return Number.isNaN(value) ? text : value;
+  }
+  if (type === "float") {
+    const value = Number.parseFloat(text);
+    return Number.isNaN(value) ? text : value;
+  }
+  if (type === "boolean") {
+    if (/^(true|1|yes|on)$/i.test(text)) return true;
+    if (/^(false|0|no|off)$/i.test(text)) return false;
+    return text;
+  }
+  return text;
 }
 
 function fieldsFromRows(rows: FieldRow[]): Record<string, TypeFieldSpec> {
@@ -51,6 +75,8 @@ function fieldsFromRows(rows: FieldRow[]): Record<string, TypeFieldSpec> {
     if (row.type === "enum") {
       spec.options = row.options.split(",").map((option) => option.trim()).filter(Boolean);
     }
+    const parsed = parseDefault(row.default, row.type);
+    if (parsed !== undefined) spec.default = parsed;
     fields[name] = spec;
   }
   return fields;
@@ -109,7 +135,7 @@ export default function TypeLibraryPanel() {
     setEditing(true);
     setEditName("");
     setEditDescription("");
-    setRows([{ key: "", type: "string", container: "single", required: true, options: "" }]);
+    setRows([{ key: "", type: "string", container: "single", required: true, options: "", default: "" }]);
     setStatus(null);
   }
 
@@ -305,6 +331,15 @@ export default function TypeLibraryPanel() {
                   <input type="checkbox" checked={row.required} onChange={(event) => patchRow(index, { required: event.target.checked })} />
                   req
                 </label>
+                {LEAF_TYPES.includes(row.type) ? (
+                  <input
+                    value={row.default}
+                    onChange={(event) => patchRow(index, { default: event.target.value })}
+                    placeholder="default (optional)"
+                    title="Optional default value used when a researcher leaves this field empty"
+                    className="h-8 w-32 rounded-md border border-slate-300 px-2 text-xs"
+                  />
+                ) : null}
                 {row.type === "enum" ? (
                   <input
                     value={row.options}
@@ -320,7 +355,7 @@ export default function TypeLibraryPanel() {
             ))}
             <button
               type="button"
-              onClick={() => setRows((current) => [...current, { key: "", type: "string", container: "single", required: true, options: "" }])}
+              onClick={() => setRows((current) => [...current, { key: "", type: "string", container: "single", required: true, options: "", default: "" }])}
               className="w-fit rounded-md border border-slate-300 px-2 py-0.5 text-xs font-semibold text-slate-600"
             >
               + Add field

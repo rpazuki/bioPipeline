@@ -14,6 +14,11 @@ interface Props {
   // content is short. Defaults preserve the original fixed-height, inner-scroll layout.
   autoHeight?: boolean;
   minHeight?: number;
+  // When true, the left pane shrinks to a narrow fixed rail (`collapsedWidth` px), the
+  // drag handle is hidden, and the right pane fills the rest. The user's last drag
+  // position is kept in state, so expanding restores it. Used to collapse a side panel.
+  collapsed?: boolean;
+  collapsedWidth?: number;
 }
 
 export default function ResizableSplitPane({
@@ -25,6 +30,8 @@ export default function ResizableSplitPane({
   className = "",
   autoHeight = false,
   minHeight,
+  collapsed = false,
+  collapsedWidth = 48,
 }: Props) {
   const [split, setSplit] = useState(defaultSplit);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -66,29 +73,37 @@ export default function ResizableSplitPane({
       className={`flex ${autoHeight ? "" : "min-h-0"} ${className}`}
       style={autoHeight && minHeight != null ? { minHeight } : undefined}
     >
-      {/* Left pane */}
-      <div style={{ width: `${split}%` }} className={`min-w-0 ${autoHeight ? "" : "overflow-auto"}`}>
+      {/* Left pane — a narrow fixed rail while collapsed, else its draggable % width. */}
+      <div
+        style={collapsed ? { width: collapsedWidth } : { width: `${split}%` }}
+        className={`min-w-0 ${collapsed ? "shrink-0" : ""} ${autoHeight ? "" : "overflow-auto"}`}
+      >
         {left}
       </div>
 
-      {/* Drag handle */}
-      <div
-        onMouseDown={onMouseDown}
-        className="group relative flex w-2 shrink-0 cursor-col-resize items-center justify-center"
-        title="Drag to resize"
-        aria-hidden
-      >
-        <div className="h-full w-px bg-slate-200 transition-colors group-hover:bg-cyan-400 group-active:bg-cyan-600" />
-        {/* Grip dots */}
-        <div className="absolute flex flex-col gap-1 py-1">
-          {[0, 1, 2, 3].map((i) => (
-            <span key={i} className="h-1 w-1 rounded-full bg-slate-300 group-hover:bg-cyan-400" />
-          ))}
+      {/* Drag handle — hidden while collapsed (there is nothing to resize). */}
+      {!collapsed ? (
+        <div
+          onMouseDown={onMouseDown}
+          className="group relative flex w-2 shrink-0 cursor-col-resize items-center justify-center"
+          title="Drag to resize"
+          aria-hidden
+        >
+          <div className="h-full w-px bg-slate-200 transition-colors group-hover:bg-cyan-400 group-active:bg-cyan-600" />
+          {/* Grip dots */}
+          <div className="absolute flex flex-col gap-1 py-1">
+            {[0, 1, 2, 3].map((i) => (
+              <span key={i} className="h-1 w-1 rounded-full bg-slate-300 group-hover:bg-cyan-400" />
+            ))}
+          </div>
         </div>
-      </div>
+      ) : null}
 
-      {/* Right pane */}
-      <div style={{ width: `${100 - split}%` }} className={`min-w-0 ${autoHeight ? "" : "overflow-auto"}`}>
+      {/* Right pane — fills the remaining space while collapsed, else its % width. */}
+      <div
+        style={collapsed ? undefined : { width: `${100 - split}%` }}
+        className={`min-w-0 ${collapsed ? "flex-1" : ""} ${autoHeight ? "" : "overflow-auto"}`}
+      >
         {right}
       </div>
     </div>

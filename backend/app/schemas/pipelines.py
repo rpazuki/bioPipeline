@@ -202,6 +202,9 @@ class PublishedField(BaseModel):
     required: bool = True
     readonly: bool = False
     saveable: bool = False
+    # When true, an empty researcher entry is submitted as Python None (YAML null)
+    # instead of an empty string, so the scientific function receives None.
+    nullable: bool = False
     default: Any = None
     help: str = ""
     example: str = ""
@@ -233,6 +236,7 @@ class PublicPublishedField(BaseModel):
     required: bool = True
     readonly: bool = False
     saveable: bool = False
+    nullable: bool = False
     default: Any = None
     help: str = ""
     example: str = ""

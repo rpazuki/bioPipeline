@@ -95,6 +95,37 @@ def test_typed_field_invalid_value_raises_published_error():
         render_definition(record, {"custom_rules": {"SLAB": {"direction": "sideways"}}})
 
 
+def _plain_field(*, nullable: bool) -> dict:
+    return {
+        "id": "threshold",
+        "label": "Threshold",
+        "type": "string",
+        "required": False,
+        "nullable": nullable,
+        "default": "",
+        "bindings": [
+            {
+                "target": "stage_process_arg",
+                "stage": "s1",
+                "process": "df_stats",
+                "parameter": "threshold",
+            }
+        ],
+    }
+
+
+def test_nullable_field_empty_value_renders_as_none():
+    record = _record(_plain_field(nullable=True))
+    rendered = yaml.safe_load(render_definition(record, {"threshold": ""}))
+    assert rendered["stages"][0]["process_arg_mapping"]["df_stats"]["threshold"] is None
+
+
+def test_non_nullable_empty_optional_field_keeps_empty_string():
+    record = _record(_plain_field(nullable=False))
+    rendered = yaml.safe_load(render_definition(record, {"threshold": ""}))
+    assert rendered["stages"][0]["process_arg_mapping"]["df_stats"]["threshold"] == ""
+
+
 def test_resolve_typed_fields_denormalizes_schema_from_library():
     field = {
         "id": "custom_rules",

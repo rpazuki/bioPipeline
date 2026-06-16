@@ -91,6 +91,7 @@ const CURATED_FIELD_KEYS = [
   "example",
   "readonly",
   "saveable",
+  "nullable",
   "io_role",
   "accept",
   "sources",
@@ -572,6 +573,10 @@ export default function PublishedJobsAdminPage() {
                       <label className="flex items-center gap-2 text-xs text-slate-600">
                         <input type="checkbox" checked={edit.readonly ?? false} onChange={(event) => patchField(field.id, { readonly: event.target.checked })} />
                         Readonly (shown as text to researchers)
+                      </label>
+                      <label className="flex items-center gap-2 text-xs text-slate-600">
+                        <input type="checkbox" checked={edit.nullable ?? false} onChange={(event) => patchField(field.id, { nullable: event.target.checked })} />
+                        Nullable (an empty entry is passed as null/None)
                       </label>
                       {(edit.io_role ?? "none") === "none" && edit.type !== "typed" ? (
                         <label className="flex items-center gap-2 text-xs text-slate-600">
