@@ -424,6 +424,7 @@ def inspect_definition(
         candidate["sources"] = ["upload"] if role == "input" else []
         candidate["delivery"] = ["download"] if role == "output" else []
         candidate["shared_roots"] = []
+        candidate["saveable"] = False
         # Inline definitions: the job itself declared the type, so auto-bind — no
         # admin choice needed. Takes priority over the project library suggestion.
         if inline_defs:
@@ -827,6 +828,11 @@ def _validate_definition_and_fields(definition_content: str, fields: list[dict[s
                 raise PublishedJobError(
                     f"Field '{field_id}' is typed but has no resolved schema — choose a type from the library."
                 )
+        if field.get("saveable"):
+            if field.get("io_role", "none") != "none":
+                raise PublishedJobError(f"Field '{field_id}' can only be saveable when it is server-managed")
+            if field.get("type") == "typed":
+                raise PublishedJobError(f"Field '{field_id}' is typed and is already saveable")
         if not isinstance(field.get("bindings"), list) or not field["bindings"]:
             raise PublishedJobError(f"Field '{field_id}' needs at least one binding")
 

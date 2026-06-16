@@ -494,6 +494,7 @@ Jobs Admin* page):
 | Attribute | Meaning |
 |-----------|---------|
 | `io_role` | `none` (a plain value / server-managed — default), `input` (researcher provides), or `output` (returned to the researcher). |
+| `saveable` | For a plain `io_role: none` field, lets each researcher save and pre-fill their own value on later runs of this published job. Typed fields are already saveable by type. |
 | `accept` | `file` or `directory` — what the input/output is. |
 | `sources` | For inputs: any of `upload` (from her machine) and `shared` (pick from a server-mounted share). |
 | `delivery` | For outputs: any of `download` (zipped artifact) and `shared` (written to a share). |
@@ -503,6 +504,10 @@ The inspector proposes sensible defaults (an input `src` → input/file; a stage
 `output_dir` → output/directory), but an ambiguous `path` stays `none` until the
 admin classifies it. **A "merges-later" path fragment (e.g. a `data_root`) should
 stay `none`** — it is server-managed, never shown as a browsable path.
+
+`saveable` is rejected for uploaded inputs and returned outputs. Plain saved
+values are scoped to the published job and field; typed saved values continue
+to be shared across jobs that use the same resolved type and container.
 
 ### What the researcher does
 

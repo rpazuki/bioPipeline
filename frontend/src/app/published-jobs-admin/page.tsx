@@ -90,6 +90,7 @@ const CURATED_FIELD_KEYS = [
   "help",
   "example",
   "readonly",
+  "saveable",
   "io_role",
   "accept",
   "sources",
@@ -572,6 +573,12 @@ export default function PublishedJobsAdminPage() {
                         <input type="checkbox" checked={edit.readonly ?? false} onChange={(event) => patchField(field.id, { readonly: event.target.checked })} />
                         Readonly (shown as text to researchers)
                       </label>
+                      {(edit.io_role ?? "none") === "none" && edit.type !== "typed" ? (
+                        <label className="flex items-center gap-2 text-xs text-slate-600">
+                          <input type="checkbox" checked={edit.saveable ?? false} onChange={(event) => patchField(field.id, { saveable: event.target.checked })} />
+                          Saveable (researchers can reuse their value)
+                        </label>
+                      ) : null}
                       {(edit.io_role ?? "none") === "none" ? (
                         <div className="grid gap-2 rounded-md bg-slate-50 p-2">
                           <label className="grid gap-1 text-xs text-slate-600">
@@ -582,7 +589,7 @@ export default function PublishedJobsAdminPage() {
                               onChange={(event) => {
                                 const ref = event.target.value;
                                 if (!ref) patchField(field.id, { type: field.type, schema_ref: "", container: "single", type_schema: null });
-                                else patchField(field.id, { type: "typed", schema_ref: ref, container: edit.container ?? "single" });
+                                else patchField(field.id, { type: "typed", saveable: false, schema_ref: ref, container: edit.container ?? "single" });
                               }}
                             >
                               <option value="">Plain value ({field.type})</option>
@@ -609,7 +616,7 @@ export default function PublishedJobsAdminPage() {
                             <button
                               type="button"
                               className="w-fit rounded-md border border-cyan-300 px-2 py-1 text-xs font-semibold text-cyan-800"
-                              onClick={() => patchField(field.id, { type: "typed", schema_ref: field.schema_suggestion ?? "", container: field.schema_suggestion_container ?? "single" })}
+                              onClick={() => patchField(field.id, { type: "typed", saveable: false, schema_ref: field.schema_suggestion ?? "", container: field.schema_suggestion_container ?? "single" })}
                             >
                               Looks like {field.schema_suggestion} ({field.schema_suggestion_container}) — apply
                             </button>
@@ -630,7 +637,7 @@ export default function PublishedJobsAdminPage() {
                             // value is a plain value, not a file), keeping the two mutually exclusive.
                             patchField(field.id, io_role === "none"
                               ? { io_role }
-                              : { io_role, type: field.type, schema_ref: "", container: "single", type_schema: null });
+                              : { io_role, saveable: false, type: field.type, schema_ref: "", container: "single", type_schema: null });
                           }}
                         >
                           <option value="none">Server-managed (plain value)</option>

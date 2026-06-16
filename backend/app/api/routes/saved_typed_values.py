@@ -14,7 +14,7 @@ from app.services.runtime import PipelineRuntime
 from bio_pipeline_manager.auth_models import UserRecord
 from bio_pipeline_manager.typed_value_store import SavedTypedValueRecord
 
-# Per-researcher reusable values for structured ("typed") published-job fields.
+# Per-researcher reusable values for typed and explicitly saveable plain fields.
 # Available to any authenticated user; every value is scoped to the caller.
 router = APIRouter(prefix="/saved-typed-values", tags=["saved-typed-values"])
 
@@ -42,6 +42,8 @@ async def upsert_saved_typed_value(
         container=body.container,
         label=body.label or type_key,
         type_schema=body.type_schema,
+        value_kind=body.value_kind,
+        field_schema=body.field_schema,
         value=body.value,
     )
     return _response(record)
@@ -86,6 +88,8 @@ def _response(record: SavedTypedValueRecord) -> SavedTypedValueResponse:
         container=record.container,
         label=record.label,
         type_schema=record.type_schema,
+        value_kind=record.value_kind,
+        field_schema=record.field_schema,
         value=record.value,
         created_at=record.created_at,
         updated_at=record.updated_at,

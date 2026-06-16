@@ -61,4 +61,20 @@ describe("PublishedJobsAdminPage field editor", () => {
     expect(screen.getByDisplayValue("Averaging method")).toBeInTheDocument();
     expect(screen.getByText("Variable: variant")).toBeInTheDocument();
   });
+
+  it("lets an admin mark a server-managed plain field as saveable", async () => {
+    mocked.listSavedDefinitions.mockResolvedValue([] as any);
+    mocked.listAdminPublishedJobs.mockResolvedValue([] as any);
+    mocked.listAdminPublishedRuns.mockResolvedValue([] as any);
+    mocked.listAdminSharedRoots.mockResolvedValue([] as any);
+    mocked.listTypeLibrary.mockResolvedValue({ types: [] } as any);
+    mocked.inspectPublishedJob.mockResolvedValue({ job_name: "j", candidates: [variantCandidate], warnings: [] } as any);
+    render(<PublishedJobsAdminPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Inspect Fields" }));
+    expect(await screen.findByText(/Valid definition/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox"));
+    const saveable = await screen.findByRole("checkbox", { name: /Saveable/ });
+    fireEvent.click(saveable);
+    expect(saveable).toBeChecked();
+  });
 });

@@ -86,6 +86,65 @@ def _typed_job(client: TestClient, *, container: str = "map") -> str:
     return create.json()["id"]
 
 
+def _plain_saveable_job(client: TestClient, *, io_role: str = "none"):
+    client.post("/api/v1/pipeline-yamls", json={"name": "demo.yaml", "content": PIPELINE_YAML, "overwrite": True})
+    return client.post(
+        "/api/v1/published-jobs/admin",
+        json={
+            "name": "Plain demo",
+            "definition_content": JOB_DEF,
+            "status": "published",
+            "fields": [
+                {
+                    "id": "step_value",
+                    "label": "Step value",
+                    "type": "string",
+                    "required": True,
+                    "default": "original",
+                    "saveable": True,
+                    "io_role": io_role,
+                    "options": [],
+                    "bindings": [
+                        {"target": "stage_process_arg", "stage": "run", "process": "step", "parameter": "value"}
+                    ],
+                }
+            ],
+        },
+    )
+
+
+def test_saveable_plain_field_auto_saves_and_reuses_metadata(tmp_path: Path):
+    client = _client(tmp_path)
+    create = _plain_saveable_job(client)
+    assert create.status_code == 201, create.text
+
+    run = client.post(
+        f"/api/v1/published-jobs/catalog/{create.json()['id']}/runs",
+        json={"values": {"step_value": "remember me"}},
+    )
+    assert run.status_code == 201, run.text
+
+    [saved] = client.get("/api/v1/saved-typed-values").json()
+    assert saved["type_key"] == f"job:{create.json()['id']}:field:step_value:string"
+    assert saved["value_kind"] == "plain"
+    assert saved["label"] == "Step value"
+    assert saved["field_schema"]["type"] == "string"
+    assert saved["value"] == "remember me"
+
+    app.dependency_overrides.clear()
+    get_runtime.cache_clear()
+
+
+def test_saveable_is_rejected_for_file_managed_fields(tmp_path: Path):
+    client = _client(tmp_path)
+    create = _plain_saveable_job(client, io_role="input")
+    assert create.status_code == 400
+    assert "only be saveable when it is server-managed" in create.json()["detail"]
+
+    app.dependency_overrides.clear()
+    get_runtime.cache_clear()
+
+
 def test_explicit_save_lists_updates_and_deletes(tmp_path: Path):
     client = _client(tmp_path)
 

@@ -1,4 +1,4 @@
-"""Per-researcher store of reusable saved values for structured ("typed") fields.
+"""Per-researcher store of reusable published-job field values.
 
 A researcher fills a published-job field that is bound to a named type (e.g. a
 ``map`` of ``CustomReplicateRule``) and saves it. The value is keyed by
@@ -11,7 +11,8 @@ job in hand.
 ``type_key`` is the library type name (a field's ``schema_ref``) or, for a typed
 field declared inline in a job's ``definitions:`` block, the resolved schema's
 own ``name``. :func:`typed_value_key` derives it from a published field so the
-backend and frontend agree on the key.
+backend and frontend agree on the key. Plain fields are opt-in via ``saveable``
+and use the published-job id, stable field id, and primitive type as their key.
 """
 
 from __future__ import annotations
@@ -35,6 +36,8 @@ class SavedTypedValueRecord:
     container: str
     label: str
     type_schema: dict[str, Any]
+    value_kind: str
+    field_schema: dict[str, Any]
     value: Any
     created_at: datetime
     updated_at: datetime
@@ -57,6 +60,20 @@ def typed_value_key(field: dict[str, Any]) -> tuple[str, str] | None:
         return None
     container = field.get("container") or "single"
     return type_key, container
+
+
+def saved_value_key(field: dict[str, Any], published_job_id: str = "") -> tuple[str, str] | None:
+    """Return the reusable key for a typed field or an opted-in plain field."""
+    typed_key = typed_value_key(field)
+    if typed_key is not None:
+        return typed_key
+    if not field.get("saveable") or field.get("io_role", "none") != "none":
+        return None
+    field_id = str(field.get("id") or "").strip()
+    field_type = str(field.get("type") or "string").strip()
+    if not published_job_id or not field_id or field_type == "typed":
+        return None
+    return f"job:{published_job_id}:field:{field_id}:{field_type}", "single"
 
 
 class _Unset:
@@ -92,6 +109,8 @@ class SavedTypedValueStore:
                     container TEXT NOT NULL DEFAULT 'single',
                     label TEXT NOT NULL DEFAULT '',
                     type_schema TEXT NOT NULL DEFAULT '{}',
+                    value_kind TEXT NOT NULL DEFAULT 'typed',
+                    field_schema TEXT NOT NULL DEFAULT '{}',
                     field_value TEXT NOT NULL DEFAULT 'null',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
@@ -99,6 +118,11 @@ class SavedTypedValueStore:
                 )
                 """
             )
+            existing = {row["name"] for row in conn.execute("PRAGMA table_info(saved_typed_values)")}
+            if "value_kind" not in existing:
+                conn.execute("ALTER TABLE saved_typed_values ADD COLUMN value_kind TEXT NOT NULL DEFAULT 'typed'")
+            if "field_schema" not in existing:
+                conn.execute("ALTER TABLE saved_typed_values ADD COLUMN field_schema TEXT NOT NULL DEFAULT '{}'")
 
     def list(self, user_id: str) -> list[SavedTypedValueRecord]:
         with self.connect() as conn:
@@ -132,6 +156,8 @@ class SavedTypedValueStore:
         label: str,
         type_schema: dict[str, Any],
         value: Any,
+        value_kind: str = "typed",
+        field_schema: dict[str, Any] | None = None,
     ) -> SavedTypedValueRecord:
         """Create or replace the saved value for ``(user, type_key, container)``."""
         now = utc_now()
@@ -141,10 +167,19 @@ class SavedTypedValueStore:
                 conn.execute(
                     """
                     UPDATE saved_typed_values
-                    SET label = ?, type_schema = ?, field_value = ?, updated_at = ?
+                    SET label = ?, type_schema = ?, value_kind = ?, field_schema = ?,
+                        field_value = ?, updated_at = ?
                     WHERE id = ?
                     """,
-                    (label, json.dumps(type_schema), json.dumps(value), now.isoformat(), existing.id),
+                    (
+                        label,
+                        json.dumps(type_schema),
+                        value_kind,
+                        json.dumps(field_schema or {}),
+                        json.dumps(value),
+                        now.isoformat(),
+                        existing.id,
+                    ),
                 )
             # Read back only after the write has committed (the with-block exit), so a
             # fresh connection sees the new value rather than the pre-update row.
@@ -155,9 +190,9 @@ class SavedTypedValueStore:
                 """
                 INSERT INTO saved_typed_values (
                     id, user_id, type_key, container, label, type_schema,
-                    field_value, created_at, updated_at
+                    value_kind, field_schema, field_value, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record_id,
@@ -166,6 +201,8 @@ class SavedTypedValueStore:
                     container,
                     label,
                     json.dumps(type_schema),
+                    value_kind,
+                    json.dumps(field_schema or {}),
                     json.dumps(value),
                     now.isoformat(),
                     now.isoformat(),
@@ -209,6 +246,8 @@ def _from_row(row: sqlite3.Row) -> SavedTypedValueRecord:
         container=row["container"],
         label=row["label"],
         type_schema=json.loads(row["type_schema"] or "{}"),
+        value_kind=row["value_kind"] or "typed",
+        field_schema=json.loads(row["field_schema"] or "{}"),
         value=json.loads(row["field_value"] or "null"),
         created_at=datetime.fromisoformat(row["created_at"]),
         updated_at=datetime.fromisoformat(row["updated_at"]),

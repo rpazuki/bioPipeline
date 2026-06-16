@@ -210,6 +210,7 @@ export interface PublishedField {
   type: PublishedFieldType;
   required: boolean;
   readonly?: boolean;
+  saveable?: boolean;
   default?: unknown;
   help: string;
   example: string;
@@ -263,6 +264,8 @@ export interface SavedTypedValue {
   container: "single" | "list" | "map";
   label: string;
   type_schema: ResolvedType | null;
+  value_kind: "typed" | "plain";
+  field_schema: Partial<PublishedField>;
   value: unknown;
   created_at: string;
   updated_at: string;

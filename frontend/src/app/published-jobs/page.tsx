@@ -22,11 +22,20 @@ import type { PublishedField, PublishedJobPublicDetail, PublishedJobPublicSummar
 // A typed field's reusable identity: its library type name (or inline schema name)
 // plus container shape. Saved values are keyed by this, so the same value pre-fills
 // any published job whose typed field uses the same type + container.
-function typedFieldKey(field: PublishedField): string | null {
-  if (field.type !== "typed") return null;
-  const typeKey = (field.schema_ref || field.type_schema?.name || "").trim();
-  if (!typeKey) return null;
-  return `${typeKey}::${field.container ?? "single"}`;
+function savedFieldIdentity(field: PublishedField, publishedJobId: string): { typeKey: string; container: "single" | "list" | "map" } | null {
+  if (field.type === "typed") {
+    const typeKey = (field.schema_ref || field.type_schema?.name || "").trim();
+    return typeKey ? { typeKey, container: field.container ?? "single" } : null;
+  }
+  if (field.saveable && (field.io_role ?? "none") === "none") {
+    return { typeKey: `job:${publishedJobId}:field:${field.id}:${field.type}`, container: "single" };
+  }
+  return null;
+}
+
+function savedFieldKey(field: PublishedField, publishedJobId: string): string | null {
+  const identity = savedFieldIdentity(field, publishedJobId);
+  return identity ? `${identity.typeKey}::${identity.container}` : null;
 }
 
 type SharedSelection = { root: string; path: string; name: string };
@@ -362,7 +371,7 @@ export default function PublishedJobsPage() {
   const [filterText, setFilterText] = useState("");
   const [selected, setSelected] = useState<PublishedJobPublicDetail | null>(null);
   const [values, setValues] = useState<Record<string, unknown>>({});
-  // Researcher's reusable saved typed values, keyed by `${type_key}::${container}`.
+  // Researcher's reusable field values, keyed by `${type_key}::${container}`.
   const [savedTyped, setSavedTyped] = useState<Record<string, SavedTypedValue>>({});
   const [files, setFiles] = useState<Record<string, File[]>>({});
   const [shared, setShared] = useState<Record<string, SharedSelection>>({});
@@ -424,7 +433,7 @@ export default function PublishedJobsPage() {
     // matching saved value so the researcher edits their last value, not a blank.
     const initial = Object.fromEntries(job.fields.map((field) => [field.id, defaultValue(field)]));
     for (const field of job.fields) {
-      const key = typedFieldKey(field);
+      const key = savedFieldKey(field, job.id);
       const saved = key ? savedTyped[key] : undefined;
       if (saved && saved.value != null) initial[field.id] = saved.value;
     }
@@ -507,19 +516,22 @@ export default function PublishedJobsPage() {
     setWorkspaceId(null);
   }
 
-  async function saveTypedField(field: PublishedField) {
-    const typeKey = (field.schema_ref || field.type_schema?.name || "").trim();
-    if (!typeKey) return;
-    const container = field.container ?? "single";
+  async function saveField(field: PublishedField) {
+    if (!selected) return;
+    const identity = savedFieldIdentity(field, selected.id);
+    if (!identity) return;
+    const { typeKey, container } = identity;
     const saved = await saveTypedValue({
       type_key: typeKey,
       container,
-      label: typeKey,
-      type_schema: field.type_schema ?? null,
+      label: field.label || typeKey,
+      type_schema: field.type_schema ?? {},
+      value_kind: field.type === "typed" ? "typed" : "plain",
+      field_schema: field.type === "typed" ? {} : field,
       value: values[field.id],
     });
     setSavedTyped((current) => ({ ...current, [`${typeKey}::${container}`]: saved }));
-    setStatus(`Saved your ${typeKey} value`);
+    setStatus(`Saved your ${field.label} value`);
   }
 
   // Render one published field as a keyed form node. Extracted from the JSX so the
@@ -530,19 +542,22 @@ export default function PublishedJobsPage() {
     const saveButton = (
       <button
         type="button"
-        onClick={() => saveTypedField(field).catch((cause: Error) => setError(cause.message))}
+        onClick={() => saveField(field).catch((cause: Error) => setError(cause.message))}
         className="w-fit rounded-md border border-cyan-300 bg-cyan-50 px-2.5 py-1 text-xs font-semibold text-cyan-800 hover:bg-cyan-100"
       >
         Save
       </button>
     );
-    const saveHint = typedFieldKey(field) && savedTyped[typedFieldKey(field) as string] ? (
+    const saveKey = selected ? savedFieldKey(field, selected.id) : null;
+    const saveHint = saveKey && savedTyped[saveKey] ? (
       <span className="text-[11px] font-normal text-emerald-700">
         Your saved value is loaded — edit and Save to update it.
       </span>
     ) : (
       <span className="text-[11px] font-normal text-slate-400">
-        Save to reuse this value across jobs that use this type.
+        {field.type === "typed"
+          ? "Save to reuse this value across jobs that use this type."
+          : "Save to reuse this value when you run this published job again."}
       </span>
     );
     // Map/list editors render an "+ Add entry" button the Save button can ride beside;
@@ -586,6 +601,11 @@ export default function PublishedJobsPage() {
               </div>
             )}
           </div>
+        ) : field.saveable ? (
+          <div className="grid gap-1.5">
+            <FieldInput field={field} value={values[field.id]} onChange={(value) => setValues((current) => ({ ...current, [field.id]: value }))} />
+            <div className="flex flex-wrap items-center gap-2">{saveButton}{saveHint}</div>
+          </div>
         ) : (
           <FieldInput field={field} value={values[field.id]} onChange={(value) => setValues((current) => ({ ...current, [field.id]: value }))} />
         )}
@@ -594,7 +614,7 @@ export default function PublishedJobsPage() {
     const className = "grid gap-1 text-xs font-semibold text-slate-600";
     // A typed field renders a multi-control sub-form; a <label> would route
     // every click to its first control, so wrap those in a <div> instead.
-    return field.type === "typed" && (field.io_role ?? "none") === "none" ? (
+    return (field.type === "typed" || field.saveable) && (field.io_role ?? "none") === "none" ? (
       <div key={field.id} className={className}>{inner}</div>
     ) : (
       <label key={field.id} className={className}>{inner}</label>

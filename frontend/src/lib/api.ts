@@ -669,7 +669,9 @@ export async function saveTypedValue(payload: {
   type_key: string;
   container: "single" | "list" | "map";
   label?: string;
-  type_schema: ResolvedType | null;
+  type_schema: ResolvedType | Record<string, never>;
+  value_kind?: "typed" | "plain";
+  field_schema?: Partial<PublishedField>;
   value: unknown;
 }) {
   return apiFetch<SavedTypedValue>("/saved-typed-values", {

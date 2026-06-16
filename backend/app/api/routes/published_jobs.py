@@ -55,7 +55,7 @@ from bio_pipeline_manager.recurring_schedule import (
 from bio_pipeline_manager.models import utc_now
 from bio_pipeline_manager.run_workspace import RunWorkspaceError
 from bio_pipeline_manager.shared_storage import SharedStorageError
-from bio_pipeline_manager.typed_value_store import typed_value_key
+from bio_pipeline_manager.typed_value_store import saved_value_key
 
 router = APIRouter(prefix="/published-jobs", tags=["published-jobs"])
 
@@ -424,27 +424,28 @@ async def submit_published_job_run(
         # without this the cause (missing input, invalid typed value, …) is invisible.
         logger.warning("Published run rejected for job %s: %s", published_job_id, exc)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    # Auto-save each typed field's value the FIRST time it is run, so the next run of
-    # any job using the same type pre-fills it. An already-saved value is left
+    # Auto-save each reusable field's value the FIRST time it is run. Typed values
+    # remain shared by type; opted-in plain values are scoped to this published job.
+    # An already-saved value is left
     # untouched here — only the explicit Save button may overwrite it. Best-effort: a
     # save hiccup must not fail an already-submitted run.
-    _autosave_new_typed_values(runtime, record, body.values, user.id)
+    _autosave_new_values(runtime, record, body.values, user.id)
     return _run_detail(runtime, run)
 
 
-def _autosave_new_typed_values(
+def _autosave_new_values(
     runtime: PipelineRuntime,
     record: PublishedJobRecord,
     values: dict,
     user_id: str,
 ) -> None:
     for field_def in record.fields:
-        key = typed_value_key(field_def)
+        key = saved_value_key(field_def, record.id)
         if key is None:
             continue
         type_key, container = key
         value = values.get(field_def["id"])
-        if not value:  # skip empty {} / [] — nothing worth remembering yet
+        if value is None or value == "" or value == [] or value == {}:
             continue
         try:
             # Only create a saved value that does not exist yet; never overwrite an
@@ -455,8 +456,16 @@ def _autosave_new_typed_values(
                 user_id=user_id,
                 type_key=type_key,
                 container=container,
-                label=type_key,
+                label=field_def.get("label") or type_key,
                 type_schema=field_def.get("type_schema") or {},
+                value_kind="typed" if field_def.get("type") == "typed" else "plain",
+                field_schema={} if field_def.get("type") == "typed" else {
+                    key: field_def.get(key)
+                    for key in (
+                        "id", "label", "type", "required", "readonly", "default",
+                        "help", "example", "placeholder", "options",
+                    )
+                },
                 value=value,
             )
         except Exception:  # noqa: BLE001 - saving a convenience value is never fatal

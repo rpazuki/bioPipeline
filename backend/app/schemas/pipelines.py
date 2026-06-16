@@ -201,6 +201,7 @@ class PublishedField(BaseModel):
     type: str = "string"
     required: bool = True
     readonly: bool = False
+    saveable: bool = False
     default: Any = None
     help: str = ""
     example: str = ""
@@ -231,6 +232,7 @@ class PublicPublishedField(BaseModel):
     type: str = "string"
     required: bool = True
     readonly: bool = False
+    saveable: bool = False
     default: Any = None
     help: str = ""
     example: str = ""
@@ -582,6 +584,8 @@ class SavedTypedValueResponse(BaseModel):
     container: Literal["single", "list", "map"] = "single"
     label: str = ""
     type_schema: dict[str, Any] = Field(default_factory=dict)
+    value_kind: Literal["typed", "plain"] = "typed"
+    field_schema: dict[str, Any] = Field(default_factory=dict)
     value: Any = None
     created_at: datetime
     updated_at: datetime
@@ -598,6 +602,8 @@ class SavedTypedValueUpsertRequest(BaseModel):
     container: Literal["single", "list", "map"] = "single"
     label: str = ""
     type_schema: dict[str, Any] = Field(default_factory=dict)
+    value_kind: Literal["typed", "plain"] = "typed"
+    field_schema: dict[str, Any] = Field(default_factory=dict)
     value: Any = None
 
 

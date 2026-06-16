@@ -112,4 +112,29 @@ describe("PublishedJobsPage", () => {
     const secondOpts = mocked.submitPublishedJobRun.mock.calls[1][3] as { fileBindings: Record<string, unknown> };
     expect(secondOpts.fileBindings.f1).toEqual({ kind: "upload", path: "h" });
   });
+
+  it("saves an opted-in server-managed plain field", async () => {
+    const field = {
+      id: "threshold", label: "Threshold", type: "integer", required: true,
+      default: 5, saveable: true, io_role: "none", help: "", example: "", options: [],
+    };
+    mocked.listPublishedJobs.mockResolvedValue([{ id: "J", name: "Job", description: "", version: 1 }] as any);
+    mocked.getPublishedJob.mockResolvedValue(detail("J", "Job", [field]) as any);
+    mocked.listSavedTypedValues.mockResolvedValue([] as any);
+    mocked.saveTypedValue.mockResolvedValue({
+      id: "saved", type_key: "job:J:field:threshold:integer", container: "single", label: "Threshold",
+      type_schema: {}, value_kind: "plain", field_schema: field, value: "9",
+    } as any);
+
+    render(<PublishedJobsPage />);
+    fireEvent.click(await screen.findByRole("button", { name: /Job/ }));
+    fireEvent.change(await screen.findByRole("spinbutton"), { target: { value: "9" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(mocked.saveTypedValue).toHaveBeenCalledWith(expect.objectContaining({
+      type_key: "job:J:field:threshold:integer",
+      value_kind: "plain",
+      value: "9",
+    })));
+  });
 });

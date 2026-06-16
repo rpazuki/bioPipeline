@@ -22,6 +22,32 @@ function editorField(saved: SavedTypedValue): PublishedField {
   };
 }
 
+function PlainValueEditor({ item, value, onChange }: { item: SavedTypedValue; value: unknown; onChange: (value: unknown) => void }) {
+  const field = item.field_schema;
+  const type = field.type ?? "string";
+  const options = field.options ?? [];
+  const base = "h-9 rounded-md border border-slate-300 px-3 text-sm text-slate-950";
+  if (type === "boolean") {
+    return <input type="checkbox" checked={Boolean(value)} onChange={(event) => onChange(event.target.checked)} className="h-5 w-5" />;
+  }
+  if (type === "enum") {
+    return (
+      <select className={base} value={String(value ?? "")} onChange={(event) => {
+        const selected = options.find((option) => String(option.value) === event.target.value);
+        onChange(selected?.value ?? event.target.value);
+      }}>
+        {options.map((option) => <option key={option.label} value={String(option.value)}>{option.label}</option>)}
+      </select>
+    );
+  }
+  if (type === "text" || type === "object" || type === "json" || type === "list" || type === "multi_enum") {
+    const display = value == null ? "" : typeof value === "string" ? value : JSON.stringify(value);
+    return <textarea className="min-h-24 rounded-md border border-slate-300 p-3 font-mono text-xs" value={display} onChange={(event) => onChange(event.target.value)} />;
+  }
+  const inputType = type === "integer" || type === "float" ? "number" : type === "datetime" ? "datetime-local" : "text";
+  return <input type={inputType} className={base} value={value == null ? "" : String(value)} onChange={(event) => onChange(event.target.value)} />;
+}
+
 export default function SavedValuesPage() {
   const [items, setItems] = useState<SavedTypedValue[]>([]);
   const [drafts, setDrafts] = useState<Record<string, unknown>>({});
@@ -57,7 +83,7 @@ export default function SavedValuesPage() {
   }
 
   async function remove(item: SavedTypedValue) {
-    if (!window.confirm(`Delete your saved "${item.label}" value? Jobs using this type will no longer pre-fill it.`)) return;
+    if (!window.confirm(`Delete your saved "${item.label}" value? Matching job fields will no longer pre-fill it.`)) return;
     setBusyId(item.id);
     setError(null);
     try {
@@ -77,8 +103,7 @@ export default function SavedValuesPage() {
         <div>
           <h2 className="text-lg font-semibold text-slate-950">Saved Values</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Reusable values for structured (typed) fields. Each is shared across every published job whose
-            field uses the same type, so editing one here updates it everywhere.
+            Reusable values for structured fields and plain fields marked saveable by an administrator.
           </p>
         </div>
         <span className="rounded-md border border-yellow-300 bg-yellow-100 px-3 py-2 text-xs text-yellow-800">{status}</span>
@@ -87,7 +112,7 @@ export default function SavedValuesPage() {
 
       {items.length === 0 ? (
         <p className="rounded-md border border-dashed border-slate-300 bg-white px-4 py-6 text-sm text-slate-500">
-          No saved values yet. Open a published job, fill a typed field, and click <span className="font-semibold">Save</span>.
+          No saved values yet. Open a published job, fill a saveable field, and click <span className="font-semibold">Save</span>.
         </p>
       ) : null}
 
@@ -96,20 +121,23 @@ export default function SavedValuesPage() {
           <div key={item.id} className="grid gap-2 rounded-md border border-slate-200 bg-white p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <span className="font-mono text-sm font-semibold text-slate-900">{item.type_key}</span>
+                <span className="font-mono text-sm font-semibold text-slate-900">{item.label || item.type_key}</span>
                 <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                   {item.container}
                 </span>
               </div>
               <span className="text-[11px] text-slate-400">Updated {item.updated_at}</span>
             </div>
-            <TypedValueEditor
-              field={editorField(item)}
-              value={drafts[item.id]}
-              onChange={(value) => setDrafts((current) => ({ ...current, [item.id]: value }))}
-              // List/map saved values show two records per row for a denser overview.
-              columns={item.container === "single" ? 1 : 2}
-            />
+            {item.value_kind === "plain" ? (
+              <PlainValueEditor item={item} value={drafts[item.id]} onChange={(value) => setDrafts((current) => ({ ...current, [item.id]: value }))} />
+            ) : (
+              <TypedValueEditor
+                field={editorField(item)}
+                value={drafts[item.id]}
+                onChange={(value) => setDrafts((current) => ({ ...current, [item.id]: value }))}
+                columns={item.container === "single" ? 1 : 2}
+              />
+            )}
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
