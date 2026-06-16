@@ -556,13 +556,22 @@ class TypeDefRequest(BaseModel):
     # Fields are passed through as raw specs; the store's validate_library enforces
     # structure (known refs, valid containers, enums carry options, no cycles).
     description: str = ""
-    fields: dict[str, dict[str, Any]]
+    # Compound type: a bag of named fields. Empty for a simple (scalar) type, which
+    # instead carries a single primitive ``type`` (+ enum ``options`` / ``default``).
+    fields: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    type: str = ""
+    options: list[Any] = Field(default_factory=list)
+    default: Any = None
 
 
 class TypeDefResponse(BaseModel):
     name: str
     description: str = ""
     fields: dict[str, Any] = Field(default_factory=dict)
+    # Simple (scalar) type attributes; empty/absent for a compound type.
+    type: str = ""
+    options: list[Any] = Field(default_factory=list)
+    default: Any = None
 
 
 class TypeLibraryResponse(BaseModel):

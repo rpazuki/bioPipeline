@@ -2,7 +2,7 @@
 
 import { useRef, useState, type ReactNode } from "react";
 
-import type { PublishedField, ResolvedType, ResolvedTypeField } from "@/types";
+import type { PublishedField, ResolvedScalar, ResolvedType, ResolvedTypeField } from "@/types";
 
 // Structured editor for a "typed" published field: renders a defined type as a
 // single sub-form, an ordered list (add/remove rows), or a string-keyed map
@@ -24,7 +24,9 @@ function LeafInput({
   value,
   onChange,
 }: {
-  field: ResolvedTypeField;
+  // A compound type's field node, or a simple type's bare leaf descriptor — both
+  // carry the `type`/`options`/`example` this input reads.
+  field: ResolvedTypeField | ResolvedScalar;
   value: unknown;
   onChange: (value: unknown) => void;
 }) {
@@ -76,7 +78,7 @@ function ObjectEditor({
   const setField = (name: string, next: unknown) => onChange({ ...object, [name]: next });
   return (
     <div className="grid gap-1.5 rounded-md border border-slate-200 bg-white p-2">
-      {schema.fields.map((field) => (
+      {(schema.fields ?? []).map((field) => (
         <label key={field.name} className="grid gap-1 text-xs text-slate-600">
           <span className="font-medium text-slate-700">
             {field.name}
@@ -227,6 +229,124 @@ function MapEditor({
   );
 }
 
+// A simple (scalar) type as an ordered list of bare leaf values.
+function ScalarListEditor({
+  leaf,
+  value,
+  onChange,
+  columns = 1,
+  actions,
+}: {
+  leaf: ResolvedScalar;
+  value: unknown;
+  onChange: (value: unknown) => void;
+  columns?: 1 | 2;
+  actions?: ReactNode;
+}) {
+  const items = Array.isArray(value) ? value : [];
+  return (
+    <div className="grid gap-2">
+      <div className={`grid max-h-96 gap-2 overflow-y-auto pr-1 ${columns === 2 ? "md:grid-cols-2" : ""}`}>
+        {items.map((item, index) => (
+          <div key={index} className="flex items-center gap-2">
+            <LeafInput field={leaf} value={item} onChange={(next) => onChange(items.map((existing, other) => (other === index ? next : existing)))} />
+            <button
+              type="button"
+              className="shrink-0 rounded border border-rose-200 px-2 py-0.5 text-[11px] font-semibold text-rose-700"
+              onClick={() => onChange(items.filter((_, other) => other !== index))}
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+        {items.length === 0 ? <span className="text-[11px] text-slate-400">No entries yet.</span> : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          className="w-fit rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-600"
+          onClick={() => onChange([...items, ""])}
+        >
+          + Add entry
+        </button>
+        {actions}
+      </div>
+    </div>
+  );
+}
+
+// A simple (scalar) type as a string-keyed map of bare leaf values.
+function ScalarMapEditor({
+  leaf,
+  value,
+  onChange,
+  columns = 1,
+  actions,
+}: {
+  leaf: ResolvedScalar;
+  value: unknown;
+  onChange: (value: unknown) => void;
+  columns?: 1 | 2;
+  actions?: ReactNode;
+}) {
+  // Stable row ids so editing a key doesn't lose input focus (mirrors MapEditor).
+  const counter = useRef(0);
+  const [rows, setRows] = useState<MapRow[]>(() =>
+    Object.entries(isObject(value) ? value : {}).map(([key, entry], index) => ({ id: `init-${index}`, key, value: entry })),
+  );
+
+  function commit(next: MapRow[]) {
+    setRows(next);
+    const out: Record<string, unknown> = {};
+    for (const row of next) {
+      const key = row.key.trim();
+      if (key) out[key] = row.value;
+    }
+    onChange(out);
+  }
+
+  const duplicate = (key: string) => key.trim() && rows.filter((row) => row.key.trim() === key.trim()).length > 1;
+
+  return (
+    <div className="grid gap-2">
+      <div className={`grid max-h-96 gap-2 overflow-y-auto pr-1 ${columns === 2 ? "md:grid-cols-2" : ""}`}>
+        {rows.map((row, index) => (
+          <div key={row.id} className="grid gap-1">
+            <div className="flex items-center gap-2">
+              <input
+                className="h-8 w-1/3 rounded-md border border-slate-300 px-2 text-xs font-medium text-slate-950"
+                placeholder="key"
+                value={row.key}
+                onChange={(event) => commit(rows.map((other, position) => (position === index ? { ...other, key: event.target.value } : other)))}
+              />
+              <LeafInput field={leaf} value={row.value} onChange={(next) => commit(rows.map((other, position) => (position === index ? { ...other, value: next } : other)))} />
+              <button
+                type="button"
+                className="shrink-0 rounded border border-rose-200 px-2 py-0.5 text-[11px] font-semibold text-rose-700"
+                onClick={() => commit(rows.filter((_, position) => position !== index))}
+              >
+                Remove
+              </button>
+            </div>
+            {duplicate(row.key) ? <span className="text-[11px] text-amber-700">Duplicate key — only the last is kept.</span> : null}
+          </div>
+        ))}
+        {rows.length === 0 ? <span className="text-[11px] text-slate-400">No entries yet.</span> : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          className="w-fit rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-600"
+          onClick={() => commit([...rows, { id: `add-${counter.current++}`, key: "", value: "" }])}
+        >
+          + Add entry
+        </button>
+        {actions}
+      </div>
+    </div>
+  );
+}
+
 function ContainerEditor({
   schema,
   container,
@@ -242,6 +362,20 @@ function ContainerEditor({
   columns?: 1 | 2;
   actions?: ReactNode;
 }) {
+  // A simple (scalar) type edits a bare leaf value (single), or a list/map of them.
+  if (schema.kind === "scalar" && schema.scalar) {
+    const leaf = schema.scalar;
+    if (container === "list") return <ScalarListEditor leaf={leaf} value={value} onChange={onChange} columns={columns} actions={actions} />;
+    if (container === "map") return <ScalarMapEditor leaf={leaf} value={value} onChange={onChange} columns={columns} actions={actions} />;
+    const single = <LeafInput field={leaf} value={value} onChange={onChange} />;
+    if (!actions) return single;
+    return (
+      <div className="grid gap-2">
+        {single}
+        <div className="flex flex-wrap items-center gap-2">{actions}</div>
+      </div>
+    );
+  }
   if (container === "list") return <ListEditor schema={schema} value={value} onChange={onChange} columns={columns} actions={actions} />;
   if (container === "map") return <MapEditor schema={schema} value={value} onChange={onChange} columns={columns} actions={actions} />;
   // A single object has no add button to align against, so any actions render on their

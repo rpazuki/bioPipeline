@@ -50,6 +50,12 @@ function defaultValue(field: PublishedField) {
   if (field.type === "typed") {
     const preset = field.default;
     if (field.container === "list") return Array.isArray(preset) ? preset : [];
+    if (field.container === "map") return preset && typeof preset === "object" && !Array.isArray(preset) ? preset : {};
+    // single: a simple (scalar) type holds a bare value, so start it empty (or its
+    // scalar default); a compound type holds an object the structured editor manages.
+    if (field.type_schema?.kind === "scalar") {
+      return preset != null && typeof preset !== "object" ? preset : "";
+    }
     return preset && typeof preset === "object" && !Array.isArray(preset) ? preset : {};
   }
   // A $WILL_PROVIDE$ placeholder is not a real default — start the field empty so

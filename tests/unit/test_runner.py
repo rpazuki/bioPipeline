@@ -87,6 +87,68 @@ def test_no_timeout_runs_to_completion(tmp_path: Path):
     assert result.status == JobStatus.SUCCEEDED
 
 
+def test_log_level_forwarded_from_queue_to_runner(tmp_path: Path):
+    store = JobStore(tmp_path / "state.sqlite")
+    queue = JobQueue(store, tmp_path / "logs", log_level="DEBUG")
+    assert queue.runner.log_level == "DEBUG"
+
+
+def test_log_level_propagates_into_subprocess_env(tmp_path: Path):
+    import sys
+
+    store = JobStore(tmp_path / "state.sqlite")
+    queue = JobQueue(store, tmp_path / "logs")
+    job = queue.submit(
+        JobSpec(
+            yaml_path=tmp_path / "pipe.yaml",
+            pipeline_name="demo",
+            output_dir=tmp_path / "out",
+        )
+    )
+
+    class EnvEchoRunner(LocalSubprocessRunner):
+        # Echo the injected log-level env var to stdout (captured into the task log).
+        def build_command(self, job, task_path):
+            return [
+                sys.executable,
+                "-c",
+                "import os; print('LEVEL=' + os.environ.get('BIO_PIPELINE_LOG_LEVEL', 'UNSET'))",
+            ]
+
+    result = EnvEchoRunner(store, log_level="DEBUG").run(job.id)
+    assert result.status == JobStatus.SUCCEEDED
+    assert "LEVEL=DEBUG" in job.log_path.read_text(encoding="utf-8")
+
+
+def test_no_log_level_leaves_subprocess_env_unset(tmp_path: Path, monkeypatch):
+    import sys
+
+    # The runner copies os.environ; ensure a developer's exported var doesn't leak in.
+    monkeypatch.delenv("BIO_PIPELINE_LOG_LEVEL", raising=False)
+    store = JobStore(tmp_path / "state.sqlite")
+    queue = JobQueue(store, tmp_path / "logs")
+    job = queue.submit(
+        JobSpec(
+            yaml_path=tmp_path / "pipe.yaml",
+            pipeline_name="demo",
+            output_dir=tmp_path / "out",
+        )
+    )
+
+    class EnvEchoRunner(LocalSubprocessRunner):
+        def build_command(self, job, task_path):
+            return [
+                sys.executable,
+                "-c",
+                "import os; print('LEVEL=' + os.environ.get('BIO_PIPELINE_LOG_LEVEL', 'UNSET'))",
+            ]
+
+    # Default (no log_level) must not inject the var, so the subprocess keeps INFO.
+    result = EnvEchoRunner(store).run(job.id)
+    assert result.status == JobStatus.SUCCEEDED
+    assert "LEVEL=UNSET" in job.log_path.read_text(encoding="utf-8")
+
+
 def test_rejects_unknown_backend(tmp_path: Path):
     import pytest
 

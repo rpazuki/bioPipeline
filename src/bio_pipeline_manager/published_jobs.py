@@ -591,8 +591,20 @@ def render_definition(record: PublishedJobRecord, values: dict[str, Any]) -> str
     coerced_values = _coerce_values(record.fields, values)
     for field in record.fields:
         value = coerced_values[field["id"]]
+        # Only researcher-entered values (io_role "none") are literal data needing brace
+        # escaping, so a value like a regex (\d{2}) or a literal {x} passes through the
+        # token renderer instead of being read as a {token}. io_role input/output values
+        # come from resolve_io as concrete paths or templates — a fanned-out output_dir
+        # carries real {variant.name} / {item.*} tokens that MUST stay renderable — so
+        # they are never escaped.
+        literal = field.get("io_role", "none") == "none"
         for binding in field.get("bindings", []):
-            _apply_binding(rendered, binding, _reconcile_variable_value(original_variables, binding, value))
+            applied = _reconcile_variable_value(original_variables, binding, value)
+            # Variable bindings feed the matrix/template context (not rendered as a
+            # template), so their braces are left untouched too.
+            if literal and not _is_variable_binding(binding):
+                applied = _escape_braces(applied)
+            _apply_binding(rendered, binding, applied)
     # A $WILL_PROVIDE$ placeholder left in the rendered definition means a value
     # was never exposed as an input field — so the researcher had no way to supply
     # it. Fail here with an actionable message instead of letting the generic
@@ -923,19 +935,54 @@ def _coerce_value(value: Any, field: dict[str, Any]) -> Any:
     if field_type in {"list", "multi_enum"}:
         return value if isinstance(value, list) else [value]
     if field_type in {"object", "json"}:
-        if isinstance(value, str):
-            return yaml.safe_load(value)
-        return value
+        return _parse_structured(value, field) if isinstance(value, str) else value
     if field_type == "typed":
-        # A researcher may submit the structured value directly (dict/list) or, as a
-        # fallback, as a JSON/YAML string from a plain textarea. Parse then validate
-        # against the field's resolved schema, producing a native structure.
-        if isinstance(value, str):
-            value = yaml.safe_load(value)
+        schema = field.get("type_schema")
+        is_scalar = isinstance(schema, dict) and schema.get("kind") == "scalar"
+        # A compound/object typed value may arrive as a JSON/YAML string from the
+        # fallback textarea and must be parsed before validation. A *simple* (scalar)
+        # type, by contrast, submits a bare leaf value (e.g. a regex like
+        # "[A-Za-z0-9]+_[A-Za-z0-9]+") — parsing that as YAML would crash or mangle it,
+        # so pass scalar strings straight to coercion.
+        if isinstance(value, str) and not is_scalar:
+            value = _parse_structured(value, field)
         try:
             return coerce_typed_value(field, value)
         except TypeSchemaError as exc:
             raise PublishedJobError(str(exc)) from exc
+    return value
+
+
+def _parse_structured(value: str, field: dict[str, Any]) -> Any:
+    """Parse a JSON/YAML string from a textarea, surfacing a bad value as a controlled
+    :class:`PublishedJobError` (400) rather than letting a raw YAMLError become a 500."""
+    try:
+        return yaml.safe_load(value)
+    except yaml.YAMLError as exc:
+        label = field.get("label", field.get("id"))
+        raise PublishedJobError(f"Field '{label}' is not valid JSON/YAML: {exc}") from exc
+
+
+def _is_variable_binding(binding: dict[str, Any]) -> bool:
+    """True if a binding targets a matrix ``variables.<name>`` entry."""
+    path = binding.get("path") or []
+    return (
+        binding.get("target") == "definition_path"
+        and isinstance(path, list)
+        and bool(path)
+        and path[0] == "variables"
+    )
+
+
+def _escape_braces(value: Any) -> Any:
+    """Escape ``{``/``}`` -> ``{{``/``}}`` in every string so the job-definition token
+    renderer treats injected researcher data literally. Recurses into lists/dicts."""
+    if isinstance(value, str):
+        return value.replace("{", "{{").replace("}", "}}")
+    if isinstance(value, list):
+        return [_escape_braces(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _escape_braces(item) for key, item in value.items()}
     return value
 
 

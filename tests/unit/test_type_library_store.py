@@ -48,6 +48,38 @@ def test_delete_rejects_when_it_would_strand_a_reference(tmp_path):
     assert store.all() == {}
 
 
+def test_upsert_simple_scalar_type(tmp_path):
+    store = TypeLibraryStore(tmp_path / "type_library.yaml")
+    store.upsert("SampleId", {"description": "an id", "type": "string"})
+    store.upsert("Direction", {"type": "enum", "options": ["up", "down"], "default": "up"})
+
+    stored = store.get("SampleId")
+    assert stored["type"] == "string"
+    assert "fields" not in stored
+
+    direction = store.get("Direction")
+    assert direction["type"] == "enum"
+    assert direction["options"] == ["up", "down"]
+    assert direction["default"] == "up"
+
+    # Persists across a reopen.
+    reopened = TypeLibraryStore(tmp_path / "type_library.yaml")
+    assert reopened.get("SampleId")["type"] == "string"
+
+
+def test_upsert_simple_type_rejects_non_primitive(tmp_path):
+    store = TypeLibraryStore(tmp_path / "type_library.yaml")
+    with pytest.raises(TypeSchemaError, match="must be a primitive"):
+        store.upsert("Bad", {"type": "NotAPrimitive"})
+
+
+def test_compound_field_can_reference_a_simple_type(tmp_path):
+    store = TypeLibraryStore(tmp_path / "type_library.yaml")
+    store.upsert("SampleId", {"type": "string"})
+    store.upsert("Policy", {"fields": {"ids": {"type": "SampleId", "container": "list"}}})
+    assert "Policy" in store.all()
+
+
 def test_get_missing_raises_keyerror(tmp_path):
     store = TypeLibraryStore(tmp_path / "type_library.yaml")
     with pytest.raises(KeyError):

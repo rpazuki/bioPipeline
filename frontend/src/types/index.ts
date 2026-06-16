@@ -171,9 +171,21 @@ export interface ResolvedTypeField {
   type_schema?: ResolvedType | null;
 }
 
+// A resolved simple/scalar type: a single primitive leaf descriptor (no fields).
+export interface ResolvedScalar {
+  type: PublishedFieldType;
+  options: PublishedFieldOption[];
+  help?: string;
+  example?: string;
+  default?: unknown;
+}
+
 export interface ResolvedType {
   name: string;
-  fields: ResolvedTypeField[];
+  // A compound type carries `fields`; a simple type carries `kind: "scalar"` + `scalar`.
+  fields?: ResolvedTypeField[];
+  kind?: "scalar";
+  scalar?: ResolvedScalar;
 }
 
 export interface PublishedFieldOption {
@@ -238,6 +250,11 @@ export interface TypeDef {
   name: string;
   description: string;
   fields: Record<string, TypeFieldSpec>;
+  // Simple (scalar) type: a single primitive instead of a `fields` bag. `fields` is
+  // then empty and these carry the leaf primitive (+ enum options / optional default).
+  type?: string;
+  options?: unknown[];
+  default?: unknown;
 }
 
 // One field spec as authored/stored in the library (pre-resolution). `type` is a

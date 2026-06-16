@@ -129,6 +129,60 @@ def test_coerce_list_of_type():
     assert coerce_typed_value(field, [{"cutoff": "0.5"}, {"cutoff": 1}]) == [{"cutoff": 0.5}, {"cutoff": 1.0}]
 
 
+# --- simple (scalar) types ----------------------------------------------- #
+SIMPLE_LIB = {
+    "SampleId": {"description": "a sample id", "type": "string"},
+    "Replicates": {"type": "integer"},
+    "Direction": {"type": "enum", "options": ["up", "down"], "default": "up"},
+}
+
+
+def test_validate_accepts_simple_types():
+    validate_library(SIMPLE_LIB)  # does not raise
+
+
+def test_validate_rejects_simple_non_primitive():
+    with pytest.raises(TypeSchemaError, match="must be a primitive"):
+        validate_library({"Bad": {"type": "SampleId"}})  # ref, not a primitive
+
+
+def test_validate_rejects_simple_enum_without_options():
+    with pytest.raises(TypeSchemaError, match="enum but lists no 'options'"):
+        validate_library({"Bad": {"type": "enum"}})
+
+
+def test_resolve_simple_type_is_scalar():
+    schema = resolve_type(SIMPLE_LIB, "Direction")
+    assert schema["kind"] == "scalar"
+    assert schema["scalar"]["type"] == "enum"
+    assert schema["scalar"]["default"] == "up"
+    assert schema["scalar"]["options"] == [{"label": "up", "value": "up"}, {"label": "down", "value": "down"}]
+
+
+def test_coerce_simple_single_list_and_map():
+    single = {"type": "typed", "container": "single", "type_schema": resolve_type(SIMPLE_LIB, "Replicates")}
+    assert coerce_typed_value(single, "5") == 5
+
+    as_list = {"type": "typed", "container": "list", "type_schema": resolve_type(SIMPLE_LIB, "SampleId")}
+    assert coerce_typed_value(as_list, ["a", "b"]) == ["a", "b"]
+
+    as_map = {"type": "typed", "container": "map", "type_schema": resolve_type(SIMPLE_LIB, "Replicates")}
+    assert coerce_typed_value(as_map, {"x": "3", "y": 4}) == {"x": 3, "y": 4}
+
+
+def test_coerce_simple_list_requires_list():
+    as_list = {"type": "typed", "container": "list", "type_schema": resolve_type(SIMPLE_LIB, "SampleId")}
+    with pytest.raises(TypeSchemaError, match="must be a list"):
+        coerce_typed_value(as_list, "not-a-list")
+
+
+def test_compound_field_can_reference_a_simple_type():
+    library = {**SIMPLE_LIB, "Policy": {"fields": {"ids": {"type": "SampleId", "container": "list"}}}}
+    validate_library(library)
+    field = {"type": "typed", "container": "single", "type_schema": resolve_type(library, "Policy")}
+    assert coerce_typed_value(field, {"ids": ["i1", "i2"]}) == {"ids": ["i1", "i2"]}
+
+
 # --- suggestion ---------------------------------------------------------- #
 def test_suggest_map_of_type():
     value = {"SLAB": {"direction": "alphabetical", "sample_size": 3}}

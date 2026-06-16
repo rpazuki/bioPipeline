@@ -31,7 +31,12 @@ import yaml
 
 from pipeline.io import create_file_mapping_from_patterns, list_folders, load_file_mapping
 
+# A single ``{name}`` / ``{name.field}`` template token (used for the whole-string match).
 _TOKEN_RE = re.compile(r"\{([a-zA-Z0-9_.]+)\}")
+# Token substitution plus literal-brace escapes: ``{{`` -> ``{`` and ``}}`` -> ``}``.
+# Ordered alternation means a doubled brace is consumed as an escape before it could be
+# read as the start of a ``{token}``.
+_RENDER_RE = re.compile(r"\{\{|\}\}|\{([a-zA-Z0-9_.]+)\}")
 
 FANOUT_TYPES = {"none", "mapping_file", "patterns", "folders"}
 
@@ -181,7 +186,7 @@ def _render(template: Any, context: dict[str, str], *, lenient: bool = False) ->
     if isinstance(template, str):
         # If the entire string is a single {token}, return context[key] as-is so
         # dict/list values are preserved rather than coerced to their str() repr.
-        m = re.fullmatch(r"\{([a-zA-Z0-9_.]+)\}", template)
+        m = _TOKEN_RE.fullmatch(template)
         if m:
             key = m.group(1)
             if key in context:
@@ -191,14 +196,22 @@ def _render(template: Any, context: dict[str, str], *, lenient: bool = False) ->
             raise JobDefinitionError(f"unresolved template variable '{{{key}}}'")
 
         def replace(match: re.Match) -> str:
+            token = match.group(0)
+            # ``{{`` / ``}}`` are literal-brace escapes, so injected data (e.g. a regex
+            # ``\d{2}`` or a literal ``{x}`` from a published-job field) passes through
+            # instead of being mistaken for a ``{token}``.
+            if token == "{{":
+                return "{"
+            if token == "}}":
+                return "}"
             key = match.group(1)
             if key not in context:
                 if lenient:
-                    return match.group(0)
+                    return token
                 raise JobDefinitionError(f"unresolved template variable '{{{key}}}'")
             return str(context[key])
 
-        return _TOKEN_RE.sub(replace, template)
+        return _RENDER_RE.sub(replace, template)
     if isinstance(template, dict):
         # YAML parses a bare `{varname}` flow-mapping placeholder as {varname: null}.
         # Detect this: a single-entry dict whose key matches a context variable and

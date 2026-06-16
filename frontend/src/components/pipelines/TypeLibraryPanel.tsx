@@ -65,6 +65,11 @@ function parseDefault(raw: string, type: string): unknown {
   return text;
 }
 
+// A simple (scalar) type stores a single primitive `type` and no `fields`.
+function isSimpleType(type: TypeDef): boolean {
+  return (!type.fields || Object.keys(type.fields).length === 0) && !!type.type;
+}
+
 function fieldsFromRows(rows: FieldRow[]): Record<string, TypeFieldSpec> {
   const fields: Record<string, TypeFieldSpec> = {};
   for (const row of rows) {
@@ -94,6 +99,11 @@ export default function TypeLibraryPanel() {
   const [editDescription, setEditDescription] = useState("");
   const [rows, setRows] = useState<FieldRow[]>([]);
   const [editing, setEditing] = useState(false);
+  // Compound = a bag of fields; simple = one primitive value.
+  const [editKind, setEditKind] = useState<"compound" | "simple">("compound");
+  const [simpleType, setSimpleType] = useState("string");
+  const [simpleOptions, setSimpleOptions] = useState(""); // comma-separated, for enum
+  const [simpleDefault, setSimpleDefault] = useState("");
 
   // Extractor state
   const [qualified, setQualified] = useState("");
@@ -133,9 +143,13 @@ export default function TypeLibraryPanel() {
 
   function startNew() {
     setEditing(true);
+    setEditKind("compound");
     setEditName("");
     setEditDescription("");
     setRows([{ key: "", type: "string", container: "single", required: true, options: "", default: "" }]);
+    setSimpleType("string");
+    setSimpleOptions("");
+    setSimpleDefault("");
     setStatus(null);
   }
 
@@ -143,7 +157,19 @@ export default function TypeLibraryPanel() {
     setEditing(true);
     setEditName(type.name);
     setEditDescription(type.description ?? "");
-    setRows(rowsFromType(type));
+    if (isSimpleType(type)) {
+      setEditKind("simple");
+      setSimpleType(type.type ?? "string");
+      setSimpleOptions((type.options ?? []).map((option) => String(option)).join(", "));
+      setSimpleDefault(type.default === undefined || type.default === null ? "" : String(type.default));
+      setRows([]);
+    } else {
+      setEditKind("compound");
+      setRows(rowsFromType(type));
+      setSimpleType("string");
+      setSimpleOptions("");
+      setSimpleDefault("");
+    }
     setStatus(null);
   }
 
@@ -153,8 +179,22 @@ export default function TypeLibraryPanel() {
 
   const onSave = () =>
     run(async () => {
-      await upsertType(editName.trim(), { description: editDescription, fields: fieldsFromRows(rows) });
-      setStatus(`Saved ${editName.trim()}`);
+      const name = editName.trim();
+      if (editKind === "simple") {
+        const body: { description: string; type: string; options?: unknown[]; default?: unknown } = {
+          description: editDescription,
+          type: simpleType,
+        };
+        if (simpleType === "enum") {
+          body.options = simpleOptions.split(",").map((option) => option.trim()).filter(Boolean);
+        }
+        const parsedDefault = parseDefault(simpleDefault, simpleType);
+        if (parsedDefault !== undefined) body.default = parsedDefault;
+        await upsertType(name, body);
+      } else {
+        await upsertType(name, { description: editDescription, fields: fieldsFromRows(rows) });
+      }
+      setStatus(`Saved ${name}`);
       setEditing(false);
       await refresh();
     });
@@ -184,7 +224,12 @@ export default function TypeLibraryPanel() {
       await refresh();
     });
 
-  const canSave = editName.trim().length > 0 && rows.some((row) => row.key.trim().length > 0);
+  const canSave =
+    editName.trim().length > 0 &&
+    (editKind === "simple"
+      ? simpleType.length > 0 &&
+        (simpleType !== "enum" || simpleOptions.split(",").some((option) => option.trim().length > 0))
+      : rows.some((row) => row.key.trim().length > 0));
 
   return (
     <section className="grid gap-3 rounded-md border border-slate-200 bg-white p-4">
@@ -268,7 +313,7 @@ export default function TypeLibraryPanel() {
             <li key={type.name} className="flex items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-1.5 text-xs">
               <span>
                 <span className="font-mono font-semibold text-slate-900">{type.name}</span>
-                <span className="text-slate-400"> · {Object.keys(type.fields ?? {}).length} fields</span>
+                <span className="text-slate-400"> · {isSimpleType(type) ? `simple (${type.type})` : `${Object.keys(type.fields ?? {}).length} fields`}</span>
                 {type.description ? <span className="text-slate-500"> — {type.description}</span> : null}
               </span>
               <span className="flex gap-2">
@@ -307,6 +352,48 @@ export default function TypeLibraryPanel() {
             </label>
           </div>
 
+          <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-slate-600">
+            <span>Kind</span>
+            <label className="flex items-center gap-1 font-normal">
+              <input type="radio" name="type-kind" checked={editKind === "compound"} onChange={() => setEditKind("compound")} />
+              Compound (multiple fields)
+            </label>
+            <label className="flex items-center gap-1 font-normal">
+              <input type="radio" name="type-kind" checked={editKind === "simple"} onChange={() => setEditKind("simple")} />
+              Simple (one value)
+            </label>
+          </div>
+
+          {editKind === "simple" ? (
+            <div className="grid gap-1">
+              <span className="text-xs font-semibold text-slate-600">Value</span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <select value={simpleType} onChange={(event) => setSimpleType(event.target.value)} className="h-8 rounded-md border border-slate-300 px-1 text-xs">
+                  {LEAF_TYPES.map((choice) => (
+                    <option key={choice} value={choice}>{choice}</option>
+                  ))}
+                </select>
+                <input
+                  value={simpleDefault}
+                  onChange={(event) => setSimpleDefault(event.target.value)}
+                  placeholder="default (optional)"
+                  title="Optional default value used when a researcher leaves this field empty"
+                  className="h-8 w-36 rounded-md border border-slate-300 px-2 text-xs"
+                />
+                {simpleType === "enum" ? (
+                  <input
+                    value={simpleOptions}
+                    onChange={(event) => setSimpleOptions(event.target.value)}
+                    placeholder="option1, option2"
+                    className="h-8 flex-1 rounded-md border border-slate-300 px-2 text-xs"
+                  />
+                ) : null}
+              </div>
+              <span className="text-[11px] text-slate-400">
+                A single {simpleType} value. Bound to a job field it can be used as one value, a list, or a map.
+              </span>
+            </div>
+          ) : (
           <div className="grid gap-1">
             <span className="text-xs font-semibold text-slate-600">Fields</span>
             {rows.map((row, index) => (
@@ -361,6 +448,7 @@ export default function TypeLibraryPanel() {
               + Add field
             </button>
           </div>
+          )}
 
           <div className="flex gap-2">
             <button type="button" onClick={onSave} disabled={busy || !canSave} className="rounded-md bg-cyan-700 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">

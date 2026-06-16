@@ -50,7 +50,7 @@ export default function MyRunsPage() {
   const [openTaskLogs, setOpenTaskLogs] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("Ready");
-  const [colWidths, setColWidths] = useState<number[]>([44, 160, 110, 300, 80, 165]);
+  const [colWidths, setColWidths] = useState<number[]>([44, 220, 110, 300, 80, 165]);
 
   function handleResizeStart(colIndex: number, e: React.MouseEvent) {
     e.preventDefault();

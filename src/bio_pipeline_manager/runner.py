@@ -64,12 +64,16 @@ class LocalSubprocessRunner:
         python_executable: str | Path | None = None,
         extra_env: dict[str, str] | None = None,
         task_timeout: float | None = None,
+        log_level: str | None = None,
     ):
         self.store = store
         self.python_executable = str(python_executable or sys.executable)
         self.extra_env = extra_env or {}
         # None / non-positive disables the watchdog (wait is unbounded).
         self.task_timeout = task_timeout if task_timeout and task_timeout > 0 else None
+        # Verbosity the task subprocess logs at — propagated from the backend's
+        # configured `log_level` so executed jobs match the API's verbosity.
+        self.log_level = log_level
 
     def write_task_file(self, job: JobRecord) -> Path:
         """Materialise the Task as a JSON file next to its log."""
@@ -112,6 +116,11 @@ class LocalSubprocessRunner:
         command = self.build_command(job, task_path)
         env = os.environ.copy()
         env.update(self.extra_env)
+        # Propagate the configured log level so the task subprocess emits at the same
+        # verbosity as the backend. Read by bio_pipeline_manager.run_task; the env var
+        # name is paired with LOG_LEVEL_ENV there — keep the two in sync.
+        if self.log_level:
+            env["BIO_PIPELINE_LOG_LEVEL"] = str(self.log_level)
         # Ensure the subprocess can import the project packages from src/.
         existing_pythonpath = env.get("PYTHONPATH", "")
         env["PYTHONPATH"] = (

@@ -1,10 +1,16 @@
 """Named-type schema: the reusable type library behind structured published fields.
 
-A *type library* is a project-level registry of named types. Each type is a bag of
-**fields**; a field's ``type`` is either a **leaf primitive** (a scalar member of the
-published-field type set) or the **name of another type** in the library (recursion),
-wrapped in a ``container`` of ``single`` / ``list`` / ``map``. Types form a tree whose
-leaves are primitives.
+A *type library* is a project-level registry of named types. A type is one of:
+
+- **Compound** — a bag of **fields**; a field's ``type`` is either a **leaf primitive**
+  (a scalar member of the published-field type set) or the **name of another type** in
+  the library (recursion), wrapped in a ``container`` of ``single`` / ``list`` / ``map``.
+- **Simple (scalar)** — a single primitive value, declared with a top-level ``type``
+  (a leaf primitive, e.g. ``{type: string}`` or ``{type: enum, options: [...]}``) and
+  no ``fields``. Bound to a published field it edits as one scalar (``single``), a list
+  of scalars (``list``), or a string-keyed map of scalars (``map``).
+
+Types form a tree whose leaves are primitives.
 
 The library lets a published-job field be edited as a structured value (e.g. a
 ``map`` of ``CustomReplicateRule``) instead of a raw JSON textarea. Three operations
@@ -59,10 +65,30 @@ def validate_library(library: dict[str, Any]) -> None:
     for name, type_def in library.items():
         if not isinstance(name, str) or not name.strip():
             raise TypeSchemaError("Each type needs a non-empty name")
+        if _is_scalar_type(type_def):
+            _validate_scalar(name, type_def)
+            continue
         fields = _fields_of(name, type_def)
         for field_name, spec in fields.items():
             _validate_field(name, field_name, spec, names)
     _check_no_cycles(library)
+
+
+def _is_scalar_type(type_def: Any) -> bool:
+    """True for a *simple* type: a single primitive (``type``), with no ``fields``."""
+    return isinstance(type_def, dict) and not type_def.get("fields") and bool(type_def.get("type"))
+
+
+def _validate_scalar(name: str, type_def: dict[str, Any]) -> None:
+    """A simple type must be a leaf primitive (enums carry options)."""
+    field_type = type_def.get("type")
+    if field_type not in LEAF_TYPES:
+        raise TypeSchemaError(
+            f"Simple type '{name}' must be a primitive "
+            f"({', '.join(sorted(LEAF_TYPES))}); got '{field_type}'."
+        )
+    if field_type == "enum" and not type_def.get("options"):
+        raise TypeSchemaError(f"Simple type '{name}' is an enum but lists no 'options'")
 
 
 def _fields_of(name: str, type_def: Any) -> dict[str, Any]:
@@ -139,6 +165,20 @@ def resolve_type(library: dict[str, Any], type_name: str, *, _seen: tuple[str, .
     if type_name in _seen:
         raise TypeSchemaError("Type reference cycle through '%s'" % type_name)
     type_def = library[type_name]
+    if _is_scalar_type(type_def):
+        # A simple type resolves to a single leaf descriptor under ``scalar`` (rather
+        # than a ``fields`` list), tagged ``kind: scalar`` so consumers render/coerce a
+        # bare value instead of an object.
+        field_type = type_def["type"]
+        scalar: dict[str, Any] = {
+            "type": field_type,
+            "options": _normalize_options(type_def.get("options")) if field_type == "enum" else [],
+            "help": str(type_def.get("help", "")),
+            "example": str(type_def.get("example", "")),
+        }
+        if "default" in type_def:
+            scalar["default"] = type_def["default"]
+        return {"name": type_name, "kind": "scalar", "scalar": scalar}
     fields: list[dict[str, Any]] = []
     for field_name, spec in (_fields_of(type_name, type_def)).items():
         field_type = spec["type"]
@@ -185,6 +225,9 @@ def coerce_typed_value(field: dict[str, Any], value: Any) -> Any:
     if not isinstance(schema, dict):
         raise TypeSchemaError("Typed field is missing its resolved schema")
     label = str(field.get("label") or field.get("name") or schema.get("name") or "value")
+    # A simple (scalar) type coerces a bare leaf value (or a list/map of them).
+    if schema.get("kind") == "scalar":
+        return _coerce_scalar_container(schema, container, value, label)
     if container == "single":
         return _coerce_object(schema, value, label)
     if container == "list":
@@ -199,6 +242,28 @@ def coerce_typed_value(field: dict[str, Any], value: Any) -> Any:
             if not isinstance(key, str) or not key.strip():
                 raise TypeSchemaError(f"'{label}' has an empty entry key")
             coerced[key] = _coerce_object(schema, item, f"{label}.{key}")
+        return coerced
+    raise TypeSchemaError(f"Unknown container '{container}'")
+
+
+def _coerce_scalar_container(schema: dict[str, Any], container: str, value: Any, label: str) -> Any:
+    """Coerce a value against a resolved *simple* type for single/list/map containers."""
+    leaf = schema.get("scalar") or {}
+    name = schema.get("name")
+    if container == "single":
+        return _coerce_leaf(leaf, value, label)
+    if container == "list":
+        if not isinstance(value, list):
+            raise TypeSchemaError(f"'{label}' must be a list of {name}")
+        return [_coerce_leaf(leaf, item, f"{label}[{index}]") for index, item in enumerate(value)]
+    if container == "map":
+        if not isinstance(value, dict):
+            raise TypeSchemaError(f"'{label}' must be a map of {name}")
+        coerced: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str) or not key.strip():
+                raise TypeSchemaError(f"'{label}' has an empty entry key")
+            coerced[key] = _coerce_leaf(leaf, item, f"{label}.{key}")
         return coerced
     raise TypeSchemaError(f"Unknown container '{container}'")
 

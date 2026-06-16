@@ -59,10 +59,18 @@ class TypeLibraryStore:
             raise TypeSchemaError(f"Type '{name}' must be a mapping")
         library = self.all()
         candidate = dict(library)
-        candidate[name] = {
-            "description": str(type_def.get("description", "") or ""),
-            "fields": type_def.get("fields") or {},
-        }
+        entry: dict[str, Any] = {"description": str(type_def.get("description", "") or "")}
+        if type_def.get("fields"):
+            # Compound type: a bag of named fields.
+            entry["fields"] = type_def["fields"]
+        else:
+            # Simple (scalar) type: a single primitive. Persist only the keys that apply.
+            entry["type"] = type_def.get("type")
+            if type_def.get("options"):
+                entry["options"] = type_def["options"]
+            if type_def.get("default") not in (None, ""):
+                entry["default"] = type_def["default"]
+        candidate[name] = entry
         validate_library(candidate)
         self._write(candidate)
         return candidate[name]

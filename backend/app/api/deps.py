@@ -18,6 +18,7 @@ def get_runtime() -> PipelineRuntime:
         shared_roots=settings.shared_roots,
         upload_max_bytes=settings.upload_max_bytes,
         task_timeout=settings.task_timeout_seconds,
+        log_level=settings.log_level,
     )
 
 

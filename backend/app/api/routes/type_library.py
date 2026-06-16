@@ -26,6 +26,9 @@ def _response(name: str, type_def: dict[str, Any]) -> TypeDefResponse:
         name=name,
         description=str(type_def.get("description", "") or ""),
         fields=type_def.get("fields") or {},
+        type=str(type_def.get("type", "") or ""),
+        options=type_def.get("options") or [],
+        default=type_def.get("default"),
     )
 
 

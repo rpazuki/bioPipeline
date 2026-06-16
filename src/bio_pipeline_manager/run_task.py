@@ -27,12 +27,25 @@ from __future__ import annotations
 import json
 import logging
 import multiprocessing
+import os
 import sys
 from pathlib import Path
 
 from pipeline.engine import build_pipeline_from_yaml
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+# Verbosity for the task subprocess, set by the runner from the backend's configured
+# `log_level` (see LocalSubprocessRunner / configs/app_config.yaml). Defaults to INFO
+# when unset (e.g. CLI/tests), preserving the prior behavior.
+LOG_LEVEL_ENV = "BIO_PIPELINE_LOG_LEVEL"
+_level_name = os.environ.get(LOG_LEVEL_ENV, "INFO").upper()
+_level = getattr(logging, _level_name, logging.INFO)
+logging.basicConfig(level=_level, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+# basicConfig is a no-op if the root logger was already configured (e.g. a pipeline
+# helper such as pipeline.helpers.ops calls basicConfig(INFO) at import), so set the
+# level explicitly to be sure DEBUG records are not gated out. We avoid force=True: it
+# rebinds the root handler to whatever stream exists at import (which breaks the test
+# harness's output capture) and is unnecessary — the level, not the handler, gates records.
+logging.getLogger().setLevel(_level)
 log = logging.getLogger("bio_pipeline_manager.run_task")
 
 
@@ -96,6 +109,7 @@ def main(argv: list[str] | None = None) -> int:
         log.error("Could not read task file %s: %s", task_path, exc)
         return 2
 
+    log.debug("Task logging configured at %s", _level_name)
     log.info("Running pipeline '%s' from %s", task.get("pipeline_name"), task.get("yaml_path"))
     try:
         result = run_task(task)

@@ -44,6 +44,7 @@ def create_runtime(
     shared_roots: list[dict] | None = None,
     upload_max_bytes: int | None = None,
     task_timeout: float | None = None,
+    log_level: str | None = None,
 ) -> PipelineRuntime:
     root = Path(home)
     job_store = JobStore(root / "state.sqlite")
@@ -57,6 +58,7 @@ def create_runtime(
             root / "logs",
             yaml_resolver=yaml_store.resolve_name,
             task_timeout=task_timeout,
+            log_level=log_level,
         ),
         packages=PackageManager(
             InstallStore(root / "installs.sqlite"),

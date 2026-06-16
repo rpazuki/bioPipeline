@@ -47,11 +47,12 @@ class JobQueue:
         runner: LocalSubprocessRunner | None = None,
         yaml_resolver: Callable[[str], Path] | None = None,
         task_timeout: float | None = None,
+        log_level: str | None = None,
     ):
         self.store = store
         self.logs_dir = Path(logs_dir)
         self.logs_dir.mkdir(parents=True, exist_ok=True)
-        self.runner = runner or LocalSubprocessRunner(store, task_timeout=task_timeout)
+        self.runner = runner or LocalSubprocessRunner(store, task_timeout=task_timeout, log_level=log_level)
         # Used to resolve a stage's pipeline_yaml name when materialising lazily.
         self.yaml_resolver: Callable[[str], Path] = yaml_resolver or Path
 
