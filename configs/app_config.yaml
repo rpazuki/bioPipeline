@@ -12,7 +12,7 @@ frontend:
 backend:
   shared:
     app_name: Bio Pipeline Manager
-    log_level: DEBUG # INFO
+    log_level: INFO
     cors_origins:
       - http://localhost:3005
       - http://127.0.0.1:3005

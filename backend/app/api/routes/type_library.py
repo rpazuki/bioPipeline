@@ -13,6 +13,8 @@ from app.schemas.pipelines import (
     TypeLibraryResponse,
 )
 from app.services.runtime import PipelineRuntime
+from bio_pipeline_manager.auth_models import UserRecord
+from bio_pipeline_manager.published_jobs import refresh_typed_field_schemas
 from bio_pipeline_manager.type_extract import TypeExtractError, extract_type
 from bio_pipeline_manager.type_schema import TypeSchemaError
 
@@ -71,11 +73,15 @@ async def upsert_type(
     name: str,
     body: TypeDefRequest,
     runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
+    admin: Annotated[UserRecord, Depends(require_admin)],
 ) -> TypeDefResponse:
     try:
         stored = runtime.type_library.upsert(name, body.model_dump())
     except TypeSchemaError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    # Editing a type changes the resolved schema frozen onto every published job that
+    # references it; refresh those copies so already-published jobs track the edit.
+    refresh_typed_field_schemas(runtime.published_jobs, runtime.type_library.all(), actor=admin.id)
     return _response(name, stored)
 
 
@@ -83,6 +89,7 @@ async def upsert_type(
 async def delete_type(
     name: str,
     runtime: Annotated[PipelineRuntime, Depends(get_runtime)],
+    admin: Annotated[UserRecord, Depends(require_admin)],
 ) -> None:
     try:
         runtime.type_library.delete(name)
@@ -90,3 +97,4 @@ async def delete_type(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Type '{name}' not found") from exc
     except TypeSchemaError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    refresh_typed_field_schemas(runtime.published_jobs, runtime.type_library.all(), actor=admin.id)

@@ -159,7 +159,11 @@ container:  map
 
 A new `type` value, **`typed`**, is added to `FIELD_TYPES` and to the TS `PublishedFieldType`
 union. A typed field carries three extra attributes; the resolved `type_schema` is **re-derived
-from the library on every save** (so it can never pin a stale structure), while `schema_ref` and
+from the library on every save** (so it can never pin a stale structure). Editing the library
+itself also cascades: `refresh_typed_field_schemas` re-resolves and rewrites the frozen
+`type_schema` on every published job that references a type whenever that type is upserted or
+deleted (`type-library` route), so already-published jobs follow the edit — a field made optional
+in the library stops being rejected as required on jobs published earlier. `schema_ref` and
 `container` are **admin-curated** (will be added to `CURATED_FIELD_KEYS`,
 `published-jobs-admin/page.tsx:87`, in the admin-picker phase):
 

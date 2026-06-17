@@ -887,6 +887,38 @@ def resolve_typed_fields(fields: list[dict[str, Any]], library: dict[str, Any]) 
     return resolved
 
 
+def refresh_typed_field_schemas(
+    store: PublishedJobStore, library: dict[str, Any], *, actor: str
+) -> list[str]:
+    """Re-resolve the denormalized ``type_schema`` on every job that references the library.
+
+    A library-referencing typed field carries a *frozen* resolved schema (see
+    :func:`resolve_typed_fields`) so the runtime never needs the library. That copy goes
+    stale the moment an admin edits a referenced type — a field marked optional in the
+    library still reads ``required: true`` on jobs published earlier, and submissions are
+    wrongly rejected. Call this after any type-library mutation to bring already-saved jobs
+    back in step, honouring the "the stored field tracks the current library" guarantee for
+    *all* jobs, not just ones that happen to be re-saved afterwards.
+
+    Only jobs whose resolved fields actually change are written, so a type edit never churns
+    the version of jobs that don't reference it. A job referencing a type that no longer
+    resolves (e.g. just deleted) is left untouched rather than corrupted. Returns the ids of
+    the jobs that were updated.
+    """
+    updated: list[str] = []
+    for record in store.list():
+        try:
+            refreshed = resolve_typed_fields(record.fields, library)
+            if refreshed != record.fields:
+                store.update(record.id, fields=refreshed, actor=actor)
+                updated.append(record.id)
+        except (PublishedJobError, TypeSchemaError, JobDefinitionError):
+            # References a type that no longer resolves (or otherwise can't be refreshed) —
+            # keep the last-known schema so the admin can fix the job explicitly.
+            continue
+    return updated
+
+
 def _coerce_values(fields: list[dict[str, Any]], values: dict[str, Any]) -> dict[str, Any]:
     coerced: dict[str, Any] = {}
     for field in fields:

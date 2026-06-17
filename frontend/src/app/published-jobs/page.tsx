@@ -40,6 +40,26 @@ function savedFieldKey(field: PublishedField, publishedJobId: string): string | 
 
 type SharedSelection = { root: string; path: string; name: string };
 
+// The in-progress run form, persisted to sessionStorage so leaving this page (e.g. to
+// peek at My Runs) and coming back keeps the selected job and everything typed into it,
+// rather than resetting to a blank form. Scoped to the tab session: it clears when the
+// tab closes. Picked upload files are deliberately absent — the browser does not allow
+// re-creating a File handle from storage, so those must be re-picked after a navigation.
+const FORM_STATE_KEY = "published-jobs:run-form";
+
+type FormSnapshot = {
+  jobId: string;
+  values: Record<string, unknown>;
+  shared: Record<string, SharedSelection>;
+  scheduledAt: string;
+  repeat: boolean;
+  everyN: number;
+  unit: RecurrenceUnit;
+  endsMode: RecurrenceEndMode;
+  endsCount: number;
+  endsAt: string;
+};
+
 function defaultValue(field: PublishedField) {
   // A typed field holds a native object/array the structured editor manages. Its
   // admin-set `default` may be a scalar (e.g. the type's name) that is NOT a valid
@@ -402,6 +422,9 @@ export default function PublishedJobsPage() {
   const [endsAt, setEndsAt] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("Choose a published job");
+  // Gate the persistence writer until the saved form (if any) has been restored, so the
+  // initial empty state never overwrites a snapshot before we read it back.
+  const [hydrated, setHydrated] = useState(false);
   const paneWrapRef = useRef<HTMLDivElement>(null);
   const [paneHeight, setPaneHeight] = useState(600);
 
@@ -438,6 +461,70 @@ export default function PublishedJobsPage() {
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
   }, []);
+
+  // Restore an in-progress form when returning to this page. Runs once on mount; falls
+  // back to a clean slate if there is no snapshot or the saved job is gone/unreadable.
+  useEffect(() => {
+    let cancelled = false;
+    const raw = window.sessionStorage.getItem(FORM_STATE_KEY);
+    let snapshot: FormSnapshot | null = null;
+    try {
+      snapshot = raw ? (JSON.parse(raw) as FormSnapshot) : null;
+    } catch {
+      snapshot = null;
+    }
+    if (!snapshot?.jobId) {
+      setHydrated(true);
+      return;
+    }
+    getPublishedJob(snapshot.jobId)
+      .then((job) => {
+        if (cancelled) return;
+        setSelected(job);
+        setValues(snapshot!.values ?? {});
+        setShared(snapshot!.shared ?? {});
+        setScheduledAt(snapshot!.scheduledAt ?? "");
+        setRepeat(snapshot!.repeat ?? false);
+        setEveryN(snapshot!.everyN ?? 1);
+        setUnit(snapshot!.unit ?? "days");
+        setEndsMode(snapshot!.endsMode ?? "never");
+        setEndsCount(snapshot!.endsCount ?? 10);
+        setEndsAt(snapshot!.endsAt ?? "");
+        setStatus(`Selected ${job.name}`);
+        const hasShared = job.fields.some((field) => (field.sources ?? []).includes("shared"));
+        if (hasShared) {
+          listJobSharedRoots(job.id)
+            .then((roots) => { if (!cancelled) setSharedRoots(roots); })
+            .catch(() => {});
+        }
+      })
+      .catch(() => { /* job no longer published — start fresh */ })
+      .finally(() => { if (!cancelled) setHydrated(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Persist the form on every change (after hydration). Clears the snapshot when no job
+  // is selected so a stale form never resurfaces.
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!selected) {
+      window.sessionStorage.removeItem(FORM_STATE_KEY);
+      return;
+    }
+    const snapshot: FormSnapshot = {
+      jobId: selected.id,
+      values,
+      shared,
+      scheduledAt,
+      repeat,
+      everyN,
+      unit,
+      endsMode,
+      endsCount,
+      endsAt,
+    };
+    window.sessionStorage.setItem(FORM_STATE_KEY, JSON.stringify(snapshot));
+  }, [hydrated, selected, values, shared, scheduledAt, repeat, everyN, unit, endsMode, endsCount, endsAt]);
 
   async function selectJob(id: string) {
     const job = await getPublishedJob(id);

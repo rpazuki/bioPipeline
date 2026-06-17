@@ -10,6 +10,8 @@ from bio_pipeline_manager.models import utc_now
 from bio_pipeline_manager.published_jobs import (
     PublishedJobError,
     PublishedJobRecord,
+    PublishedJobStore,
+    refresh_typed_field_schemas,
     render_definition,
     resolve_typed_fields,
 )
@@ -262,3 +264,95 @@ def test_resolve_typed_fields_rejects_unknown_type():
     field = {"id": "x", "type": "typed", "schema_ref": "Ghost", "container": "single", "bindings": [{"target": "x"}]}
     with pytest.raises(PublishedJobError, match="Unknown type 'Ghost'"):
         resolve_typed_fields([field], LIBRARY)
+
+
+# A library where the inner field is *required* — the stale state a job is published with
+# before an admin later marks the field optional in the library.
+REQUIRED_LIBRARY = {
+    "CustomReplicateRule": {
+        "fields": {
+            "direction": {"type": "enum", "options": ["alphabetical", "numerical"], "required": False},
+            "sample_size": {"type": "integer", "required": True},
+        }
+    }
+}
+
+
+def _sample_size_required(record: PublishedJobRecord) -> bool:
+    [field] = [f for f in record.fields if f.get("schema_ref") == "CustomReplicateRule"]
+    [inner] = [n for n in field["type_schema"]["fields"] if n["name"] == "sample_size"]
+    return inner["required"]
+
+
+def test_refresh_typed_field_schemas_picks_up_library_edit(tmp_path):
+    store = PublishedJobStore(tmp_path / "state.sqlite")
+    # Publish a job whose frozen schema is resolved against the *required* library.
+    [stale_field] = resolve_typed_fields([_typed_map_field()], REQUIRED_LIBRARY)
+    typed = store.create(
+        name="typed_demo",
+        description="",
+        definition_name="typed_demo.yaml",
+        definition_content=DEFINITION,
+        fields=[stale_field],
+        actor="admin",
+        status="published",
+    )
+    # A second job that doesn't reference the type must be left completely alone.
+    plain = store.create(
+        name="plain_demo",
+        description="",
+        definition_name="plain_demo.yaml",
+        definition_content=DEFINITION,
+        fields=[_plain_field(nullable=False)],
+        actor="admin",
+        status="published",
+    )
+    assert _sample_size_required(store.get(typed.id)) is True
+
+    # The admin edits the library to make sample_size optional (LIBRARY has required=False).
+    updated = refresh_typed_field_schemas(store, LIBRARY, actor="editor")
+
+    assert updated == [typed.id]
+    refreshed = store.get(typed.id)
+    assert _sample_size_required(refreshed) is False
+    assert refreshed.version == typed.version + 1
+    assert refreshed.updated_by == "editor"
+    # The unrelated job is untouched: no version bump, no re-attribution.
+    assert store.get(plain.id).version == plain.version
+    assert store.get(plain.id).updated_by == "admin"
+
+
+def test_refresh_typed_field_schemas_is_idempotent(tmp_path):
+    store = PublishedJobStore(tmp_path / "state.sqlite")
+    [field] = resolve_typed_fields([_typed_map_field()], LIBRARY)
+    job = store.create(
+        name="typed_demo",
+        description="",
+        definition_name="typed_demo.yaml",
+        definition_content=DEFINITION,
+        fields=[field],
+        actor="admin",
+        status="published",
+    )
+    # Already in step with the library — a refresh changes nothing and bumps no versions.
+    assert refresh_typed_field_schemas(store, LIBRARY, actor="editor") == []
+    assert store.get(job.id).version == job.version
+
+
+def test_refresh_typed_field_schemas_skips_unresolvable_jobs(tmp_path):
+    store = PublishedJobStore(tmp_path / "state.sqlite")
+    [field] = resolve_typed_fields([_typed_map_field()], LIBRARY)
+    job = store.create(
+        name="typed_demo",
+        description="",
+        definition_name="typed_demo.yaml",
+        definition_content=DEFINITION,
+        fields=[field],
+        actor="admin",
+        status="published",
+    )
+    # The referenced type is gone from the library: the job keeps its last-known schema
+    # rather than being corrupted, and is not reported as updated.
+    assert refresh_typed_field_schemas(store, {}, actor="editor") == []
+    assert _sample_size_required(store.get(job.id)) is False
+    assert store.get(job.id).version == job.version

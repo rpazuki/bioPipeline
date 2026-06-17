@@ -16,6 +16,7 @@ describe("PublishedJobsPage", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    window.sessionStorage.clear(); // the form persists itself; isolate each test
   });
 
   it("clears a prior error when another job is selected", async () => {
@@ -111,6 +112,36 @@ describe("PublishedJobsPage", () => {
 
     const secondOpts = mocked.submitPublishedJobRun.mock.calls[1][3] as { fileBindings: Record<string, unknown> };
     expect(secondOpts.fileBindings.f1).toEqual({ kind: "upload", path: "h" });
+  });
+
+  it("restores the in-progress form after leaving and returning to the page", async () => {
+    const field = {
+      id: "note", label: "Note", type: "string", required: false,
+      default: "", help: "", example: "", options: [],
+    };
+    mocked.listPublishedJobs.mockResolvedValue([{ id: "J", name: "Job", description: "", version: 1 }] as any);
+    mocked.getPublishedJob.mockResolvedValue(detail("J", "Job", [field]) as any);
+    mocked.listSavedTypedValues.mockResolvedValue([] as any);
+
+    const first = render(<PublishedJobsPage />);
+    fireEvent.click(await screen.findByRole("button", { name: /Job/ }));
+    await screen.findByRole("button", { name: "Execute Job" }); // the field form has rendered
+    // Type into the Note field (not the job-list filter box).
+    const noteInput = screen
+      .getAllByRole("textbox")
+      .find((el) => (el as HTMLInputElement).placeholder !== "Search by name or description")!;
+    fireEvent.change(noteInput, { target: { value: "hello world" } });
+    // The form persists itself to sessionStorage as it changes.
+    await waitFor(() => expect(window.sessionStorage.getItem("published-jobs:run-form")).toContain("hello world"));
+
+    // Navigating to another page unmounts the component; React state is discarded.
+    first.unmount();
+
+    // Returning re-mounts it: the selected job and the typed value must come back without
+    // re-selecting the job or re-typing.
+    render(<PublishedJobsPage />);
+    expect(await screen.findByDisplayValue("hello world")).toBeInTheDocument();
+    expect(await screen.findByText("Selected Job")).toBeInTheDocument();
   });
 
   it("saves an opted-in server-managed plain field", async () => {
