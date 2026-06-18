@@ -81,11 +81,17 @@ def create_file_mapping_from_patterns(data_dir: str | Path, raw_pattern: str, me
     """Pair raw and metadata files matched by glob patterns, in sorted order.
 
     Returns a dict mapping raw-data file name -> metadata file name.
+
+    The raw pattern is commonly broader than the metadata pattern (e.g. ``*.csv``
+    for data files sitting next to ``*_meta.csv`` metadata), so it also matches the
+    metadata files. Any file matched by ``meta_pattern`` is excluded from the raw
+    set, so metadata is never mistaken for — or paired as — a data file.
     """
     data_dir = Path(data_dir)
 
-    raw_data_files = sorted(data_dir.glob(raw_pattern))
     meta_data_files = sorted(data_dir.glob(meta_pattern))
+    meta_files = set(meta_data_files)
+    raw_data_files = sorted(p for p in data_dir.glob(raw_pattern) if p not in meta_files)
 
     if not raw_data_files:
         raise ValueError(f"No raw data files found matching pattern: {raw_pattern}")

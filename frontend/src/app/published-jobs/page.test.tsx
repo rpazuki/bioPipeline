@@ -144,6 +144,51 @@ describe("PublishedJobsPage", () => {
     expect(await screen.findByText("Selected Job")).toBeInTheDocument();
   });
 
+  const SAVEABLE_FIELD = {
+    id: "threshold", label: "Threshold", type: "integer", required: true,
+    default: 5, saveable: true, io_role: "none", help: "", example: "", options: [],
+  };
+
+  function savedThreshold(value: string, updated_at: string) {
+    return {
+      id: "s1", type_key: "job:J:field:threshold:integer", container: "single",
+      label: "Threshold", type_schema: {}, value_kind: "plain", field_schema: SAVEABLE_FIELD,
+      value, created_at: "t0", updated_at,
+    };
+  }
+
+  function seedSnapshot(values: Record<string, unknown>, savedBaseline: Record<string, string>) {
+    window.sessionStorage.setItem("published-jobs:run-form", JSON.stringify({
+      jobId: "J", values, shared: {}, scheduledAt: "", repeat: false,
+      everyN: 1, unit: "days", endsMode: "never", endsCount: 10, endsAt: "", savedBaseline,
+    }));
+  }
+
+  it("propagates a saved value edited elsewhere into the restored form", async () => {
+    mocked.listPublishedJobs.mockResolvedValue([{ id: "J", name: "Job", description: "", version: 1 }] as any);
+    mocked.getPublishedJob.mockResolvedValue(detail("J", "Job", [SAVEABLE_FIELD]) as any);
+    // The saved value is now newer (42 @ t2) than what the snapshot recorded (baseline t1).
+    mocked.listSavedTypedValues.mockResolvedValue([savedThreshold("42", "t2")] as any);
+    seedSnapshot({ threshold: "7" }, { threshold: "t1" });
+
+    render(<PublishedJobsPage />);
+    // The restored form shows the edited saved value, not the snapshot's stale 7.
+    expect(await screen.findByDisplayValue("42")).toBeInTheDocument();
+  });
+
+  it("keeps an in-progress edit when the saved value is unchanged", async () => {
+    mocked.listPublishedJobs.mockResolvedValue([{ id: "J", name: "Job", description: "", version: 1 }] as any);
+    mocked.getPublishedJob.mockResolvedValue(detail("J", "Job", [SAVEABLE_FIELD]) as any);
+    // The saved value's updated_at matches the snapshot baseline → it did not change.
+    mocked.listSavedTypedValues.mockResolvedValue([savedThreshold("7", "t1")] as any);
+    // The researcher had typed 99 into the form (diverging from the saved 7).
+    seedSnapshot({ threshold: "99" }, { threshold: "t1" });
+
+    render(<PublishedJobsPage />);
+    // The in-progress 99 survives — an unchanged saved value must not clobber it.
+    expect(await screen.findByDisplayValue("99")).toBeInTheDocument();
+  });
+
   it("saves an opted-in server-managed plain field", async () => {
     const field = {
       id: "threshold", label: "Threshold", type: "integer", required: true,

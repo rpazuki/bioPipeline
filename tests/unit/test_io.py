@@ -97,6 +97,27 @@ def test_patterns_mismatched_counts_pairs_min(tmp_path: Path):
     assert mapping == {"raw1.csv": "meta1.csv"}
 
 
+def test_patterns_excludes_metadata_from_broad_raw_pattern(tmp_path: Path):
+    # The raw pattern (*.csv) also matches the metadata files (*_meta.csv); those must
+    # be excluded from the data files, not paired as data. Otherwise sorted pairing
+    # produces nonsense like a_meta.csv -> b_meta.csv and drops real data files.
+    for name in ["a.csv", "b.csv", "a_meta.csv", "b_meta.csv"]:
+        (tmp_path / name).write_text("x", encoding="utf-8")
+
+    mapping = create_file_mapping_from_patterns(tmp_path, "*.csv", "*_meta.csv")
+
+    assert mapping == {"a.csv": "a_meta.csv", "b.csv": "b_meta.csv"}
+
+
+def test_patterns_only_metadata_present_raises_no_raw(tmp_path: Path):
+    # If everything matching the broad raw pattern is actually metadata, there are no
+    # real data files — surface that rather than pairing metadata with itself.
+    for name in ["a_meta.csv", "b_meta.csv"]:
+        (tmp_path / name).write_text("x", encoding="utf-8")
+    with pytest.raises(ValueError, match="No raw data files"):
+        create_file_mapping_from_patterns(tmp_path, "*.csv", "*_meta.csv")
+
+
 # --------------------------------------------------------------------------- #
 # list_folders / read_csv
 # --------------------------------------------------------------------------- #

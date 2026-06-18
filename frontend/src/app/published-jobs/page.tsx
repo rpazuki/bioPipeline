@@ -38,6 +38,10 @@ function savedFieldKey(field: PublishedField, publishedJobId: string): string | 
   return identity ? `${identity.typeKey}::${identity.container}` : null;
 }
 
+function savedMapFrom(items: SavedTypedValue[]): Record<string, SavedTypedValue> {
+  return Object.fromEntries(items.map((item) => [`${item.type_key}::${item.container}`, item]));
+}
+
 type SharedSelection = { root: string; path: string; name: string };
 
 // The in-progress run form, persisted to sessionStorage so leaving this page (e.g. to
@@ -58,6 +62,11 @@ type FormSnapshot = {
   endsMode: RecurrenceEndMode;
   endsCount: number;
   endsAt: string;
+  // For each field that pre-fills from a saved value: that value's `updated_at` at
+  // snapshot time. On restore we compare it with the current saved value — if it changed
+  // (the researcher edited it on the Saved Values page) the new value wins; otherwise the
+  // snapshot value wins, preserving an in-progress edit.
+  savedBaseline: Record<string, string>;
 };
 
 function defaultValue(field: PublishedField) {
@@ -434,7 +443,7 @@ export default function PublishedJobsPage() {
 
   async function refreshSavedTyped() {
     const items = await listSavedTypedValues();
-    setSavedTyped(Object.fromEntries(items.map((item) => [`${item.type_key}::${item.container}`, item])));
+    setSavedTyped(savedMapFrom(items));
   }
 
   const normalizedFilter = filterText.trim().toLowerCase();
@@ -448,7 +457,8 @@ export default function PublishedJobsPage() {
 
   useEffect(() => {
     refresh().catch((cause: Error) => setError(cause.message));
-    refreshSavedTyped().catch(() => {});
+    // Saved values are loaded in the restore effect below (it needs them to reconcile a
+    // restored form against any value edited on the Saved Values page).
   }, []);
 
   useEffect(() => {
@@ -466,40 +476,75 @@ export default function PublishedJobsPage() {
   // back to a clean slate if there is no snapshot or the saved job is gone/unreadable.
   useEffect(() => {
     let cancelled = false;
-    const raw = window.sessionStorage.getItem(FORM_STATE_KEY);
-    let snapshot: FormSnapshot | null = null;
-    try {
-      snapshot = raw ? (JSON.parse(raw) as FormSnapshot) : null;
-    } catch {
-      snapshot = null;
-    }
-    if (!snapshot?.jobId) {
-      setHydrated(true);
-      return;
-    }
-    getPublishedJob(snapshot.jobId)
-      .then((job) => {
-        if (cancelled) return;
-        setSelected(job);
-        setValues(snapshot!.values ?? {});
-        setShared(snapshot!.shared ?? {});
-        setScheduledAt(snapshot!.scheduledAt ?? "");
-        setRepeat(snapshot!.repeat ?? false);
-        setEveryN(snapshot!.everyN ?? 1);
-        setUnit(snapshot!.unit ?? "days");
-        setEndsMode(snapshot!.endsMode ?? "never");
-        setEndsCount(snapshot!.endsCount ?? 10);
-        setEndsAt(snapshot!.endsAt ?? "");
-        setStatus(`Selected ${job.name}`);
-        const hasShared = job.fields.some((field) => (field.sources ?? []).includes("shared"));
-        if (hasShared) {
-          listJobSharedRoots(job.id)
-            .then((roots) => { if (!cancelled) setSharedRoots(roots); })
-            .catch(() => {});
+    (async () => {
+      // Load the current saved values first: they back the typed/saveable field pre-fills,
+      // and a restored form must reflect any value edited on the Saved Values page.
+      let savedItems: SavedTypedValue[] = [];
+      try {
+        savedItems = (await listSavedTypedValues()) ?? [];
+      } catch {
+        savedItems = [];
+      }
+      if (cancelled) return;
+      const savedMap = savedMapFrom(savedItems);
+      setSavedTyped(savedMap);
+
+      const raw = window.sessionStorage.getItem(FORM_STATE_KEY);
+      let snapshot: FormSnapshot | null = null;
+      try {
+        snapshot = raw ? (JSON.parse(raw) as FormSnapshot) : null;
+      } catch {
+        snapshot = null;
+      }
+      if (!snapshot?.jobId) {
+        setHydrated(true);
+        return;
+      }
+
+      let job: PublishedJobPublicDetail | null = null;
+      try {
+        job = await getPublishedJob(snapshot.jobId);
+      } catch {
+        job = null; // job no longer published — start fresh
+      }
+      if (cancelled) return;
+      if (!job) {
+        setHydrated(true);
+        return;
+      }
+
+      // Start from the snapshot, then let any saved value that CHANGED since the snapshot
+      // override its field — so editing a saved value propagates here, while an untouched
+      // saved value keeps the researcher's in-progress edit.
+      const restored: Record<string, unknown> = { ...(snapshot.values ?? {}) };
+      for (const field of job.fields) {
+        const key = savedFieldKey(field, job.id);
+        const saved = key ? savedMap[key] : undefined;
+        if (!saved || saved.value == null) continue;
+        if (saved.updated_at !== snapshot.savedBaseline?.[field.id]) {
+          restored[field.id] = saved.value;
         }
-      })
-      .catch(() => { /* job no longer published — start fresh */ })
-      .finally(() => { if (!cancelled) setHydrated(true); });
+      }
+      setSelected(job);
+      setValues(restored);
+      setShared(snapshot.shared ?? {});
+      setScheduledAt(snapshot.scheduledAt ?? "");
+      setRepeat(snapshot.repeat ?? false);
+      setEveryN(snapshot.everyN ?? 1);
+      setUnit(snapshot.unit ?? "days");
+      setEndsMode(snapshot.endsMode ?? "never");
+      setEndsCount(snapshot.endsCount ?? 10);
+      setEndsAt(snapshot.endsAt ?? "");
+      setStatus(`Selected ${job.name}`);
+      const hasShared = job.fields.some((field) => (field.sources ?? []).includes("shared"));
+      if (hasShared) {
+        try {
+          const roots = await listJobSharedRoots(job.id);
+          if (!cancelled) setSharedRoots(roots);
+        } catch { /* leave shared roots empty */ }
+      }
+      if (!cancelled) setHydrated(true);
+    })();
     return () => { cancelled = true; };
   }, []);
 
@@ -510,6 +555,14 @@ export default function PublishedJobsPage() {
     if (!selected) {
       window.sessionStorage.removeItem(FORM_STATE_KEY);
       return;
+    }
+    // Record the saved value each pre-fillable field is tracking, so a later restore can
+    // tell whether the researcher changed it on the Saved Values page meanwhile.
+    const savedBaseline: Record<string, string> = {};
+    for (const field of selected.fields) {
+      const key = savedFieldKey(field, selected.id);
+      const saved = key ? savedTyped[key] : undefined;
+      if (saved) savedBaseline[field.id] = saved.updated_at;
     }
     const snapshot: FormSnapshot = {
       jobId: selected.id,
@@ -522,9 +575,10 @@ export default function PublishedJobsPage() {
       endsMode,
       endsCount,
       endsAt,
+      savedBaseline,
     };
     window.sessionStorage.setItem(FORM_STATE_KEY, JSON.stringify(snapshot));
-  }, [hydrated, selected, values, shared, scheduledAt, repeat, everyN, unit, endsMode, endsCount, endsAt]);
+  }, [hydrated, selected, values, shared, scheduledAt, repeat, everyN, unit, endsMode, endsCount, endsAt, savedTyped]);
 
   async function selectJob(id: string) {
     const job = await getPublishedJob(id);

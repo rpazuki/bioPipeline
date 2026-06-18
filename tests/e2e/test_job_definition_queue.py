@@ -76,6 +76,35 @@ def test_definition_runs_stages_in_dependency_order(tmp_path: Path):
     assert summary["counts"] == {"succeeded": 2}
 
 
+def test_rollup_stays_running_while_downstream_stage_pending(tmp_path: Path):
+    """After an upstream stage succeeds but before its dependant has materialised,
+    the rollup must read as ``running`` — not ``succeeded`` — so the run reaper does
+    not package an empty artifact and settle the run early (regression)."""
+    file_a = tmp_path / "a.txt"
+    file_b = tmp_path / "b.txt"
+    a_yaml = tmp_path / "a.yaml"
+    b_yaml = tmp_path / "b.yaml"
+    a_yaml.write_text(_save_text_yaml(file_a), encoding="utf-8")
+    b_yaml.write_text(_save_text_yaml(file_b), encoding="utf-8")
+
+    store = JobStore(tmp_path / "state.sqlite")
+    queue = JobQueue(store, tmp_path / "logs")
+    parent_id, _records = queue.submit_definition(_definition(tmp_path, a_yaml, b_yaml), yaml_resolver=Path)
+
+    # Pass 1: `first` runs and succeeds; `second` is not materialised yet.
+    queue.run_due()
+    assert file_a.exists() and not file_b.exists()
+    assert queue.has_pending_stages(parent_id)
+    # Every materialised Task has succeeded, but `second` is still pending.
+    assert queue.group_status(parent_id)["status"] == "running"
+
+    # Pass 2: `second` materialises, runs, and the group truly settles.
+    queue.run_due()
+    assert file_b.exists()
+    assert not queue.has_pending_stages(parent_id)
+    assert queue.group_status(parent_id)["status"] == "succeeded"
+
+
 def test_failed_dependency_blocks_downstream(tmp_path: Path):
     file_b = tmp_path / "b.txt"
     a_yaml = tmp_path / "a.yaml"

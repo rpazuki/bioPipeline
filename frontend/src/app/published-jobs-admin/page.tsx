@@ -37,6 +37,23 @@ function stringifyValue(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
+// A "real" default is one a researcher could actually be shown pre-filled — not
+// empty and not the $WILL_PROVIDE$ placeholder (which the researcher must supply).
+function hasRealDefault(value: unknown): boolean {
+  return value !== undefined && value !== null && value !== "" && !hasPlaceholder(value);
+}
+
+// Whether a plain pre-filled default makes sense for this field. Excluded:
+// enum/multi_enum (value comes from the defined options), any input/output field
+// (the researcher supplies/receives a file or folder), and structured types that
+// are not simple primitives (compound shapes are managed by the structured editor).
+function supportsDefault(field: PublishedField): boolean {
+  if ((field.io_role ?? "none") !== "none") return false;
+  if (field.type === "enum" || field.type === "multi_enum") return false;
+  if (field.type === "typed") return field.type_schema?.kind === "scalar";
+  return true;
+}
+
 // A stable, definition-derived description of what a candidate field maps to,
 // derived from its binding (not its label). Shown read-only so an admin can still
 // tell which field is which after renaming the label researchers see.
@@ -81,14 +98,17 @@ function statusClasses(status: string): string {
   }
 }
 
-// Attributes the admin curates in the editor. Everything else (type, default,
-// options, bindings) is *derived from the definition* and must track it, so a
-// saved field can never pin a stale structure (e.g. enum options captured before
-// a variant gained a {variant.group_cols} field).
+// Attributes the admin curates in the editor. Everything else (type, options,
+// bindings) is *derived from the definition* and must track it, so a saved field
+// can never pin a stale structure (e.g. enum options captured before a variant
+// gained a {variant.group_cols} field). `default` is curated too: the admin may
+// override the definition-derived default (seeded from the job's Defaults section
+// or the example) with a value researchers see pre-filled on the form.
 const CURATED_FIELD_KEYS = [
   "label",
   "help",
   "example",
+  "default",
   "readonly",
   "saveable",
   "nullable",
@@ -308,7 +328,16 @@ export default function PublishedJobsAdminPage() {
     setFieldOrder((current) =>
       adding ? [...current, field.id] : current.filter((id) => id !== field.id),
     );
-    setFieldEdits((current) => ({ ...current, [field.id]: current[field.id] ?? field }));
+    setFieldEdits((current) => {
+      const base = current[field.id] ?? field;
+      // On selection, surface a starting default on the form: keep the value the
+      // definition's Defaults section produced if it's a real value, otherwise fall
+      // back to the example so the admin sees something to confirm or edit.
+      const next = adding && supportsDefault(base) && !hasRealDefault(base.default) && base.example
+        ? { ...base, default: base.example }
+        : base;
+      return { ...current, [field.id]: next };
+    });
   }
 
   function patchField(fieldId: string, patch: Partial<PublishedField>) {
@@ -570,6 +599,12 @@ export default function PublishedJobsAdminPage() {
                         Example
                         <input className="h-8 rounded-md border border-slate-300 px-2 text-xs" value={edit.example} onChange={(event) => patchField(field.id, { example: event.target.value })} placeholder={`Example: ${stringifyValue(field.default)}`} />
                       </label>
+                      {supportsDefault(edit) ? (
+                        <label className="grid gap-1 text-xs text-slate-600">
+                          Default value (pre-filled for researchers)
+                          <input className="h-8 rounded-md border border-slate-300 px-2 text-xs" value={stringifyValue(edit.default)} onChange={(event) => patchField(field.id, { default: event.target.value })} placeholder={stringifyValue(field.default) || edit.example} />
+                        </label>
+                      ) : null}
                       <label className="flex items-center gap-2 text-xs text-slate-600">
                         <input type="checkbox" checked={edit.readonly ?? false} onChange={(event) => patchField(field.id, { readonly: event.target.checked })} />
                         Readonly (shown as text to researchers)

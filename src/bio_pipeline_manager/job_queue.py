@@ -318,6 +318,30 @@ class JobQueue:
                 results.append(future.result())
         return results
 
+    def has_pending_stages(self, parent_job_id: str) -> bool:
+        """True if the group still has Job-Definition stages not yet materialised.
+
+        Downstream stages materialise lazily (see :meth:`_materialize_ready`), so a
+        rollup over only the currently-materialised Tasks can read as terminal in the
+        gap between an upstream stage succeeding and its dependants being created.
+        Callers (e.g. the rollup below, and the run reaper through it) use this to
+        avoid treating such a group as finished prematurely.
+        """
+        group = self.store.get_group(parent_job_id)
+        if group is None:
+            return False  # plain (non-definition) group: all tasks exist up front
+        try:
+            job_def = parse_job_definition(group["definition"])
+        except Exception:  # noqa: BLE001 - an unparseable definition never expands further
+            return False
+        materialized = self.store.materialized_stages(parent_job_id)
+        for cell in iter_cells(job_def):
+            key_json = json.dumps(cell_matrix_key(cell), sort_keys=True)
+            for stage in job_def.stages:
+                if (key_json, stage["name"]) not in materialized:
+                    return True
+        return False
+
     def group_status(self, parent_job_id: str) -> dict:
         """Aggregate rollup over a parent group's Tasks."""
         children = self.store.list_jobs_by_parent(parent_job_id)
@@ -333,6 +357,11 @@ class JobQueue:
             rollup = "partially_failed" if counts.get("succeeded") else "failed"
         else:
             rollup = "succeeded"
+        # A terminal-looking rollup is premature while later stages are still waiting
+        # to materialise — report it as still running so consumers (notably the run
+        # reaper, which packages outputs once) don't settle the group early.
+        if rollup in {"succeeded", "failed", "partially_failed"} and self.has_pending_stages(parent_job_id):
+            rollup = "running"
         return {
             "parent_job_id": parent_job_id,
             "job_name": children[0].spec.job_name if children else "",

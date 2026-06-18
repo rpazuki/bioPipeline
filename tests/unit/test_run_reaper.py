@@ -3,16 +3,34 @@ from __future__ import annotations
 from datetime import timedelta
 from pathlib import Path
 
+from bio_pipeline_manager.job_queue import JobQueue
 from bio_pipeline_manager.models import utc_now
 from bio_pipeline_manager.published_jobs import PublishedJobStore
 from bio_pipeline_manager.recurring_schedule import RecurringScheduleStore
 from bio_pipeline_manager.run_reaper import RunReaper
 from bio_pipeline_manager.run_workspace import RunWorkspaceStore
 from bio_pipeline_manager.shared_storage import SharedStorage
+from bio_pipeline_manager.storage import JobStore
 
 
 def _terminal(_parent_job_id: str) -> dict:
     return {"status": "succeeded"}
+
+
+def _save_text_yaml(out_file: Path) -> str:
+    return (
+        "pipelines:\n"
+        "  - demo:\n"
+        "      Inputs: []\n"
+        "      Processes:\n"
+        "        - step:\n"
+        "            package: pipeline.helpers\n"
+        "            method: save_text\n"
+        "            parameters:\n"
+        '              text: "done"\n'
+        f'              path: "{out_file.as_posix()}"\n'
+        "      Outputs: []\n"
+    )
 
 
 def test_reaper_retains_inputs_then_ttl_deletes_workspace(tmp_path: Path):
@@ -53,6 +71,77 @@ def test_reaper_retains_inputs_then_ttl_deletes_workspace(tmp_path: Path):
     (tmp_path / "runs" / wid / ".reaped").write_text((utc_now() - timedelta(hours=25)).isoformat(), encoding="utf-8")
     reaper.reap_once()
     assert not workspaces.exists(wid)
+
+
+def test_reaper_waits_for_lazily_materialised_downstream_stage(tmp_path: Path):
+    """End-to-end guard against the premature-reap race: a multi-stage run whose
+    upstream stage finishes before its dependant has materialised must NOT be
+    packaged/settled until the downstream stage has actually produced its outputs.
+
+    Mirrors the real failure: stage one writes outside the workspace (empty
+    ``outputs/`` at that instant), stage two — materialised lazily one pass later —
+    writes the artifact into the workspace.
+    """
+    state = tmp_path / "state.sqlite"
+    queue = JobQueue(JobStore(state), tmp_path / "logs")
+    workspaces = RunWorkspaceStore(tmp_path / "runs")
+    manifest = workspaces.create(owner_user_id="u1", published_job_id="job1")
+    wid = manifest.workspace_id
+    result_dir = workspaces.output_dir(wid, "result")  # under the workspace's outputs/
+
+    a_yaml = tmp_path / "a.yaml"
+    b_yaml = tmp_path / "b.yaml"
+    a_yaml.write_text(_save_text_yaml(tmp_path / "outside.txt"), encoding="utf-8")  # outside workspace
+    b_yaml.write_text(_save_text_yaml(result_dir / "out.txt"), encoding="utf-8")  # into workspace outputs
+    definition = (
+        "job: chain\n"
+        "stages:\n"
+        "  - name: first\n"
+        f'    pipeline_yaml: "{a_yaml.as_posix()}"\n'
+        "    pipeline: demo\n"
+        "    fanout: {type: none}\n"
+        f'    output_dir: "{(tmp_path / "first").as_posix()}"\n'
+        "  - name: second\n"
+        "    needs: [first]\n"
+        f'    pipeline_yaml: "{b_yaml.as_posix()}"\n'
+        "    pipeline: demo\n"
+        "    fanout: {type: none}\n"
+        f'    output_dir: "{result_dir.as_posix()}"\n'
+    )
+    parent_id, _ = queue.submit_definition(definition, yaml_resolver=Path)
+
+    runs = PublishedJobStore(state)
+    runs.create_run(
+        published_job_id="job1",
+        published_version=1,
+        user_id="u1",
+        values={},
+        rendered_definition=definition,
+        parent_job_id=parent_id,
+        workspace_id=wid,
+    )
+    reaper = RunReaper(
+        published_jobs=runs,
+        run_workspaces=workspaces,
+        shared_storage=SharedStorage([]),
+        group_status=queue.group_status,  # the real rollup, not a stub
+    )
+
+    # Pass 1: `first` succeeds; `second` not materialised yet. The reaper must wait.
+    queue.run_due()
+    reaper.reap_once()
+    assert not workspaces.has_artifact(wid)
+    assert workspaces.reaped_at(wid) is None
+
+    # Pass 2: `second` materialises, runs and writes into the workspace; now reaping
+    # packages the real outputs.
+    queue.run_due()
+    reaper.reap_once()
+    assert workspaces.has_artifact(wid)
+    import zipfile
+
+    names = zipfile.ZipFile(workspaces.artifact_path(wid)).namelist()
+    assert "result/out.txt" in names
 
 
 def test_active_schedule_template_is_protected_until_it_finishes(tmp_path: Path):
