@@ -180,6 +180,7 @@ function FieldInput({
   actions?: ReactNode;
 }) {
   const base = "h-9 rounded-md border border-slate-300 px-3 text-sm text-slate-950";
+  const autoComplete = field.autoompelete ? "on" : "off";
   if (field.readonly) {
     return <span className="flex h-9 items-center text-sm text-slate-800">{readonlyText(field, value)}</span>;
   }
@@ -191,7 +192,7 @@ function FieldInput({
       <select className={base} value={asInputValue(value)} onChange={(event) => {
         const option = field.options.find((item) => asInputValue(item.value) === event.target.value);
         onChange(option?.value ?? event.target.value);
-      }}>
+      }} autoComplete={autoComplete}>
         {field.options.map((option) => (
           <option key={option.label} value={asInputValue(option.value)}>
             {option.label}
@@ -227,23 +228,27 @@ function FieldInput({
     return <TypedValueEditor field={field} value={value} onChange={onChange} actions={actions} />;
   }
   if (field.type === "text" || field.type === "object" || field.type === "json" || field.type === "list") {
-    return <textarea className="min-h-24 rounded-md border border-slate-300 p-3 font-mono text-xs" value={asInputValue(value)} onChange={(event) => onChange(event.target.value)} />;
+    return <textarea className="min-h-24 rounded-md border border-slate-300 p-3 font-mono text-xs" value={asInputValue(value)} autoComplete={autoComplete} onChange={(event) => onChange(event.target.value)} />;
   }
-  const inputType = field.type === "integer" || field.type === "float" ? "number" : field.type === "datetime" ? "datetime-local" : "text";
-  return <input type={inputType} className={base} value={asInputValue(value)} placeholder={field.placeholder || field.example} onChange={(event) => onChange(event.target.value)} />;
+  const inputType = field.type === "integer" || field.type === "float" ? "number" : field.type === "datetime" ? "datetime-local" : field.type === "url" ? "url" : "text";
+  return <input type={inputType} className={base} value={asInputValue(value)} autoComplete={autoComplete} placeholder={field.placeholder || field.example} onChange={(event) => onChange(event.target.value)} />;
 }
 
 function InputFieldControl({
   field,
+  value,
   files,
   sharedSel,
+  onChange,
   onPickFiles,
   onOpenBrowser,
   onClearShared,
 }: {
   field: PublishedField;
+  value: unknown;
   files: File[];
   sharedSel: SharedSelection | null;
+  onChange: (value: unknown) => void;
   onPickFiles: (files: File[]) => void;
   onOpenBrowser: () => void;
   onClearShared: () => void;
@@ -252,8 +257,20 @@ function InputFieldControl({
   const canUpload = sources.includes("upload");
   const canShared = sources.includes("shared");
   const isDirectory = field.accept === "directory";
+  const base = "h-9 rounded-md border border-slate-300 px-3 text-sm text-slate-950";
+  const autoComplete = field.autoompelete ? "on" : "off";
   return (
     <span className="grid gap-1.5">
+      {field.type === "url" ? (
+        <input
+          type="url"
+          className={base}
+          value={asInputValue(value)}
+          autoComplete={autoComplete}
+          placeholder={field.placeholder || field.example || "https://example.org/data.csv"}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      ) : null}
       {canUpload ? (
         <span className="flex flex-wrap items-center gap-2">
           {isDirectory ? (
@@ -729,8 +746,10 @@ export default function PublishedJobsPage() {
         ) : field.io_role === "input" ? (
           <InputFieldControl
             field={field}
+            value={values[field.id]}
             files={files[field.id] ?? []}
             sharedSel={shared[field.id] ?? null}
+            onChange={(value) => setValues((current) => ({ ...current, [field.id]: value }))}
             onPickFiles={(picked) => setFiles((current) => ({ ...current, [field.id]: picked }))}
             onOpenBrowser={() => setBrowseField(field)}
             onClearShared={() => setShared((current) => {

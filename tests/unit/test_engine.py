@@ -124,7 +124,12 @@ def test_output_process_skips_missing_payload_key(tmp_path):
 
 def test_output_process_rejects_unsupported_type():
     with pytest.raises(IncompatibleArgsException):
-        OutputProcess()(payload=Dict(result="not a dataframe"), outputs={"result": "x.csv"})
+        OutputProcess()(payload=Dict(result=123), outputs={"result": "x.csv"})
+
+
+def test_output_process_writes_text(tmp_path):
+    OutputProcess()(payload=Dict(message="Generated numbers: [1, 2, 3]"), outputs={"message": str(tmp_path / "message.txt")})
+    assert (tmp_path / "message.txt").read_text(encoding="utf-8") == "Generated numbers: [1, 2, 3]"
 
 
 # --------------------------------------------------------------------------- #

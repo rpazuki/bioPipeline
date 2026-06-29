@@ -1,3 +1,4 @@
+import io
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -682,6 +683,121 @@ def test_user_deletes_own_run_and_workspace(tmp_path: Path):
     assert all(run["id"] != run_id for run in client.get("/api/v1/published-jobs/my-runs").json())
     assert client.get(f"/api/v1/published-jobs/my-runs/{run_id}").status_code == 404
     assert not runtime.run_workspaces.exists(workspace_id)
+
+    app.dependency_overrides.clear()
+    get_runtime.cache_clear()
+
+
+def test_user_submits_url_input_and_backend_downloads_it(tmp_path: Path, monkeypatch):
+    client = _client(tmp_path)
+    client.post("/api/v1/pipeline-yamls", json={"name": "demo.yaml", "content": PIPELINE_YAML, "overwrite": True})
+    field = _io_field(
+        "raw_data",
+        "Raw data",
+        {"target": "stage_input_source", "stage": "run", "input": "raw_data"},
+        io_role="input",
+        field_type="url",
+        sources=["upload"],
+    )
+    job_id = client.post(
+        "/api/v1/published-jobs/admin",
+        json={"name": "URL demo", "definition_content": JOB_DEF_UPLOAD, "status": "published", "fields": [field]},
+    ).json()["id"]
+
+    class _FakeResponse(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            self.close()
+            return False
+
+    def fake_urlopen(request, timeout=30):
+        assert request.full_url == "https://example.test/raw.csv"
+        assert timeout == 30
+        return _FakeResponse(b"col\n1\n")
+
+    monkeypatch.setattr("bio_pipeline_manager.published_jobs.urlopen", fake_urlopen)
+
+    run = client.post(
+        f"/api/v1/published-jobs/catalog/{job_id}/runs",
+        json={"values": {"raw_data": "https://example.test/raw.csv"}},
+    )
+    assert run.status_code == 201, run.text
+    detail = run.json()
+    assert detail["workspace_id"]
+    raw_source = detail["group"]["tasks"][0]["input_sources"]["raw_data"].replace("\\", "/")
+    assert raw_source.endswith("inputs/raw_data/raw.csv")
+    assert Path(raw_source).read_text(encoding="utf-8") == "col\n1\n"
+
+    app.dependency_overrides.clear()
+    get_runtime.cache_clear()
+
+
+def test_url_input_rejects_non_http_scheme(tmp_path: Path):
+    client = _client(tmp_path)
+    client.post("/api/v1/pipeline-yamls", json={"name": "demo.yaml", "content": PIPELINE_YAML, "overwrite": True})
+    field = _io_field(
+        "raw_data",
+        "Raw data",
+        {"target": "stage_input_source", "stage": "run", "input": "raw_data"},
+        io_role="input",
+        field_type="url",
+        sources=["upload"],
+    )
+    job_id = client.post(
+        "/api/v1/published-jobs/admin",
+        json={"name": "URL demo", "definition_content": JOB_DEF_UPLOAD, "status": "published", "fields": [field]},
+    ).json()["id"]
+
+    run = client.post(
+        f"/api/v1/published-jobs/catalog/{job_id}/runs",
+        json={"values": {"raw_data": "file:///tmp/raw.csv"}},
+    )
+    assert run.status_code == 400
+    assert "http(s) URL" in run.text
+
+    app.dependency_overrides.clear()
+    get_runtime.cache_clear()
+
+
+def test_upload_binding_wins_over_url_value(tmp_path: Path, monkeypatch):
+    client = _client(tmp_path)
+    client.post("/api/v1/pipeline-yamls", json={"name": "demo.yaml", "content": PIPELINE_YAML, "overwrite": True})
+    field = _io_field(
+        "raw_data",
+        "Raw data",
+        {"target": "stage_input_source", "stage": "run", "input": "raw_data"},
+        io_role="input",
+        field_type="url",
+        sources=["upload"],
+    )
+    job_id = client.post(
+        "/api/v1/published-jobs/admin",
+        json={"name": "URL demo", "definition_content": JOB_DEF_UPLOAD, "status": "published", "fields": [field]},
+    ).json()["id"]
+    workspace_id = client.post(f"/api/v1/published-jobs/catalog/{job_id}/runs/draft").json()["workspace_id"]
+    client.post(
+        f"/api/v1/published-jobs/catalog/{job_id}/runs/{workspace_id}/uploads/raw_data?filename=in.csv",
+        content=b"uploaded",
+    )
+
+    def fail_urlopen(request, timeout=30):
+        raise AssertionError("urlopen should not run when an upload binding is present")
+
+    monkeypatch.setattr("bio_pipeline_manager.published_jobs.urlopen", fail_urlopen)
+
+    run = client.post(
+        f"/api/v1/published-jobs/catalog/{job_id}/runs",
+        json={
+            "values": {"raw_data": "https://example.test/raw.csv"},
+            "workspace_id": workspace_id,
+            "file_bindings": {"raw_data": {"kind": "upload", "path": "inputs/raw_data/in.csv"}},
+        },
+    )
+    assert run.status_code == 201
+    raw_source = run.json()["group"]["tasks"][0]["input_sources"]["raw_data"].replace("\\", "/")
+    assert raw_source.endswith("inputs/raw_data/in.csv")
 
     app.dependency_overrides.clear()
     get_runtime.cache_clear()

@@ -156,4 +156,40 @@ describe("PublishedJobsAdminPage field editor", () => {
     fireEvent.click(saveable);
     expect(saveable).toBeChecked();
   });
+
+  it("lets an admin opt an input field into url mode and autocomplete", async () => {
+    const fileCandidate = {
+      id: "raw_data",
+      label: "run: input raw_data",
+      type: "file",
+      required: true,
+      default: "",
+      help: "",
+      example: "",
+      options: [],
+      bindings: [{ target: "stage_input_source", stage: "run", input: "raw_data" }],
+      io_role: "none",
+      accept: "file",
+      sources: [],
+      delivery: [],
+      shared_roots: [],
+    };
+    mocked.listSavedDefinitions.mockResolvedValue([] as any);
+    mocked.listAdminPublishedJobs.mockResolvedValue([] as any);
+    mocked.listAdminPublishedRuns.mockResolvedValue([] as any);
+    mocked.listAdminSharedRoots.mockResolvedValue([] as any);
+    mocked.listTypeLibrary.mockResolvedValue({ types: [] } as any);
+    mocked.inspectPublishedJob.mockResolvedValue({ job_name: "j", candidates: [fileCandidate], warnings: [] } as any);
+    render(<PublishedJobsAdminPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Inspect Fields" }));
+    fireEvent.click(await screen.findByRole("checkbox"));
+
+    fireEvent.change(await screen.findByLabelText("Researcher handling"), { target: { value: "input" } });
+    expect(await screen.findByRole("option", { name: "A URL or upload a file" })).toBeInTheDocument();
+    fireEvent.change(await screen.findByLabelText("Accepts"), { target: { value: "url" } });
+
+    const autocomplete = await screen.findByRole("checkbox", { name: /Autocomplete/ });
+    fireEvent.click(autocomplete);
+    expect(autocomplete).toBeChecked();
+  });
 });

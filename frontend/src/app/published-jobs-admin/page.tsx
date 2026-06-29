@@ -109,6 +109,7 @@ const CURATED_FIELD_KEYS = [
   "help",
   "example",
   "default",
+  "autoompelete",
   "readonly",
   "saveable",
   "nullable",
@@ -139,13 +140,18 @@ function mergeFields(candidates: PublishedField[], existing: PublishedField[]) {
     for (const key of CURATED_FIELD_KEYS) {
       if (saved[key] !== undefined) curated[key] = saved[key];
     }
-    const next = { ...candidate, ...curated, id: targetId };
+    const nextType = saved.type === "url" ? "url" : candidate.type;
+    const next = { ...candidate, ...curated, type: nextType, id: targetId };
     // A curated schema_ref means the admin bound this field to a library type; keep it
     // typed even though the fresh candidate's inferred type is a plain primitive.
     if (next.schema_ref) next.type = "typed";
     byId.set(targetId, next);
   }
   return Array.from(byId.values());
+}
+
+function plainFieldType(candidate: PublishedField, edit: PublishedField): PublishedField["type"] {
+  return edit.type === "typed" ? candidate.type : edit.type;
 }
 
 function selectedFieldIds(existing: PublishedField[], merged: PublishedField[]) {
@@ -574,7 +580,7 @@ export default function PublishedJobsAdminPage() {
                       </span>
                       <input type="checkbox" checked={selected} onChange={() => toggleField(field)} />
                       <span className="truncate font-mono text-xs text-slate-700">{fieldOrigin(field)}</span>
-                      <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">{field.type}</span>
+                      <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">{selected ? edit.type : field.type}</span>
                     </label>
                     {selected ? (
                       <span className="flex shrink-0 items-center gap-0.5 text-slate-300">
@@ -613,6 +619,10 @@ export default function PublishedJobsAdminPage() {
                         <input type="checkbox" checked={edit.nullable ?? false} onChange={(event) => patchField(field.id, { nullable: event.target.checked })} />
                         Nullable (an empty entry is passed as null/None)
                       </label>
+                      <label className="flex items-center gap-2 text-xs text-slate-600">
+                        <input type="checkbox" checked={edit.autoompelete ?? false} onChange={(event) => patchField(field.id, { autoompelete: event.target.checked })} />
+                        Autocomplete
+                      </label>
                       {(edit.io_role ?? "none") === "none" && edit.type !== "typed" ? (
                         <label className="flex items-center gap-2 text-xs text-slate-600">
                           <input type="checkbox" checked={edit.saveable ?? false} onChange={(event) => patchField(field.id, { saveable: event.target.checked })} />
@@ -628,11 +638,11 @@ export default function PublishedJobsAdminPage() {
                               value={edit.schema_ref ?? ""}
                               onChange={(event) => {
                                 const ref = event.target.value;
-                                if (!ref) patchField(field.id, { type: field.type, schema_ref: "", container: "single", type_schema: null });
+                                if (!ref) patchField(field.id, { type: plainFieldType(field, edit), schema_ref: "", container: "single", type_schema: null });
                                 else patchField(field.id, { type: "typed", saveable: false, schema_ref: ref, container: edit.container ?? "single" });
                               }}
                             >
-                              <option value="">Plain value ({field.type})</option>
+                              <option value="">Plain value ({plainFieldType(field, edit)})</option>
                               {libraryTypes.map((libType) => (
                                 <option key={libType.name} value={libType.name}>{libType.name}</option>
                               ))}
@@ -675,9 +685,12 @@ export default function PublishedJobsAdminPage() {
                             const io_role = event.target.value as PublishedFieldIoRole;
                             // Switching to a file I/O role clears any structured-type binding (a typed
                             // value is a plain value, not a file), keeping the two mutually exclusive.
+                            const nextType = io_role === "output" && edit.type === "url"
+                              ? "file"
+                              : plainFieldType(field, edit);
                             patchField(field.id, io_role === "none"
                               ? { io_role }
-                              : { io_role, saveable: false, type: field.type, schema_ref: "", container: "single", type_schema: null });
+                              : { io_role, saveable: false, type: nextType, schema_ref: "", container: "single", type_schema: null });
                           }}
                         >
                           <option value="none">Server-managed (plain value)</option>
@@ -689,14 +702,39 @@ export default function PublishedJobsAdminPage() {
                         <div className="grid gap-2 rounded-md bg-slate-50 p-2">
                           <label className="grid gap-1 text-xs text-slate-600">
                             Accepts
-                            <select
-                              className="h-8 rounded-md border border-slate-300 px-2 text-xs"
-                              value={edit.accept ?? "file"}
-                              onChange={(event) => patchField(field.id, { accept: event.target.value as "file" | "directory" })}
-                            >
-                              <option value="file">A single file</option>
-                              <option value="directory">A folder</option>
-                            </select>
+                            {edit.io_role === "input" ? (
+                              <select
+                                className="h-8 rounded-md border border-slate-300 px-2 text-xs"
+                                value={edit.type === "url" ? "url" : (edit.accept ?? "file")}
+                                onChange={(event) => {
+                                  const next = event.target.value;
+                                  if (next === "url") {
+                                    patchField(field.id, { type: "url", accept: "file" });
+                                    return;
+                                  }
+                                  patchField(field.id, {
+                                    type: next === "directory" ? "directory" : "file",
+                                    accept: next as "file" | "directory",
+                                  });
+                                }}
+                              >
+                                <option value="file">A single file</option>
+                                <option value="url">A URL or upload a file</option>
+                                <option value="directory">A folder</option>
+                              </select>
+                            ) : (
+                              <select
+                                className="h-8 rounded-md border border-slate-300 px-2 text-xs"
+                                value={edit.accept ?? "file"}
+                                onChange={(event) => patchField(field.id, {
+                                  type: event.target.value === "directory" ? "directory" : "file",
+                                  accept: event.target.value as "file" | "directory",
+                                })}
+                              >
+                                <option value="file">A single file</option>
+                                <option value="directory">A folder</option>
+                              </select>
+                            )}
                           </label>
                           {edit.io_role === "input" ? (
                             <div className="flex flex-wrap gap-3 text-xs text-slate-600">

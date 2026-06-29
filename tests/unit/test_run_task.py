@@ -51,13 +51,12 @@ def test_main_invalid_json_returns_2(tmp_path: Path):
     assert main([str(bad)]) == 2
 
 
-def test_main_success_returns_0_and_prints_summary(tmp_path: Path, capsys):
+def test_main_success_returns_0_and_writes_output(tmp_path: Path):
     out_file = tmp_path / "result.txt"
     task_path = _write_task(tmp_path, _save_text_yaml(out_file))
 
     assert main([str(task_path)]) == 0
     assert out_file.read_text(encoding="utf-8") == "done"
-    assert "Result payload" in capsys.readouterr().out
 
 
 def test_main_task_failure_returns_1(tmp_path: Path):

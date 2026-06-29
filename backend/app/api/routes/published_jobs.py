@@ -707,7 +707,12 @@ def _validate_schedule_runnable(
         probe = runtime.run_workspaces.clone_inputs(
             template_workspace_id, owner_user_id=user_id, published_job_id=record.id
         ).workspace_id
-    elif run_needs_workspace(record):
+    elif run_needs_workspace(record) or any(
+        field.get("io_role") == "input"
+        and field.get("type") == "url"
+        and values.get(field.get("id"), field.get("default")) not in (None, "")
+        for field in record.fields
+    ):
         probe = runtime.run_workspaces.create(owner_user_id=user_id, published_job_id=record.id).workspace_id
     try:
         resolved = resolve_io(

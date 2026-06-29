@@ -147,6 +147,7 @@ export type PublishedFieldType =
   | "enum"
   | "multi_enum"
   | "path"
+  | "url"
   | "file"
   | "directory"
   | "glob"
@@ -229,6 +230,7 @@ export interface PublishedField {
   help: string;
   example: string;
   placeholder?: string;
+  autoompelete?: boolean;
   io_role?: PublishedFieldIoRole;
   accept?: "file" | "directory";
   sources?: string[];

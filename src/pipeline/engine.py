@@ -395,6 +395,11 @@ class OutputProcess(Process):
                     payload_item.to_csv(output_path, index=False)
                     continue
 
+                if isinstance(payload_item, str):
+                    with open(output_path, "w", encoding="utf-8") as file:
+                        file.write(payload_item)
+                    continue
+
                 raise IncompatibleArgsException(
                     f"OutputProcess cannot handle the type of '{type(payload_item)}' for '{name}'"
                 )

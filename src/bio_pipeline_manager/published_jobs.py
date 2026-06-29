@@ -10,6 +10,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
+from urllib.error import URLError
+from urllib.parse import unquote, urlparse
+from urllib.request import Request, urlopen
 
 import yaml
 
@@ -40,6 +43,7 @@ FIELD_TYPES = {
     "enum",
     "multi_enum",
     "path",
+    "url",
     "file",
     "directory",
     "glob",
@@ -522,11 +526,17 @@ def resolve_io(
         label = field_def.get("label", field_id)
         if role == "input":
             binding = file_bindings.get(field_id)
+            raw_value = values.get(field_id, field_def.get("default"))
+            if binding:
+                resolved[field_id] = _resolve_input_binding(field_def, binding, workspaces, workspace_id, shared)
+                continue
+            if field_def.get("type") == "url" and not _is_empty_value(raw_value):
+                resolved[field_id] = _download_url_input(field_def, raw_value, workspaces, workspace_id)
+                continue
             if not binding:
                 if field_def.get("required", True):
-                    raise PublishedJobError(f"Field '{label}' requires a file or folder")
+                    raise PublishedJobError(_missing_input_error(label, field_def))
                 continue
-            resolved[field_id] = _resolve_input_binding(field_def, binding, workspaces, workspace_id, shared)
         else:  # output
             if workspaces is None or workspace_id is None:
                 raise PublishedJobError(f"Field '{label}' is an output and requires a run workspace")
@@ -580,6 +590,57 @@ def _resolve_input_binding(
         except SharedStorageError as exc:
             raise PublishedJobError(f"Field '{label}': {exc}") from exc
     raise PublishedJobError(f"Field '{label}': unknown input source '{kind}'")
+
+
+def _missing_input_error(label: str, field_def: dict[str, Any]) -> str:
+    if field_def.get("type") == "url":
+        return f"Field '{label}' requires a URL or uploaded file"
+    if field_def.get("accept") == "directory":
+        return f"Field '{label}' requires a folder"
+    return f"Field '{label}' requires a file or folder"
+
+
+def _download_url_input(
+    field_def: dict[str, Any],
+    raw_value: Any,
+    workspaces: RunWorkspaceStore | None,
+    workspace_id: str | None,
+) -> str:
+    label = field_def.get("label", field_def.get("id"))
+    if workspaces is None or workspace_id is None:
+        raise PublishedJobError(f"Field '{label}' uses a URL but no run workspace was provided")
+    url = str(raw_value).strip()
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise PublishedJobError(f"Field '{label}' must be an http(s) URL")
+    filename = _url_filename(parsed, str(field_def.get("id") or "downloaded"))
+    dest, handle = workspaces.prepare_input(workspace_id, str(field_def.get("id") or "input"), filename)
+    existing = dest.stat().st_size if dest.exists() else 0
+    base = workspaces.total_size(workspace_id) - existing
+    request = Request(url, headers={"User-Agent": "bio-pipeline/1.0"})
+    written = 0
+    try:
+        with urlopen(request, timeout=30) as response, dest.open("wb") as out:
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if base + written > workspaces.max_bytes:
+                    raise PublishedJobError("Download exceeds the per-run size limit")
+                out.write(chunk)
+        return str(workspaces.input_abspath(workspace_id, handle))
+    except PublishedJobError:
+        dest.unlink(missing_ok=True)
+        raise
+    except (OSError, URLError, ValueError) as exc:
+        dest.unlink(missing_ok=True)
+        raise PublishedJobError(f"Field '{label}': failed to download URL: {exc}") from exc
+
+
+def _url_filename(parsed: Any, fallback: str) -> str:
+    name = unquote(Path(parsed.path).name)
+    return name or fallback
 
 
 def render_definition(record: PublishedJobRecord, values: dict[str, Any]) -> str:
@@ -833,6 +894,10 @@ def _validate_definition_and_fields(definition_content: str, fields: list[dict[s
         ids.add(field_id)
         if field.get("type") not in FIELD_TYPES:
             raise PublishedJobError(f"Field '{field_id}' has unsupported type '{field.get('type')}'")
+        if field.get("type") == "url" and field.get("io_role", "none") == "output":
+            raise PublishedJobError(f"Field '{field_id}' cannot be a URL output")
+        if field.get("type") == "url" and field.get("accept") == "directory":
+            raise PublishedJobError(f"Field '{field_id}' cannot accept a directory when it is a URL field")
         if field.get("type") == "typed":
             if field.get("container", "single") not in CONTAINERS:
                 raise PublishedJobError(f"Field '{field_id}' has an invalid container '{field.get('container')}'")
@@ -1130,6 +1195,8 @@ def _io_defaults(field_type: str, bindings: list[dict[str, Any]]) -> tuple[str, 
         return "output", "directory" if (is_output_dir or field_type == "directory") else "file"
     if target == "stage_input_source":
         return "input", "directory" if field_type == "directory" else "file"
+    if field_type == "url":
+        return "input", "file"
     if field_type == "file":
         return "input", "file"
     if field_type == "directory":

@@ -44,12 +44,18 @@ def execute_published_run(
     scheduled_at: datetime | None,
     user_id: str,
 ) -> PublishedRunRecord:
+    resolved_workspace_id = workspace_id
+    if resolved_workspace_id is None and _run_requires_workspace(record, values):
+        resolved_workspace_id = run_workspaces.create(
+            owner_user_id=user_id,
+            published_job_id=record.id,
+        ).workspace_id
     resolved_values = resolve_io(
         record,
         values,
         file_bindings=file_bindings,
         workspaces=run_workspaces,
-        workspace_id=workspace_id,
+        workspace_id=resolved_workspace_id,
         shared=shared,
     )
     rendered = render_definition(record, resolved_values)
@@ -65,9 +71,21 @@ def execute_published_run(
         values=values,
         rendered_definition=rendered,
         parent_job_id=parent_id,
-        workspace_id=workspace_id or "",
+        workspace_id=resolved_workspace_id or "",
         file_bindings=file_bindings,
     )
+
+
+def _run_requires_workspace(record: PublishedJobRecord, values: dict[str, Any]) -> bool:
+    if run_needs_workspace(record):
+        return True
+    for field in record.fields:
+        if field.get("io_role") != "input" or field.get("type") != "url":
+            continue
+        raw = values.get(field.get("id"), field.get("default"))
+        if raw not in (None, ""):
+            return True
+    return False
 
 
 def run_needs_workspace(record: PublishedJobRecord) -> bool:

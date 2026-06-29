@@ -114,6 +114,48 @@ describe("PublishedJobsPage", () => {
     expect(secondOpts.fileBindings.f1).toEqual({ kind: "upload", path: "h" });
   });
 
+  it("submits a url input as the field value without requiring an upload", async () => {
+    const urlField = {
+      id: "f1", label: "Data URL", type: "url", required: true, io_role: "input",
+      accept: "file", sources: ["upload"], help: "", example: "https://example.test/raw.csv", options: [],
+    };
+    mocked.listPublishedJobs.mockResolvedValue([{ id: "J", name: "Job", description: "", version: 1 }] as any);
+    mocked.getPublishedJob.mockResolvedValue(detail("J", "Job", [urlField]) as any);
+    mocked.submitPublishedJobRun.mockResolvedValue({ id: "run1" } as any);
+
+    render(<PublishedJobsPage />);
+    fireEvent.click(await screen.findByRole("button", { name: /Version 1/ }));
+    const input = await screen.findByPlaceholderText("https://example.test/raw.csv");
+    fireEvent.change(input, { target: { value: "https://example.test/raw.csv" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Execute Job" }));
+
+    await waitFor(() => expect(mocked.submitPublishedJobRun).toHaveBeenCalledTimes(1));
+    expect(mocked.submitPublishedJobRun).toHaveBeenCalledWith(
+      "J",
+      expect.objectContaining({ f1: "https://example.test/raw.csv" }),
+      null,
+      { workspaceId: null, fileBindings: {} },
+    );
+  });
+
+  it("enables browser autocomplete when the field opts in", async () => {
+    const field = {
+      id: "note", label: "Note", type: "string", required: false,
+      default: "", help: "", example: "", options: [], autoompelete: true,
+    };
+    mocked.listPublishedJobs.mockResolvedValue([{ id: "J", name: "Job", description: "", version: 1 }] as any);
+    mocked.getPublishedJob.mockResolvedValue(detail("J", "Job", [field]) as any);
+    mocked.listSavedTypedValues.mockResolvedValue([] as any);
+
+    render(<PublishedJobsPage />);
+    fireEvent.click(await screen.findByRole("button", { name: /Job/ }));
+    await screen.findByText("Selected Job");
+    await waitFor(() => expect(document.querySelector('input[autocomplete="on"]')).not.toBeNull());
+    const noteInput = document.querySelector('input[autocomplete="on"]');
+    expect(noteInput).toBeTruthy();
+    expect(noteInput).toHaveAttribute("autocomplete", "on");
+  });
+
   it("restores the in-progress form after leaving and returning to the page", async () => {
     const field = {
       id: "note", label: "Note", type: "string", required: false,

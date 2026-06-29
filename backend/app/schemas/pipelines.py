@@ -209,6 +209,7 @@ class PublishedField(BaseModel):
     help: str = ""
     example: str = ""
     placeholder: str = ""
+    autoompelete: bool = False
     # Researcher-supplied I/O. ``io_role`` defaults to ``none`` so existing
     # fields keep their current (plain-value) behavior; an admin classifies a
     # path field as a researcher input or output at publish time.
@@ -241,6 +242,7 @@ class PublicPublishedField(BaseModel):
     help: str = ""
     example: str = ""
     placeholder: str = ""
+    autoompelete: bool = False
     io_role: Literal["none", "input", "output"] = "none"
     accept: Literal["file", "directory"] = "file"
     sources: list[str] = Field(default_factory=list)
