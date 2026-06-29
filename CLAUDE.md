@@ -139,10 +139,45 @@ saved values are **API/UI-only** (no CLI yet).
   containment-check caller paths — reuse that idiom for any new path input; never
   expose the server filesystem.
 
+## MCP server (agent/LLM access)
+
+[`mcp/`](mcp/) holds a **self-contained Model Context Protocol** server
+(`bio-pipeline-manager`) that exposes the backend API as ~70 tools so an agent or
+LLM — via **Claude Desktop** or **Cowork** — can do CRUD on and *run* pipelines,
+jobs, job definitions, published jobs, runs, queues, schedules, the type library,
+users, and packages. It shares **no code** with `backend/` or `src/` (deps: just
+`mcp` + `httpx`); it is a thin, auth-aware `httpx` client over `/api/v1`
+([`mcp/bio_pipeline_mcp/client.py`](mcp/bio_pipeline_mcp/client.py)) with its own
+`pyproject.toml`, so it installs into its own venv and deploys independently of
+the backend. Each tool maps to a route
+([`mcp/bio_pipeline_mcp/server.py`](mcp/bio_pipeline_mcp/server.py)).
+
+- **Auth:** logs in with `BIO_PIPELINE_USERNAME`/`PASSWORD` and reuses the session
+  cookie; the account's **role** gates the surface (admin = everything,
+  researcher = catalog/run/saved-values) — same roles as the HTTP API.
+- **Run it:** install standalone (`python -m venv mcp/.venv;
+  mcp/.venv/Scripts/python.exe -m pip install ./mcp`), start the backend (port
+  8006), then run the `bio-pipeline-mcp` console script (stdio) — or wire it into
+  Claude Desktop via
+  [`mcp/claude_desktop_config.example.json`](mcp/claude_desktop_config.example.json).
+- **Two transports, same tools:** `server.py` = stdio (local, Claude Desktop);
+  [`http_server.py`](mcp/bio_pipeline_mcp/http_server.py) = streamable-HTTP with a
+  bearer-token guard (`bio-pipeline-mcp-http`) for **remote connectors**
+  (Cowork / claude.ai), since a cloud host can't spawn a local subprocess. Only
+  the transport differs — the 71 tools are identical. See `mcp/README.md`.
+- **Agent context:** [`mcp/CLAUDE.md`](mcp/CLAUDE.md) is the operational guide an
+  agent reads to map user requests to tool calls; [`mcp/README.md`](mcp/README.md)
+  is the human setup guide.
+- **Keep it current:** when you add/rename/remove a route or change its
+  request/response shape, update the matching tool in `server.py` and the catalog
+  in `mcp/CLAUDE.md`. The MCP layer stays thin — no logic beyond request shaping.
+
 ## Doc index
 
 | Doc | Read it for |
 |---|---|
+| [mcp/CLAUDE.md](mcp/CLAUDE.md) | Driving the system through the MCP server (tools, workflows, entity model). |
+| [mcp/README.md](mcp/README.md) | Installing/connecting the MCP server (Claude Desktop / Cowork). |
 | [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md) | The detailed living map (modules, flows, API, pages). |
 | [docs/JOBS.md](docs/JOBS.md) | Job Definition schema, fan-out, templating, dependencies. |
 | [docs/JOBS_REDESIGN.md](docs/JOBS_REDESIGN.md) | Why multi-task jobs work the way they do. |

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "bio-pipeline-manager": {
+      "command": "C:\\Users\\rh2310\\projects\\bioPipeline\\mcp\\.venv\\Scripts\\bio-pipeline-mcp.exe",
+      "env": {
+        "BIO_PIPELINE_BASE_URL": "http://127.0.0.1:8006",
+        "BIO_PIPELINE_API_PREFIX": "/api/v1",
+        "BIO_PIPELINE_USERNAME": "admin",
+        "BIO_PIPELINE_PASSWORD": "change-me"
+      }
+    }
+  }
+}

@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bio-pipeline-mcp"
+version = "0.1.0"
+description = "MCP server exposing the Bio Pipeline Manager API (pipelines, jobs, published jobs, queues, submissions) to agents and LLMs."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.2",
+    "httpx>=0.27",
+    # Used by the streamable-HTTP (remote-connector) transport in http_server.py.
+    # Also pulled in transitively by mcp; pinned here because we import it directly.
+    "uvicorn>=0.30",
+]
+
+[project.scripts]
+bio-pipeline-mcp = "bio_pipeline_mcp.server:main"
+bio-pipeline-mcp-http = "bio_pipeline_mcp.http_server:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["bio_pipeline_mcp*"]

@@ -1,0 +1,10 @@
+# Self-contained package artifacts — keep the mcp/ folder deployable on its own.
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.env
