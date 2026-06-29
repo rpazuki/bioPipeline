@@ -34,6 +34,7 @@ mcp/
   .gitignore        ignores .venv/, build artifacts, .env
   claude_desktop_config.example.json
   README.md         this file — setup & connect
+  MCP_EXPLAINED.md  concept / protocol / transport explainer (with schematics)
   CLAUDE.md         operational guide an agent reads to drive the API
   .venv/            (gitignored) the server's own virtual environment
 ```
