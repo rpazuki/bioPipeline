@@ -9,6 +9,7 @@ Type mapping (see ``docs/TYPED_DEFINITIONS.md`` §6):
 
 - ``str`` -> string, ``int`` -> integer, ``float`` -> float, ``bool`` -> boolean
 - ``Literal["a", "b"]`` -> enum with options
+- an ``Enum`` subclass (incl. ``StrEnum`` / ``IntEnum``) -> enum with options
 - ``X | None`` / ``Optional[X]`` -> underlying ``X`` with ``required: false``
 - ``list[X]`` -> ``X`` with ``container: list``; ``dict[str, X]`` -> ``container: map``
 - nested ``TypedDict`` / dataclass / Pydantic model -> a nested named type
@@ -18,6 +19,7 @@ Type mapping (see ``docs/TYPED_DEFINITIONS.md`` §6):
 from __future__ import annotations
 
 import dataclasses
+import enum
 import importlib
 import inspect
 import types as _types
@@ -84,7 +86,7 @@ def _emit_type(cls: Any, types: dict[str, Any], warnings: list[str]) -> str | No
     name = cls.__name__
     if name not in types:
         # Register before recursing so a self/mutual reference resolves to the name.
-        types[name] = {"description": _first_doc_line(cls), "fields": {}}
+        types[name] = {"description": _first_doc_line(cls), "source": _qualified(cls), "fields": {}}
         types[name]["fields"] = {
             field_name: _emit_field(annotation, required, types, warnings, f"{name}.{field_name}")
             for field_name, (annotation, required) in fields.items()
@@ -155,6 +157,13 @@ def _leaf_or_ref(
 ) -> tuple[str, list[Any] | None]:
     if get_origin(annotation) is typing.Literal:
         return "enum", list(get_args(annotation))
+    # A real Enum subclass (incl. StrEnum / IntEnum) becomes an enum leaf whose options
+    # are the member values — the same shape Literal produces. Labelled by member name,
+    # so a plain Enum (RED = 1) reads "RED" in the dropdown while submitting 1. Must come
+    # before the _PRIMITIVES / _emit_type branches (an Enum is a class, but not a
+    # structured type, so it would otherwise fall through to the string fallback).
+    if isinstance(annotation, type) and issubclass(annotation, enum.Enum):
+        return "enum", [{"label": member.name, "value": member.value} for member in annotation]
     if annotation in _PRIMITIVES:
         return _PRIMITIVES[annotation], None
     if isinstance(annotation, type):
@@ -197,6 +206,19 @@ def _safe_hints(cls: Any) -> dict[str, Any]:
 def _first_doc_line(cls: Any) -> str:
     doc = (inspect.getdoc(cls) or "").strip()
     return doc.split("\n", 1)[0] if doc else ""
+
+
+def _qualified(cls: Any) -> str:
+    """The importable path a type came from, e.g. ``labUtils.synthetic.KineticsDefaultsConfig``.
+
+    Stored as display metadata so the library list can disambiguate same-named types
+    from different modules. Builtin/``__main__`` modules contribute no useful prefix.
+    """
+    module = getattr(cls, "__module__", "") or ""
+    qualname = getattr(cls, "__qualname__", None) or getattr(cls, "__name__", "") or ""
+    if not module or module in ("builtins", "__main__"):
+        return qualname
+    return f"{module}.{qualname}"
 
 
 def _label(annotation: Any) -> str:

@@ -216,7 +216,7 @@ export default function TypeLibraryPanel() {
     run(async () => {
       if (!preview) return;
       for (const [name, def] of Object.entries(preview.types)) {
-        await upsertType(name, { description: def.description ?? "", fields: def.fields });
+        await upsertType(name, { description: def.description ?? "", fields: def.fields, source: def.source });
       }
       setStatus(`Imported ${Object.keys(preview.types).length} type(s) from ${preview.root}`);
       setPreview(null);
@@ -312,7 +312,10 @@ export default function TypeLibraryPanel() {
           {types.map((type) => (
             <li key={type.name} className="flex items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-1.5 text-xs">
               <span>
-                <span className="font-mono font-semibold text-slate-900">{type.name}</span>
+                {/* Show the full import path (e.g. labUtils.synthetic.Foo) when known, so
+                    same-named types from different modules are distinguishable; the bare
+                    name remains the library key Edit/Delete act on. */}
+                <span className="font-mono font-semibold text-slate-900" title={type.source || type.name}>{type.source || type.name}</span>
                 <span className="text-slate-400"> · {isSimpleType(type) ? `simple (${type.type})` : `${Object.keys(type.fields ?? {}).length} fields`}</span>
                 {type.description ? <span className="text-slate-500"> — {type.description}</span> : null}
               </span>

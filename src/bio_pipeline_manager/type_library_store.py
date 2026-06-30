@@ -60,6 +60,13 @@ class TypeLibraryStore:
         library = self.all()
         candidate = dict(library)
         entry: dict[str, Any] = {"description": str(type_def.get("description", "") or "")}
+        # The importable path an extracted type came from (display-only). The edit form
+        # doesn't resend it, so fall back to the existing entry's value so editing a
+        # type's fields never erases where it was extracted from.
+        existing = library.get(name)
+        source = type_def.get("source") or (existing.get("source") if isinstance(existing, dict) else None)
+        if source:
+            entry["source"] = str(source)
         if type_def.get("fields"):
             # Compound type: a bag of named fields.
             entry["fields"] = type_def["fields"]

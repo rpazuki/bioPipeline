@@ -257,6 +257,9 @@ export interface TypeDef {
   type?: string;
   options?: unknown[];
   default?: unknown;
+  // Importable path an extracted type came from (e.g. labUtils.synthetic.Foo);
+  // absent for hand-authored types. Display-only.
+  source?: string;
 }
 
 // One field spec as authored/stored in the library (pre-resolution). `type` is a
@@ -272,7 +275,7 @@ export interface TypeFieldSpec {
 }
 
 export interface TypeExtractResponse {
-  types: Record<string, { description?: string; fields: Record<string, TypeFieldSpec> }>;
+  types: Record<string, { description?: string; source?: string; fields: Record<string, TypeFieldSpec> }>;
   root: string;
   warnings: string[];
 }

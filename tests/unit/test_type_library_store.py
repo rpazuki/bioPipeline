@@ -80,6 +80,16 @@ def test_compound_field_can_reference_a_simple_type(tmp_path):
     assert "Policy" in store.all()
 
 
+def test_upsert_persists_source_and_preserves_on_edit(tmp_path):
+    store = TypeLibraryStore(tmp_path / "type_library.yaml")
+    store.upsert("CustomReplicateRule", {**RULE, "source": "labUtils.media_bot.CustomReplicateRule"})
+    assert store.get("CustomReplicateRule")["source"] == "labUtils.media_bot.CustomReplicateRule"
+
+    # The edit form re-saves fields without resending source — the origin survives.
+    store.upsert("CustomReplicateRule", RULE)
+    assert store.get("CustomReplicateRule")["source"] == "labUtils.media_bot.CustomReplicateRule"
+
+
 def test_get_missing_raises_keyerror(tmp_path):
     store = TypeLibraryStore(tmp_path / "type_library.yaml")
     with pytest.raises(KeyError):

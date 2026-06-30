@@ -673,7 +673,7 @@ export async function listTypeLibrary() {
 
 export async function upsertType(
   name: string,
-  body: { description?: string; fields?: Record<string, unknown>; type?: string; options?: unknown[]; default?: unknown },
+  body: { description?: string; fields?: Record<string, unknown>; type?: string; options?: unknown[]; default?: unknown; source?: string },
 ) {
   return apiFetch<TypeDef>(`/type-library/${encodeURIComponent(name)}`, {
     method: "PUT",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+from enum import Enum, StrEnum
 from typing import Literal, Optional, TypedDict
 
 import pytest
@@ -43,6 +44,21 @@ class PydModel(BaseModel):
     count: int = 3
 
 
+class Direction(StrEnum):
+    ALPHABETICAL = "alphabetical"
+    NUMERICAL = "numerical"
+
+
+class Priority(Enum):
+    LOW = 1
+    HIGH = 2
+
+
+class EnumRule(TypedDict):
+    direction: Direction
+    priority: Priority
+
+
 def _qual(cls: type) -> str:
     return f"{__name__}.{cls.__name__}"
 
@@ -73,6 +89,26 @@ def test_extract_nested_list_map_and_optional():
     assert policy["note"] == {"type": "string", "required": False}
 
 
+def test_extract_enum_subclass_to_enum_options():
+    result = extract_type(_qual(EnumRule))
+    fields = result["types"]["EnumRule"]["fields"]
+    # StrEnum -> enum; the member name labels its (string) value.
+    assert fields["direction"]["type"] == "enum"
+    assert fields["direction"]["options"] == [
+        {"label": "ALPHABETICAL", "value": "alphabetical"},
+        {"label": "NUMERICAL", "value": "numerical"},
+    ]
+    # A plain Enum keeps its (non-string) values, labelled by name.
+    assert fields["priority"]["type"] == "enum"
+    assert fields["priority"]["options"] == [
+        {"label": "LOW", "value": 1},
+        {"label": "HIGH", "value": 2},
+    ]
+    # A recognised Enum is not downgraded to a string with a warning.
+    assert not any("Direction" in warning or "Priority" in warning for warning in result["warnings"])
+    validate_library(result["types"])  # guaranteed loadable
+
+
 def test_extract_dataclass_required_vs_default():
     fields = extract_type(_qual(Window))["types"]["Window"]["fields"]
     assert fields["size"] == {"type": "integer", "required": True}
@@ -89,6 +125,14 @@ def test_extract_real_labutils_typeddict():
     result = extract_type("labUtils.media_bot.CustomReplicateRule")
     assert result["root"] == "CustomReplicateRule"
     assert set(result["types"]["CustomReplicateRule"]["fields"]) == {"direction", "pattern", "sample_size"}
+
+
+def test_extract_records_source_qualified_name():
+    result = extract_type(_qual(Policy))
+    # Each emitted type (root and nested) carries its importable path for display.
+    assert result["types"]["Policy"]["source"] == _qual(Policy)
+    assert result["types"]["CustomRule"]["source"] == _qual(CustomRule)
+    assert result["types"]["Threshold"]["source"] == _qual(Threshold)
 
 
 def test_extract_rejects_non_structured():

@@ -586,6 +586,9 @@ class TypeDefRequest(BaseModel):
     type: str = ""
     options: list[Any] = Field(default_factory=list)
     default: Any = None
+    # Importable path an extracted type came from (e.g. labUtils.synthetic.Foo);
+    # empty for hand-authored types. Display-only metadata.
+    source: str = ""
 
 
 class TypeDefResponse(BaseModel):
@@ -596,6 +599,8 @@ class TypeDefResponse(BaseModel):
     type: str = ""
     options: list[Any] = Field(default_factory=list)
     default: Any = None
+    # Importable path an extracted type came from; empty for hand-authored types.
+    source: str = ""
 
 
 class TypeLibraryResponse(BaseModel):

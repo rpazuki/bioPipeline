@@ -248,6 +248,7 @@ posts the qualified name, previews the types, and (on confirm) upserts each into
 | `str`                                     | `type: string`                              |
 | `int` / `float` / `bool`                  | `integer` / `float` / `boolean`             |
 | `Literal["a", "b"]`                       | `type: enum`, `options: [a, b]`             |
+| `Enum` subclass (incl. `StrEnum`/`IntEnum`) | `type: enum`, `options: [{label: NAME, value}]` |
 | `X | None`, `Optional[X]`                 | underlying `X`, `required: false`           |
 | `list[X]` / `List[X]`                     | `X` with `container: list`                  |
 | `dict[str, X]` / `Mapping[str, X]`        | `X` with `container: map`                   |
