@@ -5,6 +5,7 @@ import type {
   AIProviderSelection,
   AIProviderTestResponse,
   AIToolCallRecord,
+  BackupImportReport,
   DefinitionDocument,
   DefinitionSummary,
   Job,
@@ -635,6 +636,34 @@ export async function uninstallPackage(name: string) {
     method: "POST",
     body: JSON.stringify({ name }),
   }, 0);
+}
+
+// Backup (export/import) — admin only
+export function backupExportUrl() {
+  return `${API_PREFIX}/backup/export`;
+}
+
+// Uploads the backup zip as a raw body (no multipart, matching the server). Package
+// installs during import can run well over a minute, so there is no client-side abort.
+export async function importBackup(
+  file: File,
+  options: { overwrite: boolean; installPackages: boolean },
+): Promise<BackupImportReport> {
+  const params = new URLSearchParams({
+    overwrite: String(options.overwrite),
+    install_packages: String(options.installPackages),
+  });
+  const response = await fetch(`${API_PREFIX}/backup/import?${params.toString()}`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/zip" },
+    body: file,
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body?.detail ?? `Import failed (${response.status})`);
+  }
+  return (await response.json()) as BackupImportReport;
 }
 
 // Type library (Environment page)

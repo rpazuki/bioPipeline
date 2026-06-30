@@ -84,5 +84,12 @@ class TypeLibraryStore:
         validate_library(remaining)
         self._write(remaining)
 
+    def replace(self, library: dict[str, Any]) -> None:
+        """Validate and write the entire library at once (used by backup import)."""
+        if not isinstance(library, dict):
+            raise TypeSchemaError("Type library must be a mapping")
+        validate_library(library)
+        self._write(library)
+
     def _write(self, library: dict[str, Any]) -> None:
         self.path.write_text(yaml.safe_dump(library, sort_keys=True), encoding="utf-8")

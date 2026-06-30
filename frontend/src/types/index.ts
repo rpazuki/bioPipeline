@@ -405,6 +405,28 @@ export interface PackageList {
 
 export type PackageSourceType = "pypi" | "git" | "editable" | "requirements";
 
+export interface BackupCategoryResult {
+  created: string[];
+  overwritten: string[];
+  skipped: string[];
+  errors: { name: string; error: string }[];
+}
+
+export interface BackupPackageResult {
+  attempted: boolean;
+  ok: boolean | null;
+  exit_code: number | null;
+  detail: string;
+}
+
+export interface BackupImportReport {
+  pipelines: BackupCategoryResult;
+  job_definitions: BackupCategoryResult;
+  published_jobs: BackupCategoryResult;
+  type_library: BackupCategoryResult;
+  packages: BackupPackageResult;
+}
+
 export type UserRole = "admin" | "user";
 
 export interface User {

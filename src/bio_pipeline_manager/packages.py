@@ -168,6 +168,18 @@ class InstallStore:
             ).fetchall()
         return [{**dict(row), "ok": bool(row["ok"])} for row in rows]
 
+    def all_operations(self) -> list[dict]:
+        """Every recorded operation, oldest first (rowid breaks created_at ties).
+
+        Used by the backup exporter to replay installs/uninstalls into a net set of
+        packages; unlike :meth:`history` it is unbounded and ascending.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM installs ORDER BY created_at ASC, rowid ASC"
+            ).fetchall()
+        return [{**dict(row), "ok": bool(row["ok"])} for row in rows]
+
 
 class PackageManager:
     """Install/uninstall packages into the backend interpreter, with audit."""

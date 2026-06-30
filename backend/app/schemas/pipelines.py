@@ -478,6 +478,28 @@ class UninstallRequest(BaseModel):
     name: str
 
 
+class BackupCategoryResult(BaseModel):
+    created: list[str] = Field(default_factory=list)
+    overwritten: list[str] = Field(default_factory=list)
+    skipped: list[str] = Field(default_factory=list)
+    errors: list[dict[str, str]] = Field(default_factory=list)
+
+
+class BackupPackageResult(BaseModel):
+    attempted: bool = False
+    ok: bool | None = None
+    exit_code: int | None = None
+    detail: str = ""
+
+
+class BackupImportReportResponse(BaseModel):
+    pipelines: BackupCategoryResult
+    job_definitions: BackupCategoryResult
+    published_jobs: BackupCategoryResult
+    type_library: BackupCategoryResult
+    packages: BackupPackageResult
+
+
 class DefinitionSummary(BaseModel):
     name: str
     job: str = ""

@@ -302,6 +302,14 @@ entries; surfaced on the Environment page.
 : `SavedTypedValueStore` — per-researcher reusable values for typed fields, keyed
 by `(user_id, type_key, container)` rather than by job.
 
+`src/bio_pipeline_manager/backup.py`
+: `build_backup` / `import_backup` — bundle pipelines, Job Definitions, published
+jobs, the type library, and a generated `requirements.txt` of the extra packages
+(reconstructed from the install audit log) into a portable zip, and apply such a zip
+on another server. Import is per-item overwrite-or-skip and (optionally) feeds the
+requirements file through `PackageManager.install` so imported work is runnable.
+Runs, queues, logs, and users are never part of a backup.
+
 `src/bio_pipeline_manager/ai_agent.py`
 : AI Designer orchestrator (system prompt + tool loop). Pairs with
 `ai_providers.py` (Claude/OpenAI/Gemini/OpenAI-compatible adapters),
@@ -345,6 +353,7 @@ GET  /health                       Unauthenticated liveness
 /api/v1/job-definition-store       Saved Job Definition tree, CRUD, archive, restore
 /api/v1/job-definition-templates   Built-in starter Job Definition templates
 /api/v1/packages                   Package list/install/uninstall (admin)
+/api/v1/backup                     Export a project backup zip / import one (admin)
 /api/v1/type-library               Project type library CRUD + Python-class extraction (admin)
 /api/v1/users                      User (researcher) management (admin)
 
@@ -414,6 +423,7 @@ Admin pages and primary panels:
 /validation             ValidationPanel        Edit/validate/template/save pipeline YAML ("Pipeline Definitions")
 /storage                YamlStoragePanel        Browse/create/move/delete stored pipeline YAML ("Pipeline Storage")
 /environment            EnvironmentPanel       Packages + TypeLibraryPanel (type library & extraction)
+/backup                 BackupPanel            Export a project backup zip / import one ("Backup")
 /users                  UserManagementPanel    Manage researchers ("Researchers")
 /change-password        Change password
 ```

@@ -17,6 +17,7 @@ const NAV = [
   { href: "/validation", label: "Pipeline Definitions" },
   { href: "/storage", label: "Pipeline Storage" },
   { href: "/environment", label: "Environment" },
+  { href: "/backup", label: "Backup" },
   { href: "/users", label: "Researchers" },
   { href: "/change-password", label: "Change Password" },
 ];

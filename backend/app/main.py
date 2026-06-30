@@ -9,6 +9,7 @@ from app.api.deps import get_runtime, require_admin
 from app.api.routes import (
     ai_chat,
     auth,
+    backup,
     job_definition_store,
     job_definition_templates,
     job_definitions,
@@ -137,6 +138,7 @@ app.include_router(job_definitions.router, prefix=PREFIX, dependencies=ADMIN_ONL
 app.include_router(job_definition_store.router, prefix=PREFIX, dependencies=ADMIN_ONLY)
 app.include_router(job_definition_templates.router, prefix=PREFIX, dependencies=ADMIN_ONLY)
 app.include_router(packages.router, prefix=PREFIX, dependencies=ADMIN_ONLY)
+app.include_router(backup.router, prefix=PREFIX, dependencies=ADMIN_ONLY)
 app.include_router(type_library.router, prefix=PREFIX)
 app.include_router(published_jobs.router, prefix=PREFIX)
 app.include_router(saved_typed_values.router, prefix=PREFIX)
