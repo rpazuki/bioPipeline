@@ -291,6 +291,22 @@ def _coerce_object(schema: dict[str, Any], value: Any, label: str) -> dict[str, 
 def _coerce_node(node: dict[str, Any], value: Any, label: str) -> Any:
     if node.get("type") == "typed":
         return coerce_typed_value(node, value)
+    # A leaf field can itself carry a container (e.g. ``levels: list[float]``): coerce
+    # each element as a scalar rather than the whole list/map as one value.
+    container = node.get("container", "single")
+    if container == "list":
+        if not isinstance(value, list):
+            raise TypeSchemaError(f"'{label}' must be a list")
+        return [_coerce_leaf(node, item, f"{label}[{index}]") for index, item in enumerate(value)]
+    if container == "map":
+        if not isinstance(value, dict):
+            raise TypeSchemaError(f"'{label}' must be a map")
+        coerced: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str) or not key.strip():
+                raise TypeSchemaError(f"'{label}' has an empty entry key")
+            coerced[key] = _coerce_leaf(node, item, f"{label}.{key}")
+        return coerced
     return _coerce_leaf(node, value, label)
 
 

@@ -183,6 +183,30 @@ def test_compound_field_can_reference_a_simple_type():
     assert coerce_typed_value(field, {"ids": ["i1", "i2"]}) == {"ids": ["i1", "i2"]}
 
 
+def test_compound_field_leaf_primitive_with_list_container():
+    # Regression: a field that is a LEAF primitive carrying a list container (e.g.
+    # ``levels: list[float]``, not a named-type ref) must coerce each element as a
+    # scalar, not the whole list as one number.
+    # (labUtils.synthetic.SupplementSpec.levels inside EnumerationConfig.)
+    library = {"Spec": {"fields": {"levels": {"type": "float", "container": "list", "required": False}}}}
+    validate_library(library)
+    field = {"type": "typed", "container": "single", "type_schema": resolve_type(library, "Spec")}
+    assert coerce_typed_value(field, {"levels": ["1.0", 2, 3.5]}) == {"levels": [1.0, 2.0, 3.5]}
+
+
+def test_compound_field_leaf_primitive_with_map_container():
+    library = {"Spec": {"fields": {"scores": {"type": "integer", "container": "map", "required": False}}}}
+    field = {"type": "typed", "container": "single", "type_schema": resolve_type(library, "Spec")}
+    assert coerce_typed_value(field, {"scores": {"a": "3", "b": 4}}) == {"scores": {"a": 3, "b": 4}}
+
+
+def test_compound_field_leaf_list_rejects_non_list():
+    library = {"Spec": {"fields": {"levels": {"type": "float", "container": "list", "required": False}}}}
+    field = {"type": "typed", "container": "single", "type_schema": resolve_type(library, "Spec")}
+    with pytest.raises(TypeSchemaError, match="must be a list"):
+        coerce_typed_value(field, {"levels": "1.0"})
+
+
 # --- suggestion ---------------------------------------------------------- #
 def test_suggest_map_of_type():
     value = {"SLAB": {"direction": "alphabetical", "sample_size": 3}}

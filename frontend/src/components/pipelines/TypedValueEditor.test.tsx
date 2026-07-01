@@ -76,4 +76,32 @@ describe("TypedValueEditor", () => {
     // A freshly added row with no key contributes nothing until a key is typed.
     expect(out()).toEqual({});
   });
+
+  it("nested leaf list: a list-of-primitive field inside an object gets add/remove rows", () => {
+    // Regression: a compound type's field that is a LEAF primitive with a list
+    // container (e.g. levels: list[float]) must render an add/remove list editor, not
+    // a single number input. (labUtils.synthetic.SupplementSpec.levels.)
+    const schema: ResolvedType = {
+      name: "SupplementSpec",
+      fields: [
+        { name: "levels", type: "float", container: "list", required: false, options: [] },
+        { name: "binary", type: "boolean", container: "single", required: false, options: [] },
+      ],
+    };
+    function LeafListHarness() {
+      const [value, setValue] = useState<unknown>({});
+      const field = { id: "f", label: "Spec", type: "typed", required: true, help: "", example: "", options: [], container: "single", type_schema: schema } as PublishedField;
+      return (
+        <>
+          <TypedValueEditor field={field} value={value} onChange={setValue} />
+          <pre data-testid="out">{JSON.stringify(value)}</pre>
+        </>
+      );
+    }
+    render(<LeafListHarness />);
+    // The leaf-list field exposes an add-rows control; adding one yields a nested array.
+    fireEvent.click(screen.getByText("+ Add entry"));
+    fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "1.5" } });
+    expect(out()).toEqual({ levels: ["1.5"] });
+  });
 });

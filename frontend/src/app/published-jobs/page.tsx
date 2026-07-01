@@ -19,13 +19,22 @@ import ResizableSplitPane from "@/components/pipelines/ResizableSplitPane";
 import TypedValueEditor from "@/components/pipelines/TypedValueEditor";
 import type { PublishedField, PublishedJobPublicDetail, PublishedJobPublicSummary, RecurrenceEndMode, RecurrenceUnit, SavedTypedValue, SharedEntry, SharedRootInfo } from "@/types";
 
-// A typed field's reusable identity: its library type name (or inline schema name)
-// plus container shape. Saved values are keyed by this, so the same value pre-fills
-// any published job whose typed field uses the same type + container.
+// A typed field's saved-value identity: which values pre-fill it, and what its
+// Save writes to.
+//
+// - A **library-referenced** type (`schema_ref`) has a stable identity shared across
+//   every job that uses it, so its saved value is keyed by the type name — a saved
+//   CustomReplicateRule pre-fills any job whose field uses that type.
+// - An **inline** schema (a built-in collection like "list of text", or a job's own
+//   `definitions:` block) has no such cross-job identity: the schema is embedded and
+//   its name is generic. Keying those by name makes every "list of text" field on
+//   every job collide on one shared value. So key them PER FIELD instead — the value
+//   still persists across runs of the same job, but different fields stay independent.
 function savedFieldIdentity(field: PublishedField, publishedJobId: string): { typeKey: string; container: "single" | "list" | "map" } | null {
   if (field.type === "typed") {
-    const typeKey = (field.schema_ref || field.type_schema?.name || "").trim();
-    return typeKey ? { typeKey, container: field.container ?? "single" } : null;
+    const container = field.container ?? "single";
+    if (field.schema_ref) return { typeKey: field.schema_ref.trim(), container };
+    return { typeKey: `job:${publishedJobId}:field:${field.id}:typed`, container };
   }
   if (field.saveable && (field.io_role ?? "none") === "none") {
     return { typeKey: `job:${publishedJobId}:field:${field.id}:${field.type}`, container: "single" };
@@ -727,7 +736,7 @@ export default function PublishedJobsPage() {
       </span>
     ) : (
       <span className="text-[11px] font-normal text-slate-400">
-        {field.type === "typed"
+        {field.type === "typed" && field.schema_ref
           ? "Save to reuse this value across jobs that use this type."
           : "Save to reuse this value when you run this published job again."}
       </span>

@@ -231,6 +231,34 @@ describe("PublishedJobsPage", () => {
     expect(await screen.findByDisplayValue("99")).toBeInTheDocument();
   });
 
+  it("keys a built-in collection's saved value per field, not by generic type name", async () => {
+    // Regression: a built-in inline collection (no schema_ref) has a generic schema
+    // name ("List of text"), so keying its saved value by that name made every such
+    // field collide on one shared value. Its saved value must key PER FIELD instead.
+    const builtinListField = {
+      id: "tags", label: "Tags", type: "typed", required: true, schema_ref: "", container: "list", default: [],
+      type_schema: { name: "List of text", kind: "scalar", scalar: { type: "string", options: [], help: "", example: "" } },
+      help: "", example: "", options: [],
+    };
+    mocked.listPublishedJobs.mockResolvedValue([{ id: "J", name: "Job", description: "", version: 1 }] as any);
+    mocked.getPublishedJob.mockResolvedValue(detail("J", "Job", [builtinListField]) as any);
+    mocked.listSavedTypedValues.mockResolvedValue([] as any);
+    mocked.saveTypedValue.mockResolvedValue({
+      id: "s", type_key: "job:J:field:tags:typed", container: "list", label: "Tags",
+      type_schema: builtinListField.type_schema, value_kind: "typed", field_schema: {}, value: [],
+    } as any);
+
+    render(<PublishedJobsPage />);
+    fireEvent.click(await screen.findByRole("button", { name: /Job/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(mocked.saveTypedValue).toHaveBeenCalledWith(expect.objectContaining({
+      type_key: "job:J:field:tags:typed", // per-field, NOT "List of text"
+      container: "list",
+      value_kind: "typed",
+    })));
+  });
+
   it("saves an opted-in server-managed plain field", async () => {
     const field = {
       id: "threshold", label: "Threshold", type: "integer", required: true,

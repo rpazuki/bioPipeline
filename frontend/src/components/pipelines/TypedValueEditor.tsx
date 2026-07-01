@@ -91,6 +91,12 @@ function ObjectEditor({
               value={object[field.name]}
               onChange={(next) => setField(field.name, next)}
             />
+          ) : field.container === "list" ? (
+            // A leaf primitive with a list container (e.g. levels: list[float]) is an
+            // add/remove list of bare values, not a single input.
+            <ScalarListEditor leaf={field} value={object[field.name]} onChange={(next) => setField(field.name, next)} />
+          ) : field.container === "map" ? (
+            <ScalarMapEditor leaf={field} value={object[field.name]} onChange={(next) => setField(field.name, next)} />
           ) : (
             <LeafInput field={field} value={object[field.name]} onChange={(next) => setField(field.name, next)} />
           )}
