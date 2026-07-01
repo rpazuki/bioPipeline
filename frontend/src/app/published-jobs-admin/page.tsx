@@ -20,7 +20,34 @@ import {
   validatePublishedJob,
 } from "@/lib/api";
 import ResizableSplitPane from "@/components/pipelines/ResizableSplitPane";
-import type { DefinitionSummary, PublishedField, PublishedFieldIoRole, PublishedJobAdmin, PublishedRunSummary, SharedRootInfo, TypeDef } from "@/types";
+import type { DefinitionSummary, PublishedField, PublishedFieldIoRole, PublishedFieldType, PublishedJobAdmin, PublishedRunSummary, ResolvedType, SharedRootInfo, TypeDef } from "@/types";
+
+// Built-in "structured" collection types: an inline scalar schema + container that
+// gives researchers an add/remove-rows editor for a plain list or named map of
+// primitives — no admin-defined library type required. The select value encodes
+// container + leaf primitive; `builtinScalarSchema` turns it into the same resolved
+// shape a library scalar type would produce, embedded directly on the field.
+const BUILTIN_STRUCTURED = [
+  { value: "builtin:list:string", label: "List of text", container: "list", leaf: "string" },
+  { value: "builtin:list:integer", label: "List of whole numbers", container: "list", leaf: "integer" },
+  { value: "builtin:list:float", label: "List of decimals", container: "list", leaf: "float" },
+  { value: "builtin:map:string", label: "Named map of text", container: "map", leaf: "string" },
+  { value: "builtin:map:integer", label: "Named map of whole numbers", container: "map", leaf: "integer" },
+  { value: "builtin:map:float", label: "Named map of decimals", container: "map", leaf: "float" },
+] as const;
+
+function builtinScalarSchema(leaf: string, name: string): ResolvedType {
+  return { name, kind: "scalar", scalar: { type: leaf as PublishedFieldType, options: [], help: "", example: "" } };
+}
+
+// The current value of the "Structured type" select for a field: a library type
+// name, a "builtin:<container>:<leaf>" sentinel for an inline primitive collection,
+// or "" for a plain value.
+function structuredSelectValue(edit: PublishedField): string {
+  if (edit.schema_ref) return edit.schema_ref;
+  const scalar = edit.type === "typed" && edit.type_schema?.kind === "scalar" ? edit.type_schema.scalar : undefined;
+  return scalar ? `builtin:${edit.container ?? "single"}:${scalar.type}` : "";
+}
 
 // Placeholder marking a value a researcher supplies at run time. Each one must
 // be exposed (selected) as an input field so the researcher can fill it in.
@@ -144,7 +171,19 @@ function mergeFields(candidates: PublishedField[], existing: PublishedField[]) {
     const next = { ...candidate, ...curated, type: nextType, id: targetId };
     // A curated schema_ref means the admin bound this field to a library type; keep it
     // typed even though the fresh candidate's inferred type is a plain primitive.
-    if (next.schema_ref) next.type = "typed";
+    if (next.schema_ref) {
+      next.type = "typed";
+    } else if (saved.type === "typed" && saved.type_schema && !next.type_schema) {
+      // Inline built-in collection (a typed scalar schema with no library ref): the
+      // fresh candidate is a plain list/dict carrying no schema, so re-attach the
+      // admin's structured binding. `type_schema` is derived, so it is not one of the
+      // CURATED_FIELD_KEYS overlaid above — carry it across explicitly. The
+      // `!next.type_schema` guard leaves an inline-`definitions:` candidate (which
+      // already resolved its own fresh schema) untouched, rather than staling it.
+      next.type = "typed";
+      next.type_schema = saved.type_schema;
+      next.container = saved.container ?? "single";
+    }
     byId.set(targetId, next);
   }
   return Array.from(byId.values());
@@ -635,17 +674,34 @@ export default function PublishedJobsAdminPage() {
                             Structured type
                             <select
                               className="h-8 rounded-md border border-slate-300 px-2 text-xs"
-                              value={edit.schema_ref ?? ""}
+                              value={structuredSelectValue(edit)}
                               onChange={(event) => {
                                 const ref = event.target.value;
-                                if (!ref) patchField(field.id, { type: plainFieldType(field, edit), schema_ref: "", container: "single", type_schema: null });
-                                else patchField(field.id, { type: "typed", saveable: false, schema_ref: ref, container: edit.container ?? "single" });
+                                if (!ref) {
+                                  patchField(field.id, { type: plainFieldType(field, edit), schema_ref: "", container: "single", type_schema: null });
+                                  return;
+                                }
+                                const builtin = BUILTIN_STRUCTURED.find((option) => option.value === ref);
+                                if (builtin) {
+                                  patchField(field.id, { type: "typed", saveable: false, schema_ref: "", container: builtin.container, type_schema: builtinScalarSchema(builtin.leaf, builtin.label) });
+                                  return;
+                                }
+                                patchField(field.id, { type: "typed", saveable: false, schema_ref: ref, container: edit.container ?? "single", type_schema: null });
                               }}
                             >
                               <option value="">Plain value ({plainFieldType(field, edit)})</option>
-                              {libraryTypes.map((libType) => (
-                                <option key={libType.name} value={libType.name}>{libType.name}</option>
-                              ))}
+                              <optgroup label="Add / remove records (built-in)">
+                                {BUILTIN_STRUCTURED.map((option) => (
+                                  <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
+                              </optgroup>
+                              {libraryTypes.length ? (
+                                <optgroup label="Library types">
+                                  {libraryTypes.map((libType) => (
+                                    <option key={libType.name} value={libType.name}>{libType.name}</option>
+                                  ))}
+                                </optgroup>
+                              ) : null}
                             </select>
                           </label>
                           {edit.schema_ref ? (
@@ -672,7 +728,7 @@ export default function PublishedJobsAdminPage() {
                             </button>
                           ) : null}
                           {libraryTypes.length === 0 ? (
-                            <span className="text-[11px] text-slate-400">No library types yet — define them on the Environment page.</span>
+                            <span className="text-[11px] text-slate-400">Built-in collections give researchers add/remove rows; define reusable named types on the Environment page.</span>
                           ) : null}
                         </div>
                       ) : null}
@@ -736,6 +792,17 @@ export default function PublishedJobsAdminPage() {
                               </select>
                             )}
                           </label>
+                          {edit.io_role === "input" && edit.type === "url" ? (
+                            <label className="grid gap-1 text-xs text-slate-600">
+                              Default URL (pre-filled for researchers)
+                              <input
+                                className="h-8 rounded-md border border-slate-300 px-2 text-xs"
+                                value={stringifyValue(edit.default)}
+                                onChange={(event) => patchField(field.id, { default: event.target.value })}
+                                placeholder={edit.example || "https://example.org/data.csv"}
+                              />
+                            </label>
+                          ) : null}
                           {edit.io_role === "input" ? (
                             <div className="flex flex-wrap gap-3 text-xs text-slate-600">
                               {(["upload", "shared"] as const).map((channel) => (

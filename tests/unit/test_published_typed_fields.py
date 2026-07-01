@@ -223,6 +223,52 @@ def test_scalar_list_values_with_braces_survive():
     assert tasks[0].process_arg_mapping["df_proc"]["patterns"] == [r"\d{2}", "a{b}c"]
 
 
+def _builtin_scalar_field(container: str, leaf: str) -> dict:
+    """A field bound to an inline built-in collection (no library ref) — the shape the
+    admin UI's built-in 'Structured type' options (List/Map of text/number) produce."""
+    return {
+        "id": "items",
+        "label": "Items",
+        "type": "typed",
+        "schema_ref": "",
+        "container": container,
+        "type_schema": {
+            "name": f"{container} of {leaf}",
+            "kind": "scalar",
+            "scalar": {"type": leaf, "options": [], "help": "", "example": ""},
+        },
+        "bindings": [
+            {"target": "stage_process_arg", "stage": "s1", "process": "df_proc", "parameter": "items"}
+        ],
+    }
+
+
+def test_inline_builtin_scalar_list_passes_through_and_coerces():
+    # A built-in "List of whole numbers": resolve_typed_fields keeps the inline schema
+    # verbatim (no library lookup), and render coerces each entry to an int.
+    field = _builtin_scalar_field("list", "integer")
+    [resolved] = resolve_typed_fields([field], {})
+    assert resolved is field  # inline typed field is passed through untouched
+    record = _record(field)
+    rendered = yaml.safe_load(render_definition(record, {"items": ["1", "2", 3]}))
+    assert rendered["stages"][0]["process_arg_mapping"]["df_proc"]["items"] == [1, 2, 3]
+
+
+def test_inline_builtin_scalar_map_coerces_entries():
+    field = _builtin_scalar_field("map", "float")
+    record = _record(field)
+    rendered = yaml.safe_load(render_definition(record, {"items": {"a": "1.5", "b": 2}}))
+    assert rendered["stages"][0]["process_arg_mapping"]["df_proc"]["items"] == {"a": 1.5, "b": 2.0}
+
+
+def test_inline_builtin_typed_field_needs_no_library():
+    # The embedded schema means an inline collection resolves against an empty library —
+    # the feature works with no admin-defined named type at all.
+    field = _builtin_scalar_field("list", "string")
+    [resolved] = resolve_typed_fields([field], {})
+    assert resolved["type_schema"]["kind"] == "scalar"
+
+
 def test_invalid_structured_value_raises_published_error_not_500():
     field = {
         "id": "cfg",

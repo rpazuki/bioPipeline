@@ -722,6 +722,46 @@ def uninstall_package(name: str) -> Any:
     return client().post("/packages/uninstall", json={"name": name})
 
 
+# ----------------------------------------------------------------------- #
+# Package introspection — explore installed functions/classes (read-only)
+# ----------------------------------------------------------------------- #
+@mcp.tool()
+def inspect_package(module: str) -> Any:
+    """List the public functions and classes an installed module exposes. (admin)
+
+    ``module`` is an importable name, e.g. ``labUtils.media_bot``. Returns the
+    module's functions and classes (each with name, qualified_name, one-line
+    summary, and signature) plus its immediate submodules. Use this to discover
+    which ``labUtils.*`` process function or class to reference from a pipeline.
+    """
+    return client().post("/packages/inspect", json={"module": module})
+
+
+@mcp.tool()
+def search_package_members(query: str, module: str | None = None, limit: int = 50) -> Any:
+    """Search installed packages' functions/classes by name. (admin)
+
+    ``query`` is a case-insensitive substring matched against member names. Pass
+    ``module`` to walk that package and its submodules; omit it to scan the
+    already-imported modules. Returns ``{matches, searched_modules, truncated}``.
+    """
+    return client().post(
+        "/packages/search", json={"query": query, "module": module, "limit": limit}
+    )
+
+
+@mcp.tool()
+def get_function_signature(qualified_name: str) -> Any:
+    """Get the signature, docstring and parameters of a function or class. (admin)
+
+    ``qualified_name`` is ``module.name`` (e.g. ``labUtils.media_bot.replicate``).
+    Returns the resolved signature, full docstring, and a typed parameter list; for
+    a class it also lists the public methods. Read this before wiring a process's
+    parameters in a pipeline YAML.
+    """
+    return client().post("/packages/signature", json={"qualified_name": qualified_name})
+
+
 # ======================================================================= #
 # Generic escape hatch
 # ======================================================================= #

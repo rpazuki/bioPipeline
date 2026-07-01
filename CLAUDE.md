@@ -48,7 +48,7 @@ client fn in `frontend/src/lib/api.ts` → page/panel in `frontend/src`. Cover
 | **Recurring schedules** | `recurring_schedule.py` (published runs), `recurring_job.py` (admin jobs) | within `published_jobs.py` + scheduler in `main.py` lifespan | scheduling UI inside the panels above |
 | **Type library / typed fields** | `type_schema.py`, `type_library_store.py`, `type_extract.py`, `typed_value_store.py` | `type_library.py` (`/type-library`, admin), `saved_typed_values.py` (`/saved-typed-values`, researcher) | `TypeLibraryPanel.tsx` (on Environment), `TypedValueEditor.tsx`, `saved-values/` |
 | **AI Designer** (admin chat) | `ai_agent.py`, `ai_providers.py`, `ai_tools.py`, `ai_schema_provider.py` | `ai_chat.py` (`/ai-chat`, admin) | `ai-chat/` |
-| Packages / environment | `packages.py` | `packages.py` (`/packages`, admin) | `environment/` |
+| Packages / environment | `packages.py`, `package_introspect.py` (read-only: list/search installed functions+classes, get a signature) | `packages.py` (`/packages`, admin; `/packages/inspect` `/search` `/signature` = introspection) | `environment/` |
 | **Backup / restore** | `backup.py` | `backup.py` (`/backup`, admin) | `backup/` |
 | Auth & users | `auth_models.py`, `auth_store.py`, `auth_service.py` | `auth.py` (`/auth`), `users.py` (`/users`, admin) | `login/`, `users/` (Researchers), `change-password/` |
 | CLI / notebook client | `cli.py`, `client.py` | — | — |

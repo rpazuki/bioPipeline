@@ -478,6 +478,62 @@ class UninstallRequest(BaseModel):
     name: str
 
 
+# --- Package introspection (explore installed functions/classes; read-only) --- #
+class MemberInfo(BaseModel):
+    name: str
+    qualified_name: str
+    kind: str  # "function" | "class" | "method"
+    summary: str = ""
+    signature: str = ""
+
+
+class ModuleInspectRequest(BaseModel):
+    module: str
+
+
+class ModuleInspectResponse(BaseModel):
+    module: str
+    doc: str = ""
+    functions: list[MemberInfo] = Field(default_factory=list)
+    classes: list[MemberInfo] = Field(default_factory=list)
+    submodules: list[str] = Field(default_factory=list)
+
+
+class MemberSearchRequest(BaseModel):
+    query: str
+    module: str | None = None
+    limit: int = 50
+
+
+class MemberSearchResponse(BaseModel):
+    matches: list[MemberInfo] = Field(default_factory=list)
+    searched_modules: int = 0
+    truncated: bool = False
+
+
+class ParameterInfo(BaseModel):
+    name: str
+    kind: str
+    default: str | None = None
+    annotation: str = ""
+
+
+class SignatureRequest(BaseModel):
+    qualified_name: str
+
+
+class SignatureResponse(BaseModel):
+    qualified_name: str
+    name: str
+    kind: str  # "function" | "class"
+    module: str = ""
+    signature: str = ""
+    doc: str = ""
+    parameters: list[ParameterInfo] = Field(default_factory=list)
+    returns: str = ""
+    methods: list[MemberInfo] = Field(default_factory=list)
+
+
 class BackupCategoryResult(BaseModel):
     created: list[str] = Field(default_factory=list)
     overwritten: list[str] = Field(default_factory=list)

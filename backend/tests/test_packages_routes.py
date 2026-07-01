@@ -107,3 +107,50 @@ def test_bad_source_type_returns_400(tmp_path: Path):
     )
     assert response.status_code == 400
     _reset()
+
+
+def test_introspection_requires_admin(tmp_path: Path):
+    runtime = _runtime_with_fake_pip(tmp_path)
+    client = _use(runtime)
+    assert client.post("/api/v1/packages/inspect", json={"module": "json"}).status_code == 401
+
+    runtime.auth.create_user(username="worker", password="password123", role=Role.USER)
+    assert client.post("/api/v1/auth/login", json={"username": "worker", "password": "password123"}).status_code == 200
+    assert client.post("/api/v1/packages/inspect", json={"module": "json"}).status_code == 403
+    _reset()
+
+
+def test_inspect_search_and_signature(tmp_path: Path):
+    runtime = _runtime_with_fake_pip(tmp_path)
+    client = _use(runtime)
+    _login_admin(client, runtime)
+
+    inspected = client.post("/api/v1/packages/inspect", json={"module": "labUtils.media_bot"})
+    assert inspected.status_code == 200
+    body = inspected.json()
+    assert body["module"] == "labUtils.media_bot"
+    assert any(item["name"] == "CustomReplicateRule" for item in body["classes"])
+
+    found = client.post(
+        "/api/v1/packages/search",
+        json={"query": "ReplicateRule", "module": "labUtils"},
+    )
+    assert found.status_code == 200
+    assert any("CustomReplicateRule" in match["qualified_name"] for match in found.json()["matches"])
+
+    signature = client.post(
+        "/api/v1/packages/signature",
+        json={"qualified_name": "labUtils.media_bot.CustomReplicateRule"},
+    )
+    assert signature.status_code == 200
+    assert signature.json()["kind"] == "class"
+    _reset()
+
+
+def test_inspect_bad_module_returns_400(tmp_path: Path):
+    runtime = _runtime_with_fake_pip(tmp_path)
+    client = _use(runtime)
+    _login_admin(client, runtime)
+    assert client.post("/api/v1/packages/inspect", json={"module": "no_such_pkg_xyz"}).status_code == 400
+    assert client.post("/api/v1/packages/signature", json={"qualified_name": "math.pi"}).status_code == 400
+    _reset()

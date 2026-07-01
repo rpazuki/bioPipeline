@@ -7,11 +7,23 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.api.deps import get_runtime, require_admin
 from app.schemas.pipelines import (
     InstallRequest,
+    MemberSearchRequest,
+    MemberSearchResponse,
+    ModuleInspectRequest,
+    ModuleInspectResponse,
     PackageListResponse,
     PackageOpResultResponse,
+    SignatureRequest,
+    SignatureResponse,
     UninstallRequest,
 )
 from app.services.runtime import PipelineRuntime
+from bio_pipeline_manager.package_introspect import (
+    PackageIntrospectError,
+    get_signature,
+    inspect_module,
+    search_members,
+)
 from bio_pipeline_manager.packages import PackageBusyError, PackageError, result_dict
 
 # Every endpoint here requires an authenticated admin session.
@@ -54,3 +66,33 @@ async def uninstall_package(
     except PackageError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return PackageOpResultResponse(**result_dict(result))
+
+
+# --- Introspection: explore installed functions/classes (read-only) ---------- #
+# These import the target module (running its top-level code), so they stay behind
+# the router's admin guard — the same trade-off type-library extraction makes.
+@router.post("/inspect", response_model=ModuleInspectResponse)
+async def inspect_module_members(body: ModuleInspectRequest) -> ModuleInspectResponse:
+    """List the public functions and classes an installed module exposes."""
+    try:
+        return ModuleInspectResponse(**inspect_module(body.module))
+    except PackageIntrospectError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/search", response_model=MemberSearchResponse)
+async def search_package_members(body: MemberSearchRequest) -> MemberSearchResponse:
+    """Search installed packages' functions/classes by name (case-insensitive)."""
+    try:
+        return MemberSearchResponse(**search_members(body.query, module=body.module, limit=body.limit))
+    except PackageIntrospectError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post("/signature", response_model=SignatureResponse)
+async def get_member_signature(body: SignatureRequest) -> SignatureResponse:
+    """Get the signature, docstring and parameters of a function or class."""
+    try:
+        return SignatureResponse(**get_signature(body.qualified_name))
+    except PackageIntrospectError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

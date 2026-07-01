@@ -157,6 +157,150 @@ describe("PublishedJobsAdminPage field editor", () => {
     expect(saveable).toBeChecked();
   });
 
+  it("shows a Default URL input when an input field is set to url mode", async () => {
+    const fileCandidate = {
+      id: "raw_data",
+      label: "run: input raw_data",
+      type: "file",
+      required: true,
+      default: "",
+      help: "",
+      example: "",
+      options: [],
+      bindings: [{ target: "stage_input_source", stage: "run", input: "raw_data" }],
+      io_role: "none",
+      accept: "file",
+      sources: [],
+      delivery: [],
+      shared_roots: [],
+    };
+    mocked.listSavedDefinitions.mockResolvedValue([] as any);
+    mocked.listAdminPublishedJobs.mockResolvedValue([] as any);
+    mocked.listAdminPublishedRuns.mockResolvedValue([] as any);
+    mocked.listAdminSharedRoots.mockResolvedValue([] as any);
+    mocked.listTypeLibrary.mockResolvedValue({ types: [] } as any);
+    mocked.inspectPublishedJob.mockResolvedValue({ job_name: "j", candidates: [fileCandidate], warnings: [] } as any);
+    render(<PublishedJobsAdminPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Inspect Fields" }));
+    fireEvent.click(await screen.findByRole("checkbox"));
+
+    fireEvent.change(await screen.findByLabelText("Researcher handling"), { target: { value: "input" } });
+    // No URL default field for a plain file input…
+    expect(screen.queryByLabelText(/Default URL/)).not.toBeInTheDocument();
+    // …but it appears once the input accepts a URL, and is editable.
+    fireEvent.change(await screen.findByLabelText("Accepts"), { target: { value: "url" } });
+    const urlDefault = await screen.findByLabelText(/Default URL/);
+    fireEvent.change(urlDefault, { target: { value: "https://example.org/data.csv" } });
+    expect(urlDefault).toHaveValue("https://example.org/data.csv");
+  });
+
+  it("offers built-in structured collection types for a server-managed field", async () => {
+    const objectCandidate = {
+      id: "default_opts",
+      label: "Default: opts",
+      type: "object",
+      required: true,
+      default: {},
+      help: "",
+      example: "",
+      options: [],
+      bindings: [{ target: "definition_path", path: ["defaults", "opts"] }],
+      io_role: "none",
+      accept: "file",
+      sources: [],
+      delivery: [],
+      shared_roots: [],
+    };
+    mocked.listSavedDefinitions.mockResolvedValue([] as any);
+    mocked.listAdminPublishedJobs.mockResolvedValue([] as any);
+    mocked.listAdminPublishedRuns.mockResolvedValue([] as any);
+    mocked.listAdminSharedRoots.mockResolvedValue([] as any);
+    mocked.listTypeLibrary.mockResolvedValue({ types: [] } as any);
+    mocked.inspectPublishedJob.mockResolvedValue({ job_name: "j", candidates: [objectCandidate], warnings: [] } as any);
+    render(<PublishedJobsAdminPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Inspect Fields" }));
+    fireEvent.click(await screen.findByRole("checkbox"));
+
+    const structured = await screen.findByLabelText("Structured type");
+    // Built-in add/remove collections are available with no library type defined.
+    expect(screen.getByRole("option", { name: "List of text" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Named map of decimals" })).toBeInTheDocument();
+    // Selecting one turns the field typed — the plain-only "Saveable" toggle disappears.
+    expect(screen.getByRole("checkbox", { name: /Saveable/ })).toBeInTheDocument();
+    fireEvent.change(structured, { target: { value: "builtin:list:string" } });
+    expect(screen.queryByRole("checkbox", { name: /Saveable/ })).not.toBeInTheDocument();
+  });
+
+  it("keeps an inline structured field typed after reloading a saved job for edit", async () => {
+    // Regression guard: on Edit, saved fields are re-merged against fresh (plain)
+    // candidates. An inline built-in collection carries its own type_schema (which is
+    // NOT a curated key), so mergeFields must re-attach it — otherwise the field
+    // reverts to a plain value and the next save drops the researcher's editor.
+    const binding = { target: "definition_path", path: ["defaults", "opts"] };
+    const inlineField = {
+      id: "opts",
+      label: "Options",
+      type: "typed",
+      schema_ref: "",
+      container: "list",
+      type_schema: { name: "List of text", kind: "scalar", scalar: { type: "string", options: [], help: "", example: "" } },
+      default: [],
+      help: "",
+      example: "",
+      options: [],
+      bindings: [binding],
+      io_role: "none",
+      accept: "file",
+      sources: [],
+      delivery: [],
+      shared_roots: [],
+    };
+    const plainCandidate = {
+      id: "opts",
+      label: "Default: opts",
+      type: "object",
+      required: true,
+      default: {},
+      help: "",
+      example: "",
+      options: [],
+      bindings: [binding],
+      io_role: "none",
+      accept: "file",
+      sources: [],
+      delivery: [],
+      shared_roots: [],
+    };
+    const savedJob = {
+      id: "job1",
+      name: "Saved job",
+      description: "",
+      status: "published",
+      version: 1,
+      definition_name: "d.yaml",
+      definition_content: "job: d",
+      fields: [inlineField],
+      created_at: "",
+      updated_at: "",
+      created_by: "admin",
+      updated_by: "admin",
+    };
+    mocked.listSavedDefinitions.mockResolvedValue([] as any);
+    mocked.listAdminPublishedJobs.mockResolvedValue([savedJob] as any);
+    mocked.listAdminPublishedRuns.mockResolvedValue([] as any);
+    mocked.listAdminPublishedJobRuns.mockResolvedValue([] as any);
+    mocked.listAdminSharedRoots.mockResolvedValue([] as any);
+    mocked.listTypeLibrary.mockResolvedValue({ types: [] } as any);
+    mocked.getAdminPublishedJob.mockResolvedValue(savedJob as any);
+    mocked.inspectPublishedJob.mockResolvedValue({ job_name: "Saved job", candidates: [plainCandidate], warnings: [] } as any);
+    render(<PublishedJobsAdminPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    // The rebuilt field still carries its inline collection binding, not "plain value".
+    const structured = await screen.findByLabelText("Structured type");
+    expect(structured).toHaveValue("builtin:list:string");
+  });
+
   it("lets an admin opt an input field into url mode and autocomplete", async () => {
     const fileCandidate = {
       id: "raw_data",

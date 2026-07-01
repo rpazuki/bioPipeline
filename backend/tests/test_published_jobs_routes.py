@@ -117,6 +117,53 @@ def test_admin_inspects_and_publishes_user_safe_fields(tmp_path: Path):
     get_runtime.cache_clear()
 
 
+def test_url_input_field_default_is_exposed_to_researchers(tmp_path: Path):
+    # A "URL or upload file" input (type=url, io_role=input) can carry a pre-filled
+    # default URL; it must survive to the researcher catalog detail so the form shows it
+    # (and resolve_io downloads it when the researcher leaves it unchanged).
+    client = _client(tmp_path)
+    client.post("/api/v1/pipeline-yamls", json={"name": "demo.yaml", "content": PIPELINE_YAML, "overwrite": True})
+
+    create = client.post(
+        "/api/v1/published-jobs/admin",
+        json={
+            "name": "URL demo",
+            "definition_name": "public_demo.yaml",
+            "definition_content": JOB_DEF,
+            "status": "published",
+            "fields": [
+                {
+                    "id": "value",
+                    "label": "Source dataset",
+                    "type": "url",
+                    "io_role": "input",
+                    "accept": "file",
+                    "sources": ["upload"],
+                    "default": "https://example.org/data.csv",
+                    "required": True,
+                    "help": "Source URL or uploaded file",
+                    "example": "",
+                    "options": [],
+                    "bindings": [
+                        {"target": "stage_process_arg", "stage": "run", "process": "step", "parameter": "value"}
+                    ],
+                }
+            ],
+        },
+    )
+    assert create.status_code == 201, create.text
+    job_id = create.json()["id"]
+
+    public = client.get(f"/api/v1/published-jobs/catalog/{job_id}")
+    assert public.status_code == 200
+    [field] = public.json()["fields"]
+    assert field["type"] == "url"
+    assert field["default"] == "https://example.org/data.csv"
+
+    app.dependency_overrides.clear()
+    get_runtime.cache_clear()
+
+
 def test_user_submits_rewinds_and_sees_own_run(tmp_path: Path):
     client = _client(tmp_path)
     client.post("/api/v1/pipeline-yamls", json={"name": "demo.yaml", "content": PIPELINE_YAML, "overwrite": True})

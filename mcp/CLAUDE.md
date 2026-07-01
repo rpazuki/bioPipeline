@@ -83,7 +83,8 @@ rather than retrying.
 `delete_type`, `extract_type`, `list_saved_values`, `delete_saved_value`
 
 **Users + packages (admin)** — `list_users`, `create_user`, `update_user`,
-`reset_user_password`, `list_packages`, `install_package`, `uninstall_package`
+`reset_user_password`, `list_packages`, `install_package`, `uninstall_package`,
+`inspect_package`, `search_package_members`, `get_function_signature`
 
 **Escape hatch** — `api_request(method, path, params, body)` for any endpoint
 without a dedicated tool.
@@ -100,6 +101,12 @@ without a dedicated tool.
 4. `run_published_job(id, values=...)` → returns the run with its task group.
 5. Poll `get_my_run(run_id)` for status; download results via the REST
    `my-runs/{run_id}/artifact` endpoint when `artifact_available` is true.
+
+**Discover a process function (admin):** unsure which `labUtils.*` function or
+class a pipeline should call, or what parameters it takes? `search_package_members`
+by name (or `inspect_package("labUtils.…")` to list a module), then
+`get_function_signature("labUtils.mod.fn")` to read its signature + docstring
+before wiring it into a pipeline YAML.
 
 **Author and publish a job (admin):**
 1. Write/validate the pipeline YAML(s): `validate_yaml` → `save_pipeline_yaml`.
