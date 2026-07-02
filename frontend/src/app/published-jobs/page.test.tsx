@@ -283,4 +283,35 @@ describe("PublishedJobsPage", () => {
       value: "9",
     })));
   });
+
+  it("pre-fills the default case and switches cases for a multi-instance field", async () => {
+    const multiSchema = {
+      name: "Rule", multiple: true,
+      fields: [{ name: "sample_size", type: "integer", container: "single", required: false, options: [] }],
+    };
+    const multiField = {
+      id: "rule", label: "Rule", type: "typed", required: false, schema_ref: "Rule", container: "single",
+      default: {}, help: "", example: "", options: [], type_schema: multiSchema,
+    };
+    function caseOf(id: string, name: string, is_default: boolean, sample: number) {
+      return {
+        id, type_key: "Rule", container: "single", name, is_default, multiple: true, label: "Rule",
+        type_schema: multiSchema, value_kind: "typed", field_schema: {},
+        value: { sample_size: sample }, created_at: "t0", updated_at: "t0",
+      };
+    }
+    mocked.listPublishedJobs.mockResolvedValue([{ id: "J", name: "Job", description: "", version: 1 }] as any);
+    mocked.getPublishedJob.mockResolvedValue(detail("J", "Job", [multiField]) as any);
+    mocked.listSavedTypedValues.mockResolvedValue([caseOf("c-slab", "SLAB", true, 3), caseOf("c-wt", "WT", false, 7)] as any);
+    // Restore-path drives a deterministic pre-fill (saved values + job load in one effect).
+    seedSnapshot({}, {});
+
+    render(<PublishedJobsPage />);
+    // The default case (SLAB → sample_size 3) pre-fills.
+    expect(await screen.findByDisplayValue("3")).toBeInTheDocument();
+
+    // The case selector lists both; switching to WT repopulates the field to 7.
+    fireEvent.change(screen.getByRole("combobox", { name: "Saved case" }), { target: { value: "c-wt" } });
+    expect(await screen.findByDisplayValue("7")).toBeInTheDocument();
+  });
 });

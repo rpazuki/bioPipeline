@@ -67,6 +67,10 @@ class TypeLibraryStore:
         source = type_def.get("source") or (existing.get("source") if isinstance(existing, dict) else None)
         if source:
             entry["source"] = str(source)
+        # Multi-instance flag: a researcher may save several named cases of this type
+        # (with one default) instead of a single reusable value. Only persisted when set.
+        if type_def.get("multiple"):
+            entry["multiple"] = True
         if type_def.get("fields"):
             # Compound type: a bag of named fields.
             entry["fields"] = type_def["fields"]

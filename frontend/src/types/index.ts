@@ -187,6 +187,9 @@ export interface ResolvedType {
   fields?: ResolvedTypeField[];
   kind?: "scalar";
   scalar?: ResolvedScalar;
+  // The library type's multi-instance flag: a bound field may hold several named
+  // saved cases (with one default) rather than a single reusable value.
+  multiple?: boolean;
 }
 
 export interface PublishedFieldOption {
@@ -260,6 +263,9 @@ export interface TypeDef {
   // Importable path an extracted type came from (e.g. labUtils.synthetic.Foo);
   // absent for hand-authored types. Display-only.
   source?: string;
+  // When true, a researcher may save several named cases of this type (with one
+  // default) instead of a single reusable value.
+  multiple?: boolean;
 }
 
 // One field spec as authored/stored in the library (pre-resolution). `type` is a
@@ -281,11 +287,17 @@ export interface TypeExtractResponse {
 }
 
 // A researcher's reusable saved value for a structured ("typed") field, keyed by
-// type + container so it can pre-fill any published job that uses the same type.
+// type + container (+ name) so it can pre-fill any published job that uses the same
+// type. A multi-instance type holds several named cases with one flagged default.
 export interface SavedTypedValue {
   id: string;
   type_key: string;
   container: "single" | "list" | "map";
+  // Case name within the type+container group ("" for a single-instance type),
+  // whether this case is the group's default, and whether the type allows many cases.
+  name: string;
+  is_default: boolean;
+  multiple: boolean;
   label: string;
   type_schema: ResolvedType | null;
   value_kind: "typed" | "plain";

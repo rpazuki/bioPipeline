@@ -81,6 +81,18 @@ def test_resolve_nested_type_inlines_schema():
     assert {f["name"] for f in rule["type_schema"]["fields"]} == {"direction", "pattern", "sample_size"}
 
 
+def test_resolve_emits_multiple_flag():
+    # The multi-instance flag rides on the resolved root for both compound and scalar
+    # types (and defaults to False when unset), so the saved-value layer can read it.
+    compound = {
+        "R": {"multiple": True, "fields": {"x": {"type": "integer"}}},
+        "S": {"fields": {"x": {"type": "integer"}}},
+    }
+    assert resolve_type(compound, "R")["multiple"] is True
+    assert resolve_type(compound, "S")["multiple"] is False
+    assert resolve_type({"N": {"type": "integer", "multiple": True}}, "N")["multiple"] is True
+
+
 # --- coercion ------------------------------------------------------------ #
 def _map_field():
     return {

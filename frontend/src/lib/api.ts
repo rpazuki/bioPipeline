@@ -673,7 +673,7 @@ export async function listTypeLibrary() {
 
 export async function upsertType(
   name: string,
-  body: { description?: string; fields?: Record<string, unknown>; type?: string; options?: unknown[]; default?: unknown; source?: string },
+  body: { description?: string; fields?: Record<string, unknown>; type?: string; options?: unknown[]; default?: unknown; source?: string; multiple?: boolean },
 ) {
   return apiFetch<TypeDef>(`/type-library/${encodeURIComponent(name)}`, {
     method: "PUT",
@@ -700,6 +700,9 @@ export async function listSavedTypedValues() {
 export async function saveTypedValue(payload: {
   type_key: string;
   container: "single" | "list" | "map";
+  // Case name + default flag for a multi-instance type (ignored for single-instance).
+  name?: string;
+  make_default?: boolean;
   label?: string;
   type_schema: ResolvedType | Record<string, never>;
   value_kind?: "typed" | "plain";
@@ -712,7 +715,10 @@ export async function saveTypedValue(payload: {
   });
 }
 
-export async function updateSavedTypedValue(id: string, payload: { value?: unknown; label?: string }) {
+export async function updateSavedTypedValue(
+  id: string,
+  payload: { value?: unknown; label?: string; name?: string; make_default?: boolean },
+) {
   return apiFetch<SavedTypedValue>(`/saved-typed-values/${encodeURIComponent(id)}`, {
     method: "PATCH",
     body: JSON.stringify(payload),

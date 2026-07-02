@@ -157,8 +157,10 @@ def resolve_type(library: dict[str, Any], type_name: str, *, _seen: tuple[str, .
 
     Each field node carries ``name``, ``type`` (a leaf primitive or ``"typed"``),
     ``container``, ``required``, ``options`` (enums), and — when it references another
-    type — ``schema_ref`` plus a nested ``type_schema``. The result needs no further
-    library lookups, so it can be denormalized onto a published field.
+    type — ``schema_ref`` plus a nested ``type_schema``. The root also carries
+    ``multiple`` (the library type's multi-instance flag), read by the saved-value
+    layer to allow several named cases. The result needs no further library lookups,
+    so it can be denormalized onto a published field.
     """
     if type_name not in library:
         raise TypeSchemaError(f"Unknown type '{type_name}'")
@@ -178,7 +180,7 @@ def resolve_type(library: dict[str, Any], type_name: str, *, _seen: tuple[str, .
         }
         if "default" in type_def:
             scalar["default"] = type_def["default"]
-        return {"name": type_name, "kind": "scalar", "scalar": scalar}
+        return {"name": type_name, "kind": "scalar", "scalar": scalar, "multiple": bool(type_def.get("multiple", False))}
     fields: list[dict[str, Any]] = []
     for field_name, spec in (_fields_of(type_name, type_def)).items():
         field_type = spec["type"]
@@ -198,7 +200,7 @@ def resolve_type(library: dict[str, Any], type_name: str, *, _seen: tuple[str, .
             node["schema_ref"] = field_type
             node["type_schema"] = resolve_type(library, field_type, _seen=_seen + (type_name,))
         fields.append(node)
-    return {"name": type_name, "fields": fields}
+    return {"name": type_name, "fields": fields, "multiple": bool(type_def.get("multiple", False))}
 
 
 def _normalize_options(options: Any) -> list[dict[str, Any]]:

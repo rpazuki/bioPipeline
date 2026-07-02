@@ -38,7 +38,7 @@ function rowsFromType(type: TypeDef): FieldRow[] {
     type: spec.type ?? "string",
     container: spec.container ?? "single",
     required: spec.required ?? true,
-    options: (spec.options ?? []).map((option) => String(option)).join(", "),
+    options: optionsToText(spec.options),
     default: spec.default === undefined || spec.default === null ? "" : String(spec.default),
   }));
 }
@@ -70,6 +70,35 @@ function isSimpleType(type: TypeDef): boolean {
   return (!type.fields || Object.keys(type.fields).length === 0) && !!type.type;
 }
 
+// Enum options round-trip through the comma-separated editor field. An option may be a
+// bare scalar or a {label, value} pair (extracted enums use the latter). Render it as
+// `value` when the label matches, else `LABEL=value` — a naive String(option) turned
+// the pair into the literal "[object Object]", corrupting every extracted enum on edit.
+function optionText(option: unknown): string {
+  if (option && typeof option === "object" && "value" in option) {
+    const value = String((option as { value: unknown }).value ?? "");
+    const rawLabel = (option as { label?: unknown }).label;
+    const label = rawLabel == null ? value : String(rawLabel);
+    return label === value ? value : `${label}=${value}`;
+  }
+  return String(option);
+}
+
+function optionsToText(options: unknown[] | undefined): string {
+  return (options ?? []).map(optionText).join(", ");
+}
+
+function parseOptions(text: string): unknown[] {
+  return text
+    .split(",")
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .map((token) => {
+      const eq = token.indexOf("=");
+      return eq > 0 ? { label: token.slice(0, eq).trim(), value: token.slice(eq + 1).trim() } : token;
+    });
+}
+
 function fieldsFromRows(rows: FieldRow[]): Record<string, TypeFieldSpec> {
   const fields: Record<string, TypeFieldSpec> = {};
   for (const row of rows) {
@@ -78,7 +107,7 @@ function fieldsFromRows(rows: FieldRow[]): Record<string, TypeFieldSpec> {
     const spec: TypeFieldSpec = { type: row.type, required: row.required };
     if (row.container !== "single") spec.container = row.container;
     if (row.type === "enum") {
-      spec.options = row.options.split(",").map((option) => option.trim()).filter(Boolean);
+      spec.options = parseOptions(row.options);
     }
     const parsed = parseDefault(row.default, row.type);
     if (parsed !== undefined) spec.default = parsed;
@@ -101,6 +130,8 @@ export default function TypeLibraryPanel() {
   const [editing, setEditing] = useState(false);
   // Compound = a bag of fields; simple = one primitive value.
   const [editKind, setEditKind] = useState<"compound" | "simple">("compound");
+  // Whether a researcher may save several named cases of this type (with one default).
+  const [editMultiple, setEditMultiple] = useState(false);
   const [simpleType, setSimpleType] = useState("string");
   const [simpleOptions, setSimpleOptions] = useState(""); // comma-separated, for enum
   const [simpleDefault, setSimpleDefault] = useState("");
@@ -144,6 +175,7 @@ export default function TypeLibraryPanel() {
   function startNew() {
     setEditing(true);
     setEditKind("compound");
+    setEditMultiple(false);
     setEditName("");
     setEditDescription("");
     setRows([{ key: "", type: "string", container: "single", required: true, options: "", default: "" }]);
@@ -157,10 +189,11 @@ export default function TypeLibraryPanel() {
     setEditing(true);
     setEditName(type.name);
     setEditDescription(type.description ?? "");
+    setEditMultiple(!!type.multiple);
     if (isSimpleType(type)) {
       setEditKind("simple");
       setSimpleType(type.type ?? "string");
-      setSimpleOptions((type.options ?? []).map((option) => String(option)).join(", "));
+      setSimpleOptions(optionsToText(type.options));
       setSimpleDefault(type.default === undefined || type.default === null ? "" : String(type.default));
       setRows([]);
     } else {
@@ -181,18 +214,19 @@ export default function TypeLibraryPanel() {
     run(async () => {
       const name = editName.trim();
       if (editKind === "simple") {
-        const body: { description: string; type: string; options?: unknown[]; default?: unknown } = {
+        const body: { description: string; type: string; options?: unknown[]; default?: unknown; multiple: boolean } = {
           description: editDescription,
           type: simpleType,
+          multiple: editMultiple,
         };
         if (simpleType === "enum") {
-          body.options = simpleOptions.split(",").map((option) => option.trim()).filter(Boolean);
+          body.options = parseOptions(simpleOptions);
         }
         const parsedDefault = parseDefault(simpleDefault, simpleType);
         if (parsedDefault !== undefined) body.default = parsedDefault;
         await upsertType(name, body);
       } else {
-        await upsertType(name, { description: editDescription, fields: fieldsFromRows(rows) });
+        await upsertType(name, { description: editDescription, fields: fieldsFromRows(rows), multiple: editMultiple });
       }
       setStatus(`Saved ${name}`);
       setEditing(false);
@@ -317,6 +351,9 @@ export default function TypeLibraryPanel() {
                     name remains the library key Edit/Delete act on. */}
                 <span className="font-mono font-semibold text-slate-900" title={type.source || type.name}>{type.source || type.name}</span>
                 <span className="text-slate-400"> · {isSimpleType(type) ? `simple (${type.type})` : `${Object.keys(type.fields ?? {}).length} fields`}</span>
+                {type.multiple ? (
+                  <span className="ml-1 rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700">multiple</span>
+                ) : null}
                 {type.description ? <span className="text-slate-500"> — {type.description}</span> : null}
               </span>
               <span className="flex gap-2">
@@ -367,6 +404,14 @@ export default function TypeLibraryPanel() {
             </label>
           </div>
 
+          <label className="flex items-center gap-2 text-xs font-normal text-slate-600">
+            <input type="checkbox" checked={editMultiple} onChange={(event) => setEditMultiple(event.target.checked)} />
+            <span>
+              <span className="font-semibold text-slate-700">Allow multiple saved cases</span> — researchers can
+              save several named values of this type and pick one as their default.
+            </span>
+          </label>
+
           {editKind === "simple" ? (
             <div className="grid gap-1">
               <span className="text-xs font-semibold text-slate-600">Value</span>
@@ -387,7 +432,7 @@ export default function TypeLibraryPanel() {
                   <input
                     value={simpleOptions}
                     onChange={(event) => setSimpleOptions(event.target.value)}
-                    placeholder="option1, option2"
+                    placeholder="aerobic, HIGH=high"
                     className="h-8 flex-1 rounded-md border border-slate-300 px-2 text-xs"
                   />
                 ) : null}
@@ -434,7 +479,7 @@ export default function TypeLibraryPanel() {
                   <input
                     value={row.options}
                     onChange={(event) => patchRow(index, { options: event.target.value })}
-                    placeholder="option1, option2"
+                    placeholder="aerobic, HIGH=high"
                     className="h-8 flex-1 rounded-md border border-slate-300 px-2 text-xs"
                   />
                 ) : null}

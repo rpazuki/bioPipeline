@@ -1,7 +1,8 @@
 # Typed Definitions — Structured types for published-job fields
 
-Status: **Implemented (Phases 1–4).** Backend core + project type library + Python-class extractor
-on the Environment page + admin type-picker + researcher structured editor. See §10.
+Status: **Implemented (Phases 1–5).** Backend core + project type library + Python-class extractor
+on the Environment page + admin type-picker + researcher structured editor + multi-instance saved
+cases (named saved values with a default). See §10.
 
 Decisions locked with the user:
 
@@ -362,6 +363,23 @@ CustomReplicateRule:
   JSON if a field's resolved schema is missing. Typed fields render in a `<div>` (not a `<label>`)
   so clicks aren't mis-routed; the researcher detail exposes `type_schema` + `container` (bindings
   stripped). Component tests in `TypedValueEditor.test.tsx` cover single/list/map.
+- **Phase 5 — multi-instance saved cases. ✅ Implemented.** An admin can mark a library type
+  `multiple` (a boolean on the type, next to `description`/`fields`; a checkbox in
+  `TypeLibraryPanel.tsx`). The flag rides on the resolved `type_schema` (`resolve_type`) so every
+  bound field and saved record sees it. A researcher may then keep **several named cases** of that
+  type with exactly one flagged **default**: the saved-value store keys records by
+  `(user_id, type_key, container, name)` — `name=""` for a single-instance type — and exposes
+  `get_default` / `list_cases` / `set_default`, promoting a sibling when the default is deleted
+  (`typed_value_store.py`; a one-time table rebuild relaxes the old 3-column unique constraint on
+  existing DBs). The `/saved-typed-values` route stamps `multiple` from the live library (researchers
+  can't read the admin `/type-library` route), forces a single-instance `name` empty, and forwards
+  `name` / `make_default`. On the run form the default case pre-fills and a shared
+  `SavedCasesControl.tsx` switches / adds / renames / deletes / re-defaults cases inline; the **Saved
+  Values** page is now master/detail — a list of saved types, each opening its editor (a single value
+  as-is, or its named cases when `multiple`). Tests: `tests/unit/test_typed_value_store.py`
+  (cases + default promotion + legacy-DB migration), extended `test_saved_typed_values_routes.py` /
+  `test_type_library_routes.py` / `test_type_schema.py`, and `SavedCasesControl.test.tsx` +
+  the published-jobs page test.
 
 ---
 

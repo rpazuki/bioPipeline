@@ -324,14 +324,27 @@ class DFProcess(Process):
             except TypeError:
                 return False
 
+        def resolve(value):
+            """Map payload references to their values, recursing into containers.
+
+            A scalar equal to a payload key resolves to that upstream value;
+            anything else is passed literally. Lists and dicts are resolved
+            element-wise, so a single parameter can gather several upstream
+            outputs into one list or dict argument — the YAML structure (list
+            order / dict keys) is preserved, only the leaf references are
+            substituted.
+            """
+            if isinstance(value, Mapping):
+                return {key: resolve(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [resolve(item) for item in value]
+            if is_hashable(value) and value in payload:
+                return payload[value]
+            return value
+
         pkg = importlib.import_module(package)
         func = getattr(pkg, method)
-        arguments = {}
-        for key, value in parameters.items():
-            if is_hashable(value) and value in payload:
-                arguments[key] = payload[value]
-            else:
-                arguments[key] = value
+        arguments = {key: resolve(value) for key, value in parameters.items()}
         signature = inspect.signature(func)
         if output_dir is not None:
             if "output_dir" in signature.parameters:

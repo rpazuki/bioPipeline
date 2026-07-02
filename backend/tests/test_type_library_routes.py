@@ -180,3 +180,43 @@ def test_editing_a_type_refreshes_referencing_published_jobs(tmp_path: Path):
 
     assert sample_size_required() is False
     _reset()
+
+
+def test_multiple_flag_round_trips_and_resolves(tmp_path: Path):
+    runtime = create_runtime(tmp_path)
+    client = _use(runtime)
+    _login_admin(client, runtime)
+
+    put = client.put("/api/v1/type-library/CustomReplicateRule", json={**RULE, "multiple": True})
+    assert put.status_code == 200
+    assert put.json()["multiple"] is True
+    assert client.get("/api/v1/type-library/CustomReplicateRule").json()["multiple"] is True
+    assert client.get("/api/v1/type-library").json()["types"][0]["multiple"] is True
+
+    # The flag flows into a bound field's resolved schema so the researcher UI can act on it.
+    create = client.post(
+        "/api/v1/published-jobs/admin",
+        json={
+            "name": "Typed demo",
+            "definition_name": "typed_demo.yaml",
+            "definition_content": TYPED_JOB_DEF,
+            "status": "published",
+            "fields": [
+                {
+                    "id": "custom_rules",
+                    "label": "Custom rules",
+                    "type": "typed",
+                    "schema_ref": "CustomReplicateRule",
+                    "container": "map",
+                    "bindings": [
+                        {"target": "stage_process_arg", "stage": "s1", "process": "df_replicate_stats", "parameter": "custom_rules"}
+                    ],
+                }
+            ],
+        },
+    )
+    assert create.status_code == 201, create.text
+    job = client.get(f"/api/v1/published-jobs/admin/{create.json()['id']}").json()
+    [field] = [f for f in job["fields"] if f.get("schema_ref") == "CustomReplicateRule"]
+    assert field["type_schema"]["multiple"] is True
+    _reset()

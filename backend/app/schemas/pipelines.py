@@ -645,6 +645,9 @@ class TypeDefRequest(BaseModel):
     # Importable path an extracted type came from (e.g. labUtils.synthetic.Foo);
     # empty for hand-authored types. Display-only metadata.
     source: str = ""
+    # When true, a researcher may save several named cases of this type (with one
+    # default) rather than a single reusable value.
+    multiple: bool = False
 
 
 class TypeDefResponse(BaseModel):
@@ -657,6 +660,8 @@ class TypeDefResponse(BaseModel):
     default: Any = None
     # Importable path an extracted type came from; empty for hand-authored types.
     source: str = ""
+    # Multi-instance flag (see TypeDefRequest.multiple).
+    multiple: bool = False
 
 
 class TypeLibraryResponse(BaseModel):
@@ -680,6 +685,11 @@ class SavedTypedValueResponse(BaseModel):
     id: str
     type_key: str
     container: Literal["single", "list", "map"] = "single"
+    # A named case within the type+container group (empty for a single-instance type),
+    # whether it is the group's default, and whether the type allows multiple cases.
+    name: str = ""
+    is_default: bool = False
+    multiple: bool = False
     label: str = ""
     type_schema: dict[str, Any] = Field(default_factory=dict)
     value_kind: Literal["typed", "plain"] = "typed"
@@ -690,14 +700,17 @@ class SavedTypedValueResponse(BaseModel):
 
 
 class SavedTypedValueUpsertRequest(BaseModel):
-    """Save (create or replace) a researcher's value for a type + container.
+    """Save (create or replace) a researcher's value for a type + container + name.
 
-    Keyed server-side by the authenticated user plus ``type_key``/``container``,
-    so re-saving the same type overwrites the previous value.
+    Keyed server-side by the authenticated user plus ``type_key``/``container``/
+    ``name``. A single-instance type ignores ``name`` (forced empty) so re-saving it
+    overwrites the previous value; a multi-instance type keeps one case per ``name``.
     """
 
     type_key: str
     container: Literal["single", "list", "map"] = "single"
+    name: str = ""
+    make_default: bool = False
     label: str = ""
     type_schema: dict[str, Any] = Field(default_factory=dict)
     value_kind: Literal["typed", "plain"] = "typed"
@@ -708,3 +721,6 @@ class SavedTypedValueUpsertRequest(BaseModel):
 class SavedTypedValueUpdateRequest(BaseModel):
     value: Any = None
     label: str | None = None
+    # Rename the case, and/or make it its group's default. Both optional.
+    name: str | None = None
+    make_default: bool | None = None

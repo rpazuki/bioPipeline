@@ -45,8 +45,10 @@ function LeafInput({
         }}
       >
         <option value="">—</option>
-        {field.options.map((option) => (
-          <option key={asText(option.value)} value={asText(option.value)}>
+        {/* Index-prefixed key: option values can repeat (e.g. an enum whose options were
+            not de-duplicated), and a bare value key would collide and crash the render. */}
+        {field.options.map((option, index) => (
+          <option key={`${index}-${asText(option.value)}`} value={asText(option.value)}>
             {option.label}
           </option>
         ))}

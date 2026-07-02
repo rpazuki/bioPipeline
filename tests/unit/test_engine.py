@@ -88,6 +88,66 @@ def test_df_process_maps_payload_reference_and_preserves_payload(fake_mod):
     assert "raw" in out  # original payload is preserved downstream
 
 
+def test_df_process_resolves_dict_of_references(fake_mod):
+    """A dict-valued parameter resolves each item against the payload, keeping keys."""
+
+    def gather(paths):
+        return paths
+
+    fake_mod.gather = gather
+    payload = Dict(org_1_file="/data/org1.xml", org_2_file="/data/org2.xml")
+
+    out = DFProcess()(
+        payload=payload,
+        name="gathered",
+        package="eng_fake",
+        method="gather",
+        parameters={"paths": {"organism_1": "org_1_file", "organism_2": "org_2_file"}},
+    )
+
+    assert out["gathered"] == {"organism_1": "/data/org1.xml", "organism_2": "/data/org2.xml"}
+
+
+def test_df_process_resolves_list_of_references(fake_mod):
+    """A list-valued parameter resolves each item against the payload, keeping order."""
+
+    def gather(paths):
+        return paths
+
+    fake_mod.gather = gather
+    payload = Dict(org_1_file="/data/org1.xml", org_2_file="/data/org2.xml")
+
+    out = DFProcess()(
+        payload=payload,
+        name="gathered",
+        package="eng_fake",
+        method="gather",
+        parameters={"paths": ["org_1_file", "org_2_file"]},
+    )
+
+    assert out["gathered"] == ["/data/org1.xml", "/data/org2.xml"]
+
+
+def test_df_process_leaves_non_reference_container_items_literal(fake_mod):
+    """Items in a container that are not payload keys pass through unchanged."""
+
+    def gather(paths):
+        return paths
+
+    fake_mod.gather = gather
+    payload = Dict(org_1_file="/data/org1.xml")
+
+    out = DFProcess()(
+        payload=payload,
+        name="gathered",
+        package="eng_fake",
+        method="gather",
+        parameters={"paths": {"a": "org_1_file", "b": "not_a_key", "c": 5}},
+    )
+
+    assert out["gathered"] == {"a": "/data/org1.xml", "b": "not_a_key", "c": 5}
+
+
 def test_df_process_injects_output_dir_when_supported(fake_mod):
     out = DFProcess()(
         payload=Dict(),

@@ -32,6 +32,7 @@ def _response(name: str, type_def: dict[str, Any]) -> TypeDefResponse:
         options=type_def.get("options") or [],
         default=type_def.get("default"),
         source=str(type_def.get("source", "") or ""),
+        multiple=bool(type_def.get("multiple", False)),
     )
 
 

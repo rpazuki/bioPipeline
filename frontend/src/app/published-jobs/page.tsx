@@ -6,16 +6,19 @@ import {
   browseSharedRoot,
   createDraftRun,
   createRecurringSchedule,
+  deleteSavedTypedValue,
   getPublishedJob,
   listJobSharedRoots,
   listPublishedJobs,
   listSavedTypedValues,
   saveTypedValue,
   submitPublishedJobRun,
+  updateSavedTypedValue,
   uploadRunInput,
   type RunFileBinding,
 } from "@/lib/api";
 import ResizableSplitPane from "@/components/pipelines/ResizableSplitPane";
+import SavedCasesControl from "@/components/pipelines/SavedCasesControl";
 import TypedValueEditor from "@/components/pipelines/TypedValueEditor";
 import type { PublishedField, PublishedJobPublicDetail, PublishedJobPublicSummary, RecurrenceEndMode, RecurrenceUnit, SavedTypedValue, SharedEntry, SharedRootInfo } from "@/types";
 
@@ -47,8 +50,25 @@ function savedFieldKey(field: PublishedField, publishedJobId: string): string | 
   return identity ? `${identity.typeKey}::${identity.container}` : null;
 }
 
-function savedMapFrom(items: SavedTypedValue[]): Record<string, SavedTypedValue> {
-  return Object.fromEntries(items.map((item) => [`${item.type_key}::${item.container}`, item]));
+// Group saved values by their `${type_key}::${container}` key. A single-instance type
+// yields a one-element array; a multi-instance type yields all its named cases.
+function savedMapFrom(items: SavedTypedValue[]): Record<string, SavedTypedValue[]> {
+  const map: Record<string, SavedTypedValue[]> = {};
+  for (const item of items) {
+    (map[`${item.type_key}::${item.container}`] ??= []).push(item);
+  }
+  return map;
+}
+
+// The case that pre-fills a field: the group's default, else the first (or none).
+function defaultCaseOf(cases: SavedTypedValue[] | undefined): SavedTypedValue | undefined {
+  if (!cases || cases.length === 0) return undefined;
+  return cases.find((item) => item.is_default) ?? cases[0];
+}
+
+// A typed field bound to a type the admin marked multi-instance.
+function isMultiField(field: PublishedField): boolean {
+  return field.type === "typed" && !!field.type_schema?.multiple;
 }
 
 type SharedSelection = { root: string; path: string; name: string };
@@ -440,8 +460,11 @@ export default function PublishedJobsPage() {
   const [filterText, setFilterText] = useState("");
   const [selected, setSelected] = useState<PublishedJobPublicDetail | null>(null);
   const [values, setValues] = useState<Record<string, unknown>>({});
-  // Researcher's reusable field values, keyed by `${type_key}::${container}`.
-  const [savedTyped, setSavedTyped] = useState<Record<string, SavedTypedValue>>({});
+  // Researcher's reusable field values, keyed by `${type_key}::${container}`; each key
+  // holds one case (single-instance) or several named cases (multi-instance).
+  const [savedTyped, setSavedTyped] = useState<Record<string, SavedTypedValue[]>>({});
+  // Which saved case is loaded into each multi-instance field, by field id → case id.
+  const [selectedCase, setSelectedCase] = useState<Record<string, string>>({});
   const [files, setFiles] = useState<Record<string, File[]>>({});
   const [shared, setShared] = useState<Record<string, SharedSelection>>({});
   const [sharedRoots, setSharedRoots] = useState<SharedRootInfo[]>([]);
@@ -467,9 +490,10 @@ export default function PublishedJobsPage() {
     setJobs(await listPublishedJobs());
   }
 
-  async function refreshSavedTyped() {
+  async function refreshSavedTyped(): Promise<SavedTypedValue[]> {
     const items = await listSavedTypedValues();
     setSavedTyped(savedMapFrom(items));
+    return items;
   }
 
   const normalizedFilter = filterText.trim().toLowerCase();
@@ -543,16 +567,19 @@ export default function PublishedJobsPage() {
       // override its field — so editing a saved value propagates here, while an untouched
       // saved value keeps the researcher's in-progress edit.
       const restored: Record<string, unknown> = { ...(snapshot.values ?? {}) };
+      const restoredCases: Record<string, string> = {};
       for (const field of job.fields) {
         const key = savedFieldKey(field, job.id);
-        const saved = key ? savedMap[key] : undefined;
+        const saved = key ? defaultCaseOf(savedMap[key]) : undefined;
         if (!saved || saved.value == null) continue;
+        restoredCases[field.id] = saved.id;
         if (saved.updated_at !== snapshot.savedBaseline?.[field.id]) {
           restored[field.id] = saved.value;
         }
       }
       setSelected(job);
       setValues(restored);
+      setSelectedCase(restoredCases);
       setShared(snapshot.shared ?? {});
       setScheduledAt(snapshot.scheduledAt ?? "");
       setRepeat(snapshot.repeat ?? false);
@@ -587,7 +614,7 @@ export default function PublishedJobsPage() {
     const savedBaseline: Record<string, string> = {};
     for (const field of selected.fields) {
       const key = savedFieldKey(field, selected.id);
-      const saved = key ? savedTyped[key] : undefined;
+      const saved = key ? defaultCaseOf(savedTyped[key]) : undefined;
       if (saved) savedBaseline[field.id] = saved.updated_at;
     }
     const snapshot: FormSnapshot = {
@@ -611,14 +638,19 @@ export default function PublishedJobsPage() {
     setError(null); // a stale error from a previous job must not linger on the new one
     setSelected(job);
     // Start from each field's default, then pre-fill any typed field that has a
-    // matching saved value so the researcher edits their last value, not a blank.
+    // matching saved value (its default case) so the researcher edits their last
+    // value, not a blank.
     const initial = Object.fromEntries(job.fields.map((field) => [field.id, defaultValue(field)]));
+    const initialCases: Record<string, string> = {};
     for (const field of job.fields) {
       const key = savedFieldKey(field, job.id);
-      const saved = key ? savedTyped[key] : undefined;
-      if (saved && saved.value != null) initial[field.id] = saved.value;
+      const saved = key ? defaultCaseOf(savedTyped[key]) : undefined;
+      if (!saved) continue;
+      initialCases[field.id] = saved.id;
+      if (saved.value != null) initial[field.id] = saved.value;
     }
     setValues(initial);
+    setSelectedCase(initialCases);
     setFiles({});
     setShared({});
     setBrowseField(null);
@@ -697,12 +729,14 @@ export default function PublishedJobsPage() {
     setWorkspaceId(null);
   }
 
+  // Save/update a single-instance typed field or an opted-in plain field (one value
+  // per type). Multi-instance fields use the case handlers below instead.
   async function saveField(field: PublishedField) {
     if (!selected) return;
     const identity = savedFieldIdentity(field, selected.id);
     if (!identity) return;
     const { typeKey, container } = identity;
-    const saved = await saveTypedValue({
+    await saveTypedValue({
       type_key: typeKey,
       container,
       label: field.label || typeKey,
@@ -711,16 +745,100 @@ export default function PublishedJobsPage() {
       field_schema: field.type === "typed" ? {} : field,
       value: values[field.id],
     });
-    setSavedTyped((current) => ({ ...current, [`${typeKey}::${container}`]: saved }));
+    await refreshSavedTyped();
     setStatus(`Saved your ${field.label} value`);
+  }
+
+  // --- Multi-instance saved cases (a type the admin marked "multiple") --------- #
+  function casesForField(field: PublishedField): SavedTypedValue[] {
+    if (!selected) return [];
+    const key = savedFieldKey(field, selected.id);
+    return key ? savedTyped[key] ?? [] : [];
+  }
+
+  // Load a named case into the form (repopulate the field from a saved case).
+  function selectCase(field: PublishedField, id: string) {
+    const chosen = casesForField(field).find((item) => item.id === id);
+    if (!chosen) return;
+    setValues((current) => ({ ...current, [field.id]: chosen.value }));
+    setSelectedCase((current) => ({ ...current, [field.id]: id }));
+  }
+
+  // Save the current form value as a new named case (the first one becomes default).
+  async function addCase(field: PublishedField, name: string) {
+    if (!selected) return;
+    const identity = savedFieldIdentity(field, selected.id);
+    if (!identity) return;
+    const saved = await saveTypedValue({
+      type_key: identity.typeKey,
+      container: identity.container,
+      name,
+      make_default: casesForField(field).length === 0,
+      label: field.label || name,
+      type_schema: field.type_schema ?? {},
+      value_kind: "typed",
+      value: values[field.id],
+    });
+    await refreshSavedTyped();
+    setSelectedCase((current) => ({ ...current, [field.id]: saved.id }));
+    setStatus(`Added case “${name}”`);
+  }
+
+  // Update the loaded case with the current form value.
+  async function saveCase(field: PublishedField) {
+    const id = selectedCase[field.id];
+    if (!id) return;
+    await updateSavedTypedValue(id, { value: values[field.id] });
+    await refreshSavedTyped();
+    setStatus("Saved case");
+  }
+
+  async function renameCase(id: string, name: string) {
+    await updateSavedTypedValue(id, { name });
+    await refreshSavedTyped();
+    setStatus(`Renamed case to “${name}”`);
+  }
+
+  async function setDefaultCase(id: string) {
+    await updateSavedTypedValue(id, { make_default: true });
+    await refreshSavedTyped();
+    setStatus("Default case updated");
+  }
+
+  async function deleteCase(field: PublishedField, id: string) {
+    await deleteSavedTypedValue(id);
+    const items = await refreshSavedTyped();
+    setStatus("Deleted case");
+    if (selectedCase[field.id] !== id || !selected) return;
+    // The loaded case is gone — fall back to the group's new default (or a blank).
+    const key = savedFieldKey(field, selected.id);
+    const next = defaultCaseOf(key ? savedMapFrom(items)[key] : undefined);
+    setSelectedCase((current) => ({ ...current, [field.id]: next?.id ?? "" }));
+    setValues((current) => ({ ...current, [field.id]: next ? next.value : defaultValue(field) }));
   }
 
   // Render one published field as a keyed form node. Extracted from the JSX so the
   // fields can be distributed across two independent columns below.
   function renderFieldNode(field: PublishedField) {
+    // A multi-instance typed field manages several named cases; its Save updates the
+    // loaded case, while single-instance/plain fields keep one value.
+    const multi = isMultiField(field);
+    const fieldCases = multi ? casesForField(field) : [];
+    const selCaseId = multi ? (selectedCase[field.id] ?? null) : null;
+    const saveKey = selected ? savedFieldKey(field, selected.id) : null;
+    const loadedDefault = saveKey ? defaultCaseOf(savedTyped[saveKey]) : undefined;
     // Persist-this-typed-value button + its hint, shared between the two typed layouts
     // below (inline beside an editor's add button, or on its own footer row).
-    const saveButton = (
+    const saveButton = multi ? (
+      <button
+        type="button"
+        disabled={!selCaseId}
+        onClick={() => saveCase(field).catch((cause: Error) => setError(cause.message))}
+        className="w-fit rounded-md border border-cyan-300 bg-cyan-50 px-2.5 py-1 text-xs font-semibold text-cyan-800 hover:bg-cyan-100 disabled:opacity-50"
+      >
+        Save case
+      </button>
+    ) : (
       <button
         type="button"
         onClick={() => saveField(field).catch((cause: Error) => setError(cause.message))}
@@ -729,8 +847,13 @@ export default function PublishedJobsPage() {
         Save
       </button>
     );
-    const saveKey = selected ? savedFieldKey(field, selected.id) : null;
-    const saveHint = saveKey && savedTyped[saveKey] ? (
+    const saveHint = multi ? (
+      selCaseId ? (
+        <span className="text-[11px] font-normal text-emerald-700">Editing a saved case — Save case to update it.</span>
+      ) : (
+        <span className="text-[11px] font-normal text-slate-400">Add a case to save this value for reuse.</span>
+      )
+    ) : loadedDefault ? (
       <span className="text-[11px] font-normal text-emerald-700">
         Your saved value is loaded — edit and Save to update it.
       </span>
@@ -769,6 +892,17 @@ export default function PublishedJobsPage() {
           />
         ) : field.type === "typed" ? (
           <div className="grid gap-1.5">
+            {multi ? (
+              <SavedCasesControl
+                cases={fieldCases}
+                selectedId={selCaseId}
+                onSelect={(id) => selectCase(field, id)}
+                onAdd={(name) => addCase(field, name).catch((cause: Error) => setError(cause.message))}
+                onRename={(id, name) => renameCase(id, name).catch((cause: Error) => setError(cause.message))}
+                onSetDefault={(id) => setDefaultCase(id).catch((cause: Error) => setError(cause.message))}
+                onDelete={(id) => deleteCase(field, id).catch((cause: Error) => setError(cause.message))}
+              />
+            ) : null}
             <FieldInput
               field={field}
               value={values[field.id]}

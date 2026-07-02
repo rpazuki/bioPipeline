@@ -448,14 +448,19 @@ def _autosave_new_values(
         if value is None or value == "" or value == [] or value == {}:
             continue
         try:
-            # Only create a saved value that does not exist yet; never overwrite an
-            # existing one on execute (the Save button is the only update path).
-            if runtime.typed_values.get_by_key(user_id, type_key, container) is not None:
+            # Only seed a value when the group is still empty; never overwrite an
+            # existing case on execute (the Save button is the only update path).
+            if runtime.typed_values.get_default(user_id, type_key, container) is not None:
                 continue
+            # A multi-instance type needs a case name — seed the group's default case.
+            is_multiple = field_def.get("type") == "typed" and bool(
+                (field_def.get("type_schema") or {}).get("multiple")
+            )
             runtime.typed_values.upsert(
                 user_id=user_id,
                 type_key=type_key,
                 container=container,
+                name="Default" if is_multiple else "",
                 label=field_def.get("label") or type_key,
                 type_schema=field_def.get("type_schema") or {},
                 value_kind="typed" if field_def.get("type") == "typed" else "plain",
